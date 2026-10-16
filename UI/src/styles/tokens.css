@@ -26,11 +26,20 @@
 
   /* Surface colors */
   --color-bg: #f2f6f9;
-  --color-bg-gradient: radial-gradient(circle at top right, #f8fafb 0%, #f2f6f9 100%);
+  /* 环境光：多层径向光晕叠加在冷白底上，固定不随滚动，营造纵深而非平涂 */
+  --color-bg-gradient:
+    radial-gradient(1100px 620px at 8% -12%, rgba(8, 126, 128, 0.13) 0%, transparent 62%),
+    radial-gradient(880px 560px at 100% 4%, rgba(36, 104, 160, 0.15) 0%, transparent 60%),
+    radial-gradient(760px 620px at 62% 108%, rgba(120, 92, 190, 0.11) 0%, transparent 58%),
+    linear-gradient(180deg, #f7fafc 0%, #eaf1f6 100%);
   --color-card: #ffffff;
   --color-card-glass: rgba(255, 255, 255, 0.9);
   --color-border: #dce5ed;
   --color-divider: #e8eef3;
+
+  /* 颗粒质感： feTurbulence 生成的内联噪点，叠加极不透明度消除大面积渐变的"塑料感" */
+  --texture-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  --texture-grain-opacity: 0.035;
 
   /* Text colors */
   --color-text-primary: #1a1a1a;
@@ -60,6 +69,11 @@
 
   /* === Typography === */
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* 标题走光学尺寸变体：Win11 的 Segoe UI Variable Display 在大字号更粗重、字距更紧 */
+  --font-display: "Segoe UI Variable Display", "Segoe UI Semibold", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+
+  --tracking-display: -0.035em;
+  --tracking-eyebrow: 0.16em;
 
   --font-size-xs: 12px;
   --font-size-sm: 14px;
@@ -99,6 +113,14 @@
   /* Colored shadows for gradients */
   --shadow-teal: 0 8px 24px rgba(8, 126, 128, 0.25);
   --shadow-blue: 0 8px 24px rgba(36, 104, 160, 0.25);
+
+  /* 冷调分层阴影：近距锐影 + 中距扩散 + 远距环境影，替代单层灰黑阴影 */
+  --shadow-card: 0 1px 2px rgba(18, 44, 68, 0.05), 0 8px 20px -10px rgba(18, 44, 68, 0.14), 0 24px 48px -24px rgba(18, 44, 68, 0.16);
+  --shadow-card-lg: 0 2px 4px rgba(18, 44, 68, 0.06), 0 16px 32px -12px rgba(18, 44, 68, 0.2), 0 36px 64px -28px rgba(18, 44, 68, 0.22);
+  --shadow-hero: 0 18px 44px -18px rgba(9, 68, 82, 0.42), 0 40px 80px -40px rgba(20, 60, 100, 0.32);
+  /* 顶亮底暗的内描边，让平面卡片有"厚度" */
+  --inner-light: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(20, 50, 74, 0.05);
+  --ring-teal: 0 0 0 1px rgba(8, 126, 128, 0.22);
 
   /* === Z-index === */
   --z-base: 0;

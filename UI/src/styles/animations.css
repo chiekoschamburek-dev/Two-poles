@@ -146,6 +146,16 @@
   }
 }
 
+/* === Sheen Sweep (transform-based, safe on already-gradient surfaces) === */
+@keyframes sheenSweep {
+  0% {
+    transform: translateX(-45%) rotate(12deg);
+  }
+  55%, 100% {
+    transform: translateX(330%) rotate(12deg);
+  }
+}
+
 /* === Progress Bar === */
 @keyframes progress {
   from {

@@ -46,6 +46,12 @@
         <span class="tlabel"><strong>把原始画面存到本机</strong><small>本版本没有实现录制，因此这个开关目前不会改变任何行为。</small></span>
       </label>
 
+      <label class="toggle">
+        <input type="checkbox" role="switch" :checked="store.privacy.showEnergyEstimate" @change="setPrivacy('showEnergyEstimate', ($event.target as HTMLInputElement).checked)" />
+        <span class="tg"><i></i></span>
+        <span class="tlabel"><strong>显示热量粗估</strong><small>默认关闭。开启后按"区间 + 来源"显示，依赖你填的份量与内置参考值（未与权威成分表核对），不作为营养建议。</small></span>
+      </label>
+
       <div class="fields">
         <label class="field">
           <span class="field-label">保留天数（偏好记录）</span>
@@ -212,8 +218,8 @@ function wipe() {
 <style scoped>
 .page-wrap{max-width:860px;margin:auto}
 .page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px}
-.eyebrow{font-size:11px;letter-spacing:.12em;color:var(--color-teal);font-weight:700}
-.page-head h1{font-size:28px;margin:7px 0 8px}
+.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-teal);font-weight:700}.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--gradient-highlight);transform:rotate(45deg);margin-right:8px}
+.page-head h1{font-size:28px;margin:9px 0 8px;background:linear-gradient(100deg,#12303f 0%,#0a7d80 52%,#2f6fb6 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .page-head p{color:var(--color-text-secondary);font-size:13px;margin:0;line-height:1.7}
 .section{padding:22px;margin-bottom:14px}
 .section h2{font-size:17px;margin-bottom:6px}

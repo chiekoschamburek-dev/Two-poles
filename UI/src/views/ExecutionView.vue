@@ -489,7 +489,7 @@ onUnmounted(() => {
 <style scoped>
 .execution-page{max-width:1400px;margin:auto}
 .page-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px}
-.eyebrow{font-size:11px;letter-spacing:.12em;color:var(--color-teal);font-weight:700}
+.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-teal);font-weight:700}.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--gradient-highlight);transform:rotate(45deg);margin-right:8px}
 .page-header h1{font-size:28px;margin:7px 0 5px}
 .page-header p{color:var(--color-text-muted);font-size:13px;margin:0}
 .exercise-switch{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
@@ -504,7 +504,7 @@ onUnmounted(() => {
 .chip:disabled{opacity:.45;cursor:not-allowed}
 .execution-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
 .stage-card{padding:0!important;overflow:hidden}
-.stage-container{padding:24px;background:#f8fafb}
+.stage-container{padding:24px;background:linear-gradient(180deg,#f4f8fb,#eaf1f6)}
 .demo-frame{aspect-ratio:4/5;background:linear-gradient(135deg,#e8f0f5,#eef7f9);border-radius:16px;position:relative;overflow:hidden;display:grid;place-items:center}
 .skeleton-overlay{width:100%;height:100%;display:grid;place-items:center}
 .skeleton{width:60%;height:90%;opacity:.85;filter:drop-shadow(0 2px 8px rgba(10,155,157,.25));transition:transform var(--motion-base) var(--easing-ease-out)}
@@ -522,8 +522,8 @@ onUnmounted(() => {
 .confidence-badge.low{color:#a53d3d;border-left:3px solid #f44336}
 .phase-badge{color:var(--color-teal);border-left:3px solid var(--color-teal)}
 .stage-live{position:absolute;left:16px;right:16px;bottom:16px;margin:0;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);font-size:13px;font-weight:600;color:var(--color-navy);text-align:center;box-shadow:var(--shadow-sm)}
-.stage-hint{padding:12px 24px;font-size:11px;color:var(--color-text-muted);text-align:center;background:white;border-top:1px solid var(--color-border)}
-.stage-controls{display:flex;justify-content:center;gap:12px;padding:20px;background:white}
+.stage-hint{padding:12px 24px;font-size:11px;color:var(--color-text-muted);text-align:center;background:linear-gradient(180deg,#fff,#f8fbfc);border-top:1px solid var(--color-divider)}
+.stage-controls{display:flex;justify-content:center;gap:12px;padding:20px;background:linear-gradient(180deg,#fbfdfe,#f5f8fb)}
 .ctrl-btn{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;transition:all var(--motion-fast)}
 .ctrl-btn.secondary{background:#e8f7f5;color:var(--color-teal)}
 .ctrl-btn.secondary:hover:enabled{background:var(--gradient-teal);color:white;transform:scale(1.08)}
@@ -533,11 +533,11 @@ onUnmounted(() => {
 .info-cards{display:grid;gap:18px}
 .count-card{text-align:center;padding:22px!important}
 .count-label{font-size:12px;color:var(--color-text-muted);margin-bottom:8px}
-.count-big{font-size:42px;font-weight:700;color:var(--color-navy);line-height:1.2;margin-bottom:14px}
-.count-big span{font-size:18px;color:var(--color-text-muted)}
+.count-big{font-family:var(--font-display);font-size:46px;font-weight:700;letter-spacing:-.04em;line-height:1.2;margin-bottom:14px;font-variant-numeric:tabular-nums;background:linear-gradient(110deg,#12303f,#0a7d80 58%,#2f6fb6);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.count-big span{font-size:18px;color:var(--color-text-muted);-webkit-text-fill-color:currentColor;letter-spacing:0}
 .count-card.primary .count-big{background:var(--gradient-teal);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.count-progress{height:6px;background:#e8eef3;border-radius:10px;overflow:hidden}
-.progress-fill{height:100%;background:var(--gradient-blue);border-radius:10px;transition:width var(--motion-slow) var(--easing-ease-out)}
+.count-progress{height:6px;background:#e2eaf1;border-radius:10px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(18,44,68,.1)}
+.progress-fill{height:100%;background:linear-gradient(90deg,#0a9b9d,#2d7bb8);border-radius:10px;box-shadow:0 0 10px rgba(45,123,184,.5);transition:width var(--motion-slow) var(--easing-ease-out)}
 .reps-grid{display:grid;gap:6px;margin-top:4px}
 .reps-grid span{height:5px;background:#e8eef3;border-radius:3px}
 .reps-grid span.done{background:var(--gradient-teal);animation:scaleIn var(--motion-base) var(--easing-spring) both}

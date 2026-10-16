@@ -262,8 +262,8 @@ function finish() {
 <style scoped>
 .page-wrap{max-width:760px;margin:auto}
 .page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:22px}
-.eyebrow{font-size:11px;letter-spacing:.12em;color:var(--color-teal);font-weight:700}
-.page-head h1{font-size:28px;margin:7px 0 8px}
+.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-teal);font-weight:700}.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--gradient-highlight);transform:rotate(45deg);margin-right:8px}
+.page-head h1{font-size:28px;margin:9px 0 8px;background:linear-gradient(100deg,#12303f 0%,#0a7d80 52%,#2f6fb6 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .page-head p{color:var(--color-text-secondary);font-size:13px;margin:0}
 .dots{display:flex;gap:6px}
 .dots i{width:26px;height:5px;border-radius:999px;background:#dbe4eb;transition:background var(--motion-base) var(--easing-ease-out)}

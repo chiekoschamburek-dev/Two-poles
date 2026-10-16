@@ -38,7 +38,8 @@ onMounted(() => store.init())
 </script>
 
 <style scoped>
-.shell { min-height: 100vh; background: var(--color-bg-gradient); }
+/* 背景由 body 的固定光晕层承担：这里若再画一遍会盖掉噪点层，并让渐变随滚动重复 */
+.shell { min-height: 100vh; }
 .main-content { min-height: calc(100vh - var(--topbar-height)); margin-left: var(--sidebar-width); padding: var(--space-8); }
 .scrim { position: fixed; inset: var(--topbar-height) 0 0; background: rgba(11, 30, 44, .42); z-index: calc(var(--z-sticky) + 1); }
 .fade-enter-active, .fade-leave-active { transition: opacity var(--motion-base); }
