@@ -1,13 +1,28 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Mode, UserProfile, Toast, TrainingSession, SessionFeedback } from '@/types/domain'
+import type { FoodCategory, Meal, MealItem, Mode, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings } from '@/types/domain'
 import { newId } from '@/utils/id'
+import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
+
+export interface NewMealInput {
+  date: string
+  mealType: Meal['mealType']
+  time: string
+  items: { foodName: string; category: FoodCategory; portionSize?: number; portionUnit?: string }[]
+}
 
 export const useAppStore = defineStore('app', () => {
   // === State ===
   const currentMode = ref<Mode>('public')
   const userProfile = ref<UserProfile | null>(null)
   const sessions = ref<TrainingSession[]>([])
+  const meals = ref<Meal[]>([])
+  const privacy = ref<PrivacySettings>({
+    cameraEnabled: true,
+    saveVideoLocally: false,
+    dataRetentionDays: 90,
+    exportFormat: 'json'
+  })
   const toasts = ref<Toast[]>([])
   const initialized = ref(false)
 
@@ -29,6 +44,8 @@ export const useAppStore = defineStore('app', () => {
         currentMode.value = data.mode || 'public'
         userProfile.value = data.profile || null
         sessions.value = Array.isArray(data.sessions) ? data.sessions : []
+        meals.value = Array.isArray(data.meals) ? data.meals : []
+        if (data.privacy) privacy.value = { ...privacy.value, ...data.privacy }
       } catch (error) {
         console.error('Failed to load state from localStorage:', error)
       }
@@ -43,7 +60,9 @@ export const useAppStore = defineStore('app', () => {
     const state = {
       mode: currentMode.value,
       profile: userProfile.value,
-      sessions: sessions.value
+      sessions: sessions.value,
+      meals: meals.value,
+      privacy: privacy.value
     }
     localStorage.setItem('twopoles_state', JSON.stringify(state))
   }
@@ -169,12 +188,68 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /**
+   * Record a meal with its items, then run the structure rules on it
+   */
+  function addMeal(input: NewMealInput): Meal {
+    const mealId = newId()
+    const items: MealItem[] = input.items.map(i => ({
+      ...i,
+      id: newId(),
+      mealId,
+      foodId: `${i.category}-${i.foodName}`,
+      confirmed: true
+    }))
+    const completeness = deriveCompleteness(items)
+    const dayCategories = [...new Set(
+      meals.value.filter(m => m.date === input.date).flatMap(m => m.items.map(i => i.category))
+    )]
+    const analysis = completeness === 'unknown'
+      ? undefined
+      : { ...analyzeMeal(items, dayCategories), id: newId(), mealId, createdAt: new Date().toISOString() }
+    const meal: Meal = {
+      id: mealId,
+      userId: userProfile.value?.id || 'demo-user',
+      date: input.date,
+      mealType: input.mealType,
+      time: input.time,
+      completeness,
+      items,
+      analyzed: !!analysis,
+      analysis,
+      createdAt: new Date().toISOString()
+    }
+    meals.value.push(meal)
+    persistState()
+    showToast({
+      type: 'success',
+      title: '餐次已记录',
+      message: completeness === 'partial' ? '份量没填全，记为"部分记录"' : '结构与类别已按规则标注',
+      duration: 3000
+    })
+    return meal
+  }
+
+  function removeMeal(mealId: string) {
+    meals.value = meals.value.filter(m => m.id !== mealId)
+    persistState()
+    showToast({ type: 'info', title: '已删除该餐记录', message: '删除后这一天会重新显示为"未记录"', duration: 2500 })
+  }
+
+  /** 隐私与导出偏好；当前版本不会据此自动删除数据 */
+  function updatePrivacy(patch: Partial<PrivacySettings>) {
+    privacy.value = { ...privacy.value, ...patch }
+    persistState()
+  }
+
+  /**
    * Clear all data
    */
   function clearAllData() {
     currentMode.value = 'public'
     userProfile.value = null
     sessions.value = []
+    meals.value = []
+    privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json' }
     localStorage.removeItem('twopoles_state')
     showToast({
       type: 'success',
@@ -189,6 +264,8 @@ export const useAppStore = defineStore('app', () => {
     currentMode,
     userProfile,
     sessions,
+    meals,
+    privacy,
     toasts,
     initialized,
 
@@ -206,6 +283,9 @@ export const useAppStore = defineStore('app', () => {
     dismissToast,
     addSession,
     applyFeedback,
+    addMeal,
+    removeMeal,
+    updatePrivacy,
     clearAllData
   }
 })

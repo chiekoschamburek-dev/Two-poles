@@ -8,7 +8,8 @@
 
 | 范围 | 状态 |
 |------|------|
-| 页面视图 | **4 / 7 已实现**：Onboarding（建档）、Dashboard、Plan、Execution；Meals、Report、Settings 仍是两行占位页 |
+| 页面视图 | **7 / 7 都有实际界面**（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）。深度不均：识别与计数未联动、计划调整与"建议"仍是本机演示、没有后端 |
+| 数据 | 档案、模式、训练记录（含 RPE 反馈）、餐食记录与隐私偏好都存在 localStorage；可从设置页导出 JSON/CSV 或一键清除 |
 | 训练反馈 | ✅ 跟练结束可填 RPE(1–10 或留空=未记录)、不适、部分完成原因与备注，写回该条 session 并持久化 |
 | 建档 | ✅ 三步表单写入 `store.updateProfile()`；未建档时概览顶部有软引导横幅（不拦截） |
 | `npm run dev` / `npm run build` / `npm run typecheck` | ✅ 全部通过（JS+CSS 约 280 KB gzipped；摄像头推理另需约 32 MB 端侧资产，见下） |
@@ -72,9 +73,9 @@ UI/
 │   │   ├── common/          # BaseButton / BaseCard / MetricCard / StatusBadge / ToastRegion
 │   │   └── layout/          # AppShell / TopBar / SidebarNav / MobileNav
 │   ├── composables/         # usePoseCamera.ts（MediaPipe 端侧姿态识别：骨架、可见度、关节角）
-│   ├── views/               # Onboarding / Dashboard / Plan / Execution 已实现；Meals / Report / Settings 为占位
-│   ├── stores/              # app.ts（mode、profile、sessions、toast）
-│   ├── services/            # demoCameraService.ts（按组的演示时间线 + summarizeSession）
+│   ├── views/               # 7 个页面均有实际界面（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）
+│   ├── stores/              # app.ts（mode、profile、sessions、meals、privacy、toast）
+│   ├── services/            # demoCameraService（演示时间线）· mealRules（餐食结构规则）· planRules（计划单一来源）· weekRules（周报聚合与负荷）
 │   ├── types/               # domain.ts
 │   ├── utils/               # id.ts（非安全上下文 ID 兜底）、time.ts（日期/问候/日历偏移）
 │   ├── styles/              # tokens.css / globals.css / animations.css / gradients.css
@@ -124,14 +125,17 @@ UI/
 - ✅ 隐私优先的本地处理说明文案
 
 ### 4. 饮食记录
-- ❌ **MealsView 是两行占位页**，餐次时间线、食物类别确认、结构分析、"未记录"语义、训练日时间线全部未实现
-- ⚠️ 仅 Dashboard 上有一张静态"已记录 2 餐"卡片
+- ✅ 三餐 + 加餐：记录食物条目（名称、10 类之一、可选份量与单位），可补记/修改/删除（改一餐＝替换该餐原记录）
+- ✅ 结构规则 `diet-rules-v1`：给出本餐出现的类别，并算"记完这餐后当天仍缺的类别"（期望 8 类；油脂类与"其他"不作要求）
+- ✅ `hasNutritionEstimate` 恒为 `false`：不给热量与营养素数值、不评价吃多吃少；份量留空就记"部分记录"，不替你猜克数
+- ✅ 没记录的餐次显示"未记录"，概览与周报同一口径
+- ❌ 没有食物库/搜索联想、没有拍照识别、没有运动员模式的训练日营养时间线
 
 ### 5. 数据完整性
-- ⚠️ `TrainingSession`（含 `rpe: number | null` 与反馈字段）、`SessionFeedback`、`PlanItem`、`AlternativeExercise` 已被计划页与跟练页消费；`Meal`、`WeeklyReport`、`PrivacySettings`、`CameraSession` 仍只是类型定义
+- ✅ `Meal` / `MealItem` / `MealAnalysis` / `WeeklyReport` / `PrivacySettings` / `SessionFeedback` / `TrainingSession` / `PlanItem` / `AlternativeExercise` 都由真实数据流消费；只剩 `CameraSession`、`PoseFrame`、`PlanAdjustment`、`PlanChange` 停留在定义层
 - ✅ 跟练结果在未记录 RPE 时存 `null`（不是 0），部分/全部完成用 `completionStatus` 区分；反馈里可写明未完成原因（`completionReason`）与备注
-- ✅ 计划页休息日明确写"没有安排"，不等于"没有活动"
-- ❌ 周报/图表不存在（ReportView 是占位页），"数据质量说明"未落地
+- ✅ 负荷只在 RPE 有记录的日子计算；缺 RPE 的日子在周报里画成斜纹"未记录"
+- ✅ 计划页休息日、餐食"未记录"、周报数据质量说明三处都区分"未记录"与"没有发生"
 
 ### 6. 建档（Onboarding）
 - ✅ 三步：选择使用方式 → 基本情况（昵称/年龄/目标/经验/可用时间/器材/需要避开）→ 专项信息（运动员）或回顾（大众）
@@ -139,6 +143,19 @@ UI/
 - ✅ 校验：年龄 12–90、目标与经验必选、周期开始不晚于结束；错误用 `role="alert"` 就地提示
 - ✅ 未建档不拦截：概览顶部一条软引导横幅，其余演示内容照常可见
 - ⚠️ 这些条件目前只用于称呼与文案口径，尚未真正驱动推荐算法（无后端）
+
+### 7. 周报（Report）
+- ✅ 按周（周一起算）聚合本机记录：计划场次 / 有记录场次 / 总时长 / 负荷合计 / 餐食记录数，可翻上一周与下一周
+- ✅ 内联 SVG 图表，零图表库依赖：每日负荷条形图（已计算=渐变实心、缺 RPE=斜纹、未记录=浅灰）+ 8 类食物出现次数横条
+- ✅ 训练明细表含时长、次数/组数、RPE、负荷与完成状态；无记录时是空白状态而不是 0
+- ✅ "这份报告没说的三件事"：列出缺 RPE 的条目、计划与实际的差距、餐食未记录的天数与规则版本
+
+### 8. 设置与数据（Settings）
+- ✅ 模式切换、档案摘要与入口；隐私偏好（摄像头开关、是否存原始画面、保留天数、导出格式）写入 `store.privacy` 并落盘
+- ✅ 跟练页会尊重"允许使用摄像头"：关掉后"实时摄像头"chip 置灰并说明原因
+- ✅ 导出：JSON（完整结构）或 CSV（含 BOM，表格软件可直接打开），由浏览器本地生成下载
+- ✅ 清除全部数据：两步确认（不用 `window.confirm`），清空档案/模式/训练/餐食/偏好，完成后按钮回到禁用态
+- ⚠️ 诚实标注的两个"当前无实际效果"的偏好：`saveVideoLocally`（本版本没有录制功能）、`dataRetentionDays`（没有自动清理逻辑）
 
 ## 🎨 设计系统
 
@@ -253,18 +270,18 @@ npm run camera:assets
 
 ### 手动测试清单
 
-> 以下清单**尚未系统执行过**。其中"运动员模式完整流程""模式切换保留数据""手动记录降级可用"三项依赖尚不存在的功能，当前无法通过。
+> 本轮（2026-10-16）在浏览器里逐项目测过的标 ✅；未跑过的保持 [ ]，其中"深色模式"根本没有这个功能。
 
-- [ ] 大众模式完整流程
-- [ ] 运动员模式完整流程
-- [ ] 模式切换保留数据
-- [ ] 摄像头演示运行流畅
-- [ ] 手动记录降级可用
-- [ ] 缺失RPE显示正确
-- [ ] 缺失餐次显示正确
-- [ ] 响应式在所有断点工作
-- [ ] 键盘导航完整
-- [ ] 深色模式文字可读（如果添加）
+- [x] 建档三步流程（校验、回顾、写入 localStorage）
+- [x] 模式切换生效并落盘（含运动员模式展示分支）
+- [x] 跟练：跳过 / 结束记录 / 手动修正 / RPE 反馈 / 结果落盘
+- [x] 整轮 50 秒自然播放完成并入库（暂停冻结已实测）
+- [x] 餐食：录入、部分记录判定、类别与缺失类别、删除
+- [x] 周报：计划 vs 实际、负荷条与"缺 RPE"斜纹、翻页、数据质量说明
+- [x] 设置：隐私开关（含跟练页置灰联动）、CSV 导出、两步确认清除
+- [ ] 响应式在 375px / 真实移动设备上（仅测过 723px 与隐藏页）
+- [ ] 键盘导航完整、WCAG AA 对比度
+- [ ] 真实摄像头下的骨架对齐与关节角数值（本环境无设备）
 
 ### 浏览器测试
 
@@ -284,4 +301,4 @@ npm run camera:assets
 
 ---
 
-**注意**: 这是一个演示前端。7 个页面中有 4 个有实际界面（Onboarding / Dashboard / Plan / Execution），其余 3 个（Meals / Report / Settings）是占位页。摄像头识别为端侧实时、但尚未与计数联动。档案、模式、训练与反馈存在 localStorage，界面上的进度/餐食等数字仍是硬编码演示值。
+**注意**: 这是一个无后端的本机演示前端。7 个页面都有实际界面；档案、模式、训练与反馈、餐食记录、隐私偏好都存在 localStorage。主要缺口：①姿态识别与计数尚未联动；②计划调整只在界面层生效；③推荐口径未按档案真正计算。

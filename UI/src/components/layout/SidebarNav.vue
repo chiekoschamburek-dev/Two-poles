@@ -27,8 +27,8 @@
     </nav>
     <div class="sidebar-foot">
       <div class="mini-progress">
-        <span>本周进度</span><b>2 / 3</b>
-        <div><i style="width:66%"></i></div>
+        <span>本周进度</span><b>{{ weekValue }}</b>
+        <div><i :style="{ width: weekWidth }"></i></div>
       </div>
       <RouterLink to="/onboarding" class="settings" @click="emit('close')"><User :size="18" />个人档案</RouterLink>
       <RouterLink to="/settings" class="settings" @click="emit('close')"><Settings :size="18" />个人设置</RouterLink>
@@ -40,6 +40,7 @@
 import { ref, computed } from 'vue'
 import { CalendarDays, ClipboardList, Dumbbell, Utensils, BarChart3, Settings, ChevronDown, User } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
+import { buildWeeklyReport } from '@/services/weekRules'
 import type { Mode } from '@/types/domain'
 
 defineProps<{ open: boolean }>()
@@ -62,6 +63,9 @@ const modes: { id: Mode; label: string; note: string }[] = [
 ]
 
 const currentLabel = computed(() => (store.isAthleteMode ? '运动员模式' : '大众模式'))
+const week = computed(() => buildWeeklyReport(store.sessions, store.meals, new Date()))
+const weekValue = computed(() => `${week.value.completedSessions} / ${week.value.plannedSessions}`)
+const weekWidth = computed(() => `${Math.min(100, (week.value.completedSessions / Math.max(1, week.value.plannedSessions)) * 100)}%`)
 
 function choose(id: Mode) {
   menuOpen.value = false

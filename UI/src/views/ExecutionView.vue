@@ -16,7 +16,7 @@
         </div>
         <div class="source-switch">
           <button class="chip" :class="{ active: mode === 'demo' }" @click="switchMode('demo')">演示回放</button>
-          <button class="chip" :class="{ active: mode === 'camera' }" @click="switchMode('camera')">实时摄像头</button>
+          <button class="chip" :class="{ active: mode === 'camera' }" :disabled="!store.privacy.cameraEnabled" @click="switchMode('camera')">实时摄像头</button>
           <span class="cam-note" aria-live="polite">{{ sourceNote }}</span>
         </div>
       </div>
@@ -238,6 +238,7 @@ const sourceNote = computed(() => {
   if (pose.errorMessage.value) return pose.errorMessage.value
   if (mode.value === 'camera' && pose.status.value === 'starting') return '正在加载端侧模型（首次约 5.5 MB，请稍候）…'
   if (live.value) return `${pose.fps.value} FPS · 画面只在本机推理，不上传`
+  if (!store.privacy.cameraEnabled) return '摄像头已在设置中关闭，当前只有演示回放'
   return '按预设时间线回放，不需要摄像头'
 })
 const stageHint = computed(() =>
@@ -248,6 +249,7 @@ const stageHint = computed(() =>
 
 async function switchMode(next: 'demo' | 'camera') {
   if (next === mode.value) return
+  if (next === 'camera' && !store.privacy.cameraEnabled) return
   mode.value = next
   if (next === 'camera') {
     await nextTick()
@@ -498,7 +500,8 @@ onUnmounted(() => {
 .cam-overlay{pointer-events:none}
 .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--color-teal);background:#e8f7f5;transition:all var(--motion-fast)}
 .chip.active{background:var(--gradient-teal);color:white}
-.chip:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+.chip:hover:enabled{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+.chip:disabled{opacity:.45;cursor:not-allowed}
 .execution-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
 .stage-card{padding:0!important;overflow:hidden}
 .stage-container{padding:24px;background:#f8fafb}
