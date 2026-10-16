@@ -1,22 +1,7 @@
 {
-  // 部署目标项目名：已存在则在其下部署，不存在则自动创建
   "name": "two-poles",
-
-  // 当前控制台「根目录」设为 /UI，所以下面的命令与路径都相对 UI/ 解析。
-  // 若把控制台根目录改回 /，则改成：
-  //   "installCommand": "cd UI && npm install"
-  //   "buildCommand":   "cd UI && npm run build"
-  //   "assets.directory": "./UI/dist"
-  "installCommand": "npm install",
-  "buildCommand": "npm run build",
-
   "assets": {
     "directory": "./dist",
-    // SPA 关键项：命中不到的路径返回 index.html（200），
-    // /meals、/report、/execution 这类 history 路由深链才不会 404
     "notFoundStrategy": "singlePageApplication"
   }
-
-  // 纯静态不需要 entry（边缘函数入口文件）。只有真的要写 ER 逻辑时才加，
-  // 例如 "entry": "./src/er.js"。加了这个字段，命中不到的静态资源会交给函数处理。
 }
