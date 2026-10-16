@@ -68,7 +68,7 @@ UI/
 │   ├── stores/              # app.ts（mode、profile、sessions、toast）
 │   ├── services/            # demoCameraService.ts（按组的演示时间线 + summarizeSession）
 │   ├── types/               # domain.ts
-│   ├── utils/               # id.ts（非安全上下文兜底）、time.ts（日期/问候/日历）、animations.ts（⚠️ 7 个导出当前均无调用方）
+│   ├── utils/               # id.ts（非安全上下文 ID 兜底）、time.ts（日期/问候/日历偏移）
 │   ├── styles/              # tokens.css / globals.css / animations.css / gradients.css
 │   ├── router/              # index.ts（7 条路由，全部懒加载）
 │   ├── App.vue
@@ -139,7 +139,7 @@ UI/
 ### 动画时序
 - Fast (150ms): Hover状态、焦点环
 - Base (250ms): 页面切换、模态框
-- Slow (400ms): 数字滚动、图表动画
+- Slow (400ms): 进度与位移过渡
 - Slower (600ms): 页面加载错位效果
 
 ## 🔧 技术栈

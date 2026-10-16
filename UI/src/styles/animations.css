@@ -166,26 +166,6 @@
   }
 }
 
-/* === Ripple Effect === */
-@keyframes ripple {
-  to {
-    transform: scale(4);
-    opacity: 0;
-  }
-}
-
-/* === Number Roll === */
-@keyframes numberRoll {
-  0% {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
 /* === Gradient Shift === */
 @keyframes gradientShift {
   0% {
