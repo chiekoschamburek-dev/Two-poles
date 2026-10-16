@@ -30,6 +30,7 @@
         <span>本周进度</span><b>2 / 3</b>
         <div><i style="width:66%"></i></div>
       </div>
+      <RouterLink to="/onboarding" class="settings" @click="emit('close')"><User :size="18" />个人档案</RouterLink>
       <RouterLink to="/settings" class="settings" @click="emit('close')"><Settings :size="18" />个人设置</RouterLink>
     </div>
   </aside>
@@ -37,7 +38,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { CalendarDays, ClipboardList, Dumbbell, Utensils, BarChart3, Settings, ChevronDown } from 'lucide-vue-next'
+import { CalendarDays, ClipboardList, Dumbbell, Utensils, BarChart3, Settings, ChevronDown, User } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 import type { Mode } from '@/types/domain'
 

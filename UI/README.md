@@ -8,9 +8,12 @@
 
 | 范围 | 状态 |
 |------|------|
-| 页面视图 | **3 / 7 已实现**：Dashboard、Plan、Execution；Onboarding、Meals、Report、Settings 仅为两行占位页 |
-| `npm run dev` / `npm run build` / `npm run typecheck` | ✅ 全部通过（构建产物 JS+CSS 约 74 KB gzipped） |
-| 摄像头 | 纯脚本回放预设时间线，**未接入任何姿态识别**；两个动作（坐站 2×8、弯举 2×10）都可切换，组数会推进，暂停与后台切换不会跳计数 |
+| 页面视图 | **4 / 7 已实现**：Onboarding（建档）、Dashboard、Plan、Execution；Meals、Report、Settings 仍是两行占位页 |
+| 训练反馈 | ✅ 跟练结束可填 RPE(1–10 或留空=未记录)、不适、部分完成原因与备注，写回该条 session 并持久化 |
+| 建档 | ✅ 三步表单写入 `store.updateProfile()`；未建档时概览顶部有软引导横幅（不拦截） |
+| `npm run dev` / `npm run build` / `npm run typecheck` | ✅ 全部通过（JS+CSS 约 280 KB gzipped；摄像头推理另需约 32 MB 端侧资产，见下） |
+| 摄像头 | **半真**：点"实时摄像头"会用 MediaPipe Pose Landmarker 在本机推理出骨架、关键点可见度与膝/髋/肘角度；**但计数仍由演示时钟推进，识别与计数尚未联动**；权限被拒或无摄像头时自动退回"演示回放" |
+| 摄像头资产 | 需先执行 `cd UI && npm run camera:assets`（拉取 5.5 MB 模型 + 27 MB wasm，已被 .gitignore 排除）；且页面必须走 **https 或 localhost**（`vite --host` 的局域网 http 地址无法调用摄像头） |
 | 数据 | 界面演示数字仍为硬编码；**训练结果会写入 `localStorage`（`sessions`）**，可在跟练页汇总中看到 |
 | 模式切换 | ✅ 侧边栏"当前模式"可切换大众/运动员模式，会落盘并触发 Toast |
 | 后端 | 无 |
@@ -59,12 +62,17 @@ npm run typecheck
 
 ```
 UI/
-├── public/                  # 空目录（当前无静态资源，index.html 也未引用 favicon）
+├── public/
+│   ├── favicon.svg          # 品牌标记（圆角 Navy 底板版）
+│   └── mediapipe/           # wasm + pose_landmarker_lite.task（npm run camera:assets 生成，不入库）
+├── scripts/
+│   └── fetch-camera-assets.mjs  # 拉取端侧推理资产
 ├── src/
 │   ├── components/
 │   │   ├── common/          # BaseButton / BaseCard / MetricCard / StatusBadge / ToastRegion
 │   │   └── layout/          # AppShell / TopBar / SidebarNav / MobileNav
-│   ├── views/               # Dashboard / Plan / Execution 已实现；Onboarding / Meals / Report / Settings 为占位
+│   ├── composables/         # usePoseCamera.ts（MediaPipe 端侧姿态识别：骨架、可见度、关节角）
+│   ├── views/               # Onboarding / Dashboard / Plan / Execution 已实现；Meals / Report / Settings 为占位
 │   ├── stores/              # app.ts（mode、profile、sessions、toast）
 │   ├── services/            # demoCameraService.ts（按组的演示时间线 + summarizeSession）
 │   ├── types/               # domain.ts
@@ -79,7 +87,7 @@ UI/
 └── tsconfig.json
 ```
 
-> 没有 `src/composables/`，也没有 `components/journey|training|meals|reports/` 目录——那些是早期交付文档设想的规划结构，未落地。
+> 仓库根另有 `brand/`（品牌标记的浅底/深底 SVG）。`components/journey|training|meals|reports/` 仍不存在——那是早期交付文档设想的规划结构，未落地。
 
 ## 🎯 核心功能
 
@@ -100,7 +108,9 @@ UI/
 - ✅ "四周周期" tab 有独立的周期阶段视图（负荷条为演示数据）
 - ✅ 调整预览与确认：可查看"周六→周日搬移"的预览并接受/保持原计划（单次演示，不写入持久化计划）
 
-### 3. 摄像头演示
+### 3. 摄像头跟练
+- ✅ **实时摄像头（半真）**: "实时摄像头"chip 走 MediaPipe 端侧推理，把真实骨架、关键点可见度与膝/髋/肘角度叠在画面上；权限被拒或无设备时自动退回"演示回放"
+- ❌ **识别与计数尚未联动**: 实时模式下计数仍由下面的演示时钟推进，舞台下方提示语已明确写出这一点
 - ✅ **演示模式**: `requestAnimationFrame` 增量回放预设计数事件
 - ✅ 两个动作都有入口（页内 chip 与 `?exercise=` 查询参数）：坐站 2×8、弯举 2×10
 - ✅ 组数会推进，组间 6 秒休息倒计时，进度条按 组数 + 本组次数 计算
@@ -118,10 +128,17 @@ UI/
 - ⚠️ 仅 Dashboard 上有一张静态"已记录 2 餐"卡片
 
 ### 5. 数据完整性
-- ⚠️ `TrainingSession`（含 `rpe: number | null`）、`PlanItem`、`AlternativeExercise` 已被计划页与跟练页消费；`Meal`、`WeeklyReport`、`PrivacySettings`、`CameraSession` 仍只是类型定义
-- ✅ 跟练结果在未记录 RPE 时存 `null`（不是 0），部分/全部完成用 `completionStatus` 区分
+- ⚠️ `TrainingSession`（含 `rpe: number | null` 与反馈字段）、`SessionFeedback`、`PlanItem`、`AlternativeExercise` 已被计划页与跟练页消费；`Meal`、`WeeklyReport`、`PrivacySettings`、`CameraSession` 仍只是类型定义
+- ✅ 跟练结果在未记录 RPE 时存 `null`（不是 0），部分/全部完成用 `completionStatus` 区分；反馈里可写明未完成原因（`completionReason`）与备注
 - ✅ 计划页休息日明确写"没有安排"，不等于"没有活动"
 - ❌ 周报/图表不存在（ReportView 是占位页），"数据质量说明"未落地
+
+### 6. 建档（Onboarding）
+- ✅ 三步：选择使用方式 → 基本情况（昵称/年龄/目标/经验/可用时间/器材/需要避开）→ 专项信息（运动员）或回顾（大众）
+- ✅ 写入 `store.updateProfile()`，档案含 id，跟练记录的 `userId` 会指向它；再次进入为编辑模式并回填
+- ✅ 校验：年龄 12–90、目标与经验必选、周期开始不晚于结束；错误用 `role="alert"` 就地提示
+- ✅ 未建档不拦截：概览顶部一条软引导横幅，其余演示内容照常可见
+- ⚠️ 这些条件目前只用于称呼与文案口径，尚未真正驱动推荐算法（无后端）
 
 ## 🎨 设计系统
 
@@ -176,20 +193,26 @@ UI/
 - ⚠️ 计数与置信度仍主要靠视觉呈现，`aria-live` 只播报提示文案
 - ⚠️ 未在读屏软件与真实设备上验证
 
-## 🔄 未来集成
+## 🔄 摄像头识别现状与剩余工作
 
-### MediaPipe集成路径
-当前使用演示数据。要集成真实的姿态识别：
+### 已接入：端侧姿态识别（显示层）
+`src/composables/usePoseCamera.ts` 已把 MediaPipe Tasks Vision 跑通：`FilesetResolver.forVisionTasks('/mediapipe/wasm')` + `PoseLandmarker`（`pose_landmarker_lite.task`，CPU delegate，VIDEO 模式，numPoses=1），用 `detectForVideo(video, performance.now())` 逐帧取 33 个关键点，`DrawingUtils` 把骨架与连线画到与视频同尺寸的 canvas 上（画面与叠加层都 `scaleX(-1)` 镜像），并算出膝/髋/肘三个关节角与关键点平均可见度。**画面不出本机，无上传。**
 
-1. 安装MediaPipe Tasks Vision
+准备资产（一次性，产物不入库）：
 ```bash
-npm install @mediapipe/tasks-vision
+cd UI
+npm run camera:assets
 ```
 
-2. 新建 `src/composables/usePoseAdapter.ts`（**该文件目前不存在**，现在只有 `services/demoCameraService.ts` 里的写死时间线）
-3. 定义并保持一致的帧/事件接口（`types/domain.ts` 里的 `PoseFrame`、`DemoEvent` 可作为起点）
-4. 替换 `ExecutionView.vue` 中的 `getDemoEvents()` 调用与 `tick()` 循环
-5. UI 结构基本无需大改，但计数、组数、暂停补偿逻辑要在真实现里重写
+运行前提：`https` 或 `localhost`。用 `vite --host` 得到的局域网 http 地址里 `navigator.mediaDevices` 不存在，会走 "unsupported" 分支并退回演示模式。
+
+### 尚未接入：识别 → 计数联动
+现在计数仍由 `demoCameraService.ts` 的预设时间线推进，页面提示语已明说"两者尚未联动"。要做真计数还需要：
+
+1. 以关节角序列写状态机（如坐站：膝角 >160° 视为站立、<100° 视为坐下，一次 down→up 记 1 次；需带迟滞与最短间隔，避免抖动重复计数）
+2. 用 `visibility` 做门控：关键点不可见或人半身出镜时暂停计数（对应产品要求"不输出姿势安全结论"）
+3. 用真实的开始/结束时间替换 `tick()` 里的事件回放，保留已经测过的暂停补偿与组数逻辑
+4. 在真机上按人群调阈值（小幅动作最容易误计数）
 
 ### 后端API集成
 `src/services/` 目前只有 `demoCameraService.ts` 一个纯本地演示模块，**没有 API 层、没有请求客户端、没有错误与加载态处理**。要连接真实API：
@@ -215,7 +238,7 @@ npm install @mediapipe/tasks-vision
 ### 状态管理
 - 全局应用状态在`stores/app.ts`（`mode`、`profile`、`sessions`、`toasts`）
 - ✅ 切换模式与结束跟练都会写入 localStorage（`twopoles_state`），刷新后保持；`clearAllData()` 可清空
-- ⚠️ `updateProfile()` 仍没有调用方（Onboarding 页是占位），因此 `profile` 除了昵称等字段外基本为空
+- ✅ `switchMode()` 与 `updateProfile()` 都有真实调用方了（侧边栏模式菜单 / 建档页），跟练与反馈会写入 `sessions`
 - ✅ ID 生成走 `utils/id.ts` 的 `newId()`，在没有 `crypto.randomUUID` 的非安全上下文（http + 局域网 IP）会退回时间戳+随机数
 - 展示用的训练/饮食数字仍是视图内的硬编码常量，只有跟练结果进入 store
 
@@ -261,4 +284,4 @@ npm install @mediapipe/tasks-vision
 
 ---
 
-**注意**: 这是一个演示前端。7 个页面中只有 3 个（Dashboard / Plan / Execution）有实际界面，其余 4 个是占位页。摄像头功能为脚本回放，未集成真实的 MediaPipe。模式与跟练结果会写入 localStorage，但界面上的进度/餐食等数字仍是硬编码演示值。项目当前**不在 git 版本控制下**。
+**注意**: 这是一个演示前端。7 个页面中有 4 个有实际界面（Onboarding / Dashboard / Plan / Execution），其余 3 个（Meals / Report / Settings）是占位页。摄像头识别为端侧实时、但尚未与计数联动。档案、模式、训练与反馈存在 localStorage，界面上的进度/餐食等数字仍是硬编码演示值。

@@ -14,6 +14,11 @@
             @click="selectExercise(opt.name)"
           >{{ opt.name }} · {{ opt.sets }}×{{ opt.repsPerSet }}</button>
         </div>
+        <div class="source-switch">
+          <button class="chip" :class="{ active: mode === 'demo' }" @click="switchMode('demo')">演示回放</button>
+          <button class="chip" :class="{ active: mode === 'camera' }" @click="switchMode('camera')">实时摄像头</button>
+          <span class="cam-note" aria-live="polite">{{ sourceNote }}</span>
+        </div>
       </div>
       <BaseButton variant="secondary" :icon="X" @click="leave">结束</BaseButton>
     </div>
@@ -22,7 +27,11 @@
       <BaseCard class="stage-card glass animate-slide-in-up" style="animation-delay:90ms">
         <div class="stage-container">
           <div class="demo-frame">
-            <div class="skeleton-overlay">
+            <template v-if="mode === 'camera'">
+              <video ref="videoRef" class="cam-feed" muted playsinline></video>
+              <canvas ref="canvasRef" class="cam-overlay"></canvas>
+            </template>
+            <div v-else class="skeleton-overlay">
               <svg viewBox="0 0 400 600" class="skeleton" :class="stageClass">
                 <circle cx="200" cy="120" r="25" fill="#0a9b9d" />
                 <circle cx="200" cy="170" r="8" fill="#0a9b9d" />
@@ -42,10 +51,10 @@
               <span class="confidence-badge animate-fade-in" :class="confidenceClass" :key="confidenceClass">{{ confidenceText }}</span>
               <span class="phase-badge" :class="{ 'animate-pulse': status === 'resting' }">{{ phaseLabel }}</span>
             </div>
-            <div class="frame-sheen gradient-shimmer" v-if="!finished && !paused"></div>
+            <div class="frame-sheen gradient-shimmer" v-if="mode === 'demo' && !finished && !paused"></div>
             <p class="stage-live" aria-live="polite">{{ message }}</p>
           </div>
-          <div class="stage-hint">关键点示意图 · 实际使用时在本地处理</div>
+          <div class="stage-hint">{{ stageHint }}</div>
         </div>
         <div class="stage-controls">
           <button class="ctrl-btn secondary" :aria-label="paused ? '继续' : '暂停'" :disabled="finished" @click="togglePause">
@@ -82,7 +91,14 @@
           </div>
           <div class="status-item">
             <Gauge :size="18" class="status-icon teal" />
-            <div><strong>置信度: {{ Math.round(confidence * 100) }}%</strong><small>{{ confidenceText }}</small></div>
+            <div><strong>{{ live ? '关键点可见度' : '识别置信度' }}: {{ Math.round(shownConfidence * 100) }}%</strong><small>{{ confidenceText }}</small></div>
+          </div>
+          <div class="status-item" v-if="live">
+            <Ruler :size="18" class="status-icon teal" />
+            <div>
+              <strong>膝 {{ pose.kneeAngle ?? '—' }}° · 髋 {{ pose.hipAngle ?? '—' }}°</strong>
+              <small>肘 {{ pose.elbowAngle ?? '—' }}°（取左侧）· 实时角度仅供参考，不参与计数</small>
+            </div>
           </div>
           <div class="status-item">
             <Timer :size="18" class="status-icon teal" />
@@ -110,7 +126,41 @@
             <li><span>平均置信度</span><b>{{ Math.round(averageConfidence * 100) }}%</b></li>
             <li><span>手动修正</span><b>{{ manualCorrections }} 次</b></li>
             <li><span>状态</span><b>{{ completionLabel }}</b></li>
+            <li><span>RPE</span><b>{{ feedbackSaved ? (rpe === null ? '未记录' : rpe) : '待反馈' }}</b></li>
           </ul>
+
+          <div v-if="!feedbackSaved" class="feedback">
+            <h4>这次感觉怎么样？</h4>
+            <div class="field">
+              <span class="field-label">RPE 主观用力程度（1 轻 · 10 力竭）</span>
+              <div class="rpe-row">
+                <button
+                  v-for="n in 10"
+                  :key="n"
+                  class="rpe-chip"
+                  :class="{ active: rpe === n }"
+                  :aria-pressed="rpe === n"
+                  @click="rpe = n"
+                >{{ n }}</button>
+              </div>
+              <small>不选就是"未记录"——周报会把它算作数据缺失，而不是 0 负荷。</small>
+            </div>
+            <label class="check"><input v-model="discomfort" type="checkbox" /> 训练中有不适或疼痛</label>
+            <div v-if="completionLabel === '部分完成'" class="field">
+              <span class="field-label">没完成的原因</span>
+              <input v-model="reasonText" type="text" placeholder="例如：时间不够、状态不好" />
+            </div>
+            <div class="field">
+              <span class="field-label">备注（可选）</span>
+              <textarea v-model="notesText" rows="2" placeholder="想记下的细节…"></textarea>
+            </div>
+            <BaseButton size="sm" @click="saveFeedback">保存反馈</BaseButton>
+            <BaseButton variant="ghost" size="sm" @click="feedbackSaved = true">先跳过</BaseButton>
+          </div>
+          <p v-else class="feedback-saved">
+            反馈{{ rpe === null && !discomfort ? '已跳过' : '已保存' }}：RPE {{ rpe === null ? '未记录' : rpe }} · {{ discomfort ? '有不适' : '无不适' }}
+          </p>
+
           <p class="stored-note">{{ recordedNote }}</p>
           <BaseButton size="sm" :icon="Play" @click="restart">再练一遍</BaseButton>
           <BaseButton variant="secondary" size="sm" @click="leave">返回概览</BaseButton>
@@ -121,12 +171,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { X, Pause, Play, SkipForward, Square, Activity, Gauge, Edit3, FileText, Timer } from 'lucide-vue-next'
+import { X, Pause, Play, SkipForward, Square, Activity, Gauge, Edit3, FileText, Timer, Ruler } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import { useAppStore } from '@/stores/app'
+import { usePoseCamera } from '@/composables/usePoseCamera'
 import type { DemoEvent, ExercisePhase } from '@/types/domain'
 import {
   demoExercises,
@@ -156,6 +207,16 @@ const editValue = ref(0)
 const manualCorrections = ref(0)
 const repsBySet = ref<number[]>([])
 const recordedNote = ref('')
+const recordedId = ref('')
+const rpe = ref<number | null>(null)
+const discomfort = ref(false)
+const reasonText = ref('')
+const notesText = ref('')
+const feedbackSaved = ref(false)
+const pose = usePoseCamera()
+const mode = ref<'demo' | 'camera'>('demo')
+const videoRef = ref<HTMLVideoElement | null>(null)
+const canvasRef = ref<HTMLCanvasElement | null>(null)
 
 let setElapsed = 0
 let restElapsed = 0
@@ -167,9 +228,38 @@ let confidenceSum = 0
 let confidenceCount = 0
 let recorded = false
 
-const confidenceLevel = computed(() => getConfidenceLevel(confidence.value))
+const live = computed(() => mode.value === 'camera' && pose.status.value === 'live')
+const shownConfidence = computed(() => (live.value ? pose.visibility.value : confidence.value))
+const confidenceLevel = computed(() => getConfidenceLevel(shownConfidence.value))
 const confidenceClass = computed(() => confidenceLevel.value.level)
 const confidenceText = computed(() => confidenceLevel.value.text)
+
+const sourceNote = computed(() => {
+  if (pose.errorMessage.value) return pose.errorMessage.value
+  if (mode.value === 'camera' && pose.status.value === 'starting') return '正在加载端侧模型（首次约 5.5 MB，请稍候）…'
+  if (live.value) return `${pose.fps.value} FPS · 画面只在本机推理，不上传`
+  return '按预设时间线回放，不需要摄像头'
+})
+const stageHint = computed(() =>
+  live.value
+    ? '识别：MediaPipe 端侧实时关键点 · 计数：仍由演示时钟推进（两者尚未联动）'
+    : '关键点示意图 · 实际使用时在本地处理'
+)
+
+async function switchMode(next: 'demo' | 'camera') {
+  if (next === mode.value) return
+  mode.value = next
+  if (next === 'camera') {
+    await nextTick()
+    if (videoRef.value && canvasRef.value) {
+      await pose.start(videoRef.value, canvasRef.value)
+      if (pose.status.value !== 'live') mode.value = 'demo'
+    }
+  } else {
+    pose.stop()
+    pose.errorMessage.value = ''
+  }
+}
 
 function tweenRepsTo(target: number) {
   cancelAnimationFrame(tweenRaf)
@@ -298,7 +388,7 @@ function complete() {
 function record() {
   if (recorded || !repsBySet.value.length) return
   recorded = true
-  store.addSession(
+  const session = store.addSession(
     summarizeSession({
       exercise: exercise.value,
       setsCompleted: repsBySet.value.length,
@@ -308,7 +398,20 @@ function record() {
       elapsedMs: elapsedMs.value
     })
   )
+  recordedId.value = session.id
   recordedNote.value = `已保存到本地记录（共 ${store.sessions.length} 条）`
+}
+
+function saveFeedback() {
+  if (!recordedId.value) return
+  store.applyFeedback(recordedId.value, {
+    sessionId: recordedId.value,
+    rpe: rpe.value,
+    discomfort: discomfort.value,
+    reason: completionLabel.value === '部分完成' ? reasonText.value.trim() || undefined : undefined,
+    notes: notesText.value.trim() || undefined
+  })
+  feedbackSaved.value = true
 }
 
 function toggleEdit() {
@@ -354,6 +457,12 @@ function restart() {
   manualCorrections.value = 0
   repsBySet.value = []
   recordedNote.value = ''
+  recordedId.value = ''
+  rpe.value = null
+  discomfort.value = false
+  reasonText.value = ''
+  notesText.value = ''
+  feedbackSaved.value = false
   setElapsed = 0
   restElapsed = 0
   eventIndex = 0
@@ -382,6 +491,11 @@ onUnmounted(() => {
 .page-header h1{font-size:28px;margin:7px 0 5px}
 .page-header p{color:var(--color-text-muted);font-size:13px;margin:0}
 .exercise-switch{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.source-switch{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.cam-note{font-size:12px;color:var(--color-text-muted)}
+.cam-feed,.cam-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.cam-feed{background:#0d1f2c}
+.cam-overlay{pointer-events:none}
 .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--color-teal);background:#e8f7f5;transition:all var(--motion-fast)}
 .chip.active{background:var(--gradient-teal);color:white}
 .chip:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
@@ -446,6 +560,19 @@ onUnmounted(() => {
 .summary-list li:nth-child(6){animation-delay:350ms}
 .summary-list b{color:var(--color-navy)}
 .stored-note{font-size:12px;color:var(--color-teal)}
+.feedback{border-top:1px solid var(--color-divider);margin-top:14px;padding-top:14px;text-align:left}
+.feedback h4{font-size:14px;color:var(--color-navy);margin-bottom:12px}
+.field{margin-bottom:12px}
+.field-label{display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px}
+.rpe-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.feedback .rpe-chip{width:auto;min-width:34px;height:34px;padding:0 8px;border-radius:10px;margin-bottom:0;background:#eef2f5;color:var(--color-text-secondary);font-size:13px;font-weight:700;transition:all var(--motion-fast)}
+.feedback .rpe-chip:hover{background:#e0f4f1;color:var(--color-teal);transform:translateY(-1px)}
+.feedback .rpe-chip.active{background:var(--gradient-teal);color:white}
+.field small{display:block;font-size:11px;color:var(--color-text-muted);line-height:1.6}
+.check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);margin-bottom:12px;cursor:pointer}
+.check input{width:16px;height:16px;accent-color:var(--color-teal)}
+.feedback input[type=text],.feedback textarea{width:100%;padding:10px 12px;border:1px solid var(--color-border);border-radius:11px;font-size:13px;font-family:inherit;color:var(--color-navy);background:#fff;resize:vertical}
+.feedback-saved{font-size:13px;color:var(--color-teal);border-top:1px solid var(--color-divider);margin:14px 0 0;padding-top:14px;text-align:left}
 @media(max-width:1024px){.execution-grid{grid-template-columns:1fr}.info-cards{grid-template-columns:repeat(2,1fr)}.actions-card{grid-column:1/-1}}
 @media(max-width:767px){.page-header{align-items:flex-start}.page-header h1{font-size:22px}.info-cards{grid-template-columns:1fr}}
 </style>

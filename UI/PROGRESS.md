@@ -1,7 +1,7 @@
 # 两仪·TwoPoles 前端UI实现进展报告
 
 > **📌 这是一份"基础设施完成后、开始写界面前"的历史快照，已被实际代码超越。**
-> 下文"已创建的文件结构"不含 views/components（当时确实还没写），"预期完成度 组件库 0% / 视图页面 0%"也已过时：现在已有 9 个组件与 3 个成型页面（Dashboard / Plan / Execution），其余 4 页仍为占位。其中列为 ✅ 的 `src/utils/animations.ts`（动画工具函数）因始终无人调用，已在后续清理中删除。
+> 下文"已创建的文件结构"不含 views/components（当时确实还没写），"预期完成度 组件库 0% / 视图页面 0%"也已过时：现在已有 9 个组件与 4 个成型页面（Onboarding / Dashboard / Plan / Execution），其余 3 页（Meals / Report / Settings）仍为占位。其中列为 ✅ 的 `src/utils/animations.ts`（动画工具函数）因始终无人调用，已在后续清理中删除。
 > 未实现的规划（`journey|training|meals|reports` 组件目录、LoadingSpinner / ConfirmDialog / EmptyState / IncompleteState、ModeSwitcher / ModeComparison、周报图表等）**至今一个都没有创建**，请勿据此判断交付状态。（模式切换与调整预览后来以内联方式做进了 SidebarNav / PlanView，但没有拆成独立组件。）
 > 当前真实状态请看 `README.md` 首节"当前实现状态"与 `交付说明.md` 的修订记录。
 

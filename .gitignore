@@ -12,6 +12,9 @@ dist-ssr/
 .env.*.local
 *.local.json
 
+# MediaPipe runtime assets (regenerate with: cd UI && npm run camera:assets)
+UI/public/mediapipe/
+
 # Python
 __pycache__/
 *.py[cod]

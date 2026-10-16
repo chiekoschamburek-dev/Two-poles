@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="两仪·TwoPoles 标记（深色背景用）">
+  <defs>
+    <linearGradient id="poleTealLight" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0a9b9d" />
+      <stop offset="1" stop-color="#5fe3cd" />
+    </linearGradient>
+    <linearGradient id="poleBlueLight" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4d94cc" />
+      <stop offset="1" stop-color="#a9ddf2" />
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke-width="8" stroke-linecap="round">
+    <path d="M13.21 25.16A20 20 0 0 1 50.79 25.16" stroke="url(#poleTealLight)" />
+    <path d="M50.79 38.84A20 20 0 0 1 13.21 38.84" stroke="url(#poleBlueLight)" />
+  </g>
+  <circle cx="12" cy="32" r="3.6" fill="#5fe3cd" />
+  <circle cx="52" cy="32" r="3.6" fill="#a9ddf2" />
+</svg>

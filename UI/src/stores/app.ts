@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Mode, UserProfile, Toast, TrainingSession } from '@/types/domain'
+import type { Mode, UserProfile, Toast, TrainingSession, SessionFeedback } from '@/types/domain'
 import { newId } from '@/utils/id'
 
 export const useAppStore = defineStore('app', () => {
@@ -14,6 +14,7 @@ export const useAppStore = defineStore('app', () => {
   // === Computed ===
   const isPublicMode = computed(() => currentMode.value === 'public')
   const isAthleteMode = computed(() => currentMode.value === 'athlete')
+  const hasProfile = computed(() => !!userProfile.value)
 
   // === Actions ===
 
@@ -126,7 +127,7 @@ export const useAppStore = defineStore('app', () => {
   /**
    * Record a finished training session
    */
-  function addSession(input: Omit<TrainingSession, 'id' | 'userId' | 'createdAt'>) {
+  function addSession(input: Omit<TrainingSession, 'id' | 'userId' | 'createdAt'>): TrainingSession {
     const session: TrainingSession = {
       ...input,
       id: newId(),
@@ -140,6 +141,30 @@ export const useAppStore = defineStore('app', () => {
       title: '训练已记录',
       message: `${session.exerciseName} · ${session.actualReps ?? 0} 次 · ${session.completionStatus === 'completed' ? '全部完成' : '部分完成'}`,
       duration: 4000
+    })
+    return session
+  }
+
+  /**
+   * Attach the post-session feedback (RPE, discomfort, reason, notes)
+   */
+  function applyFeedback(sessionId: string, feedback: SessionFeedback) {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session) return
+    session.rpe = feedback.rpe
+    session.discomfort = feedback.discomfort
+    session.completionReason = feedback.reason
+    session.notes = feedback.notes
+    if (feedback.duration !== undefined) session.actualDuration = feedback.duration
+    if (feedback.distance !== undefined) session.actualDistance = feedback.distance
+    persistState()
+    showToast({
+      type: 'success',
+      title: '训练反馈已保存',
+      message: feedback.rpe === null
+        ? 'RPE 记为"未记录"，不参与负荷计算'
+        : `RPE ${feedback.rpe} · 本次负荷约 ${Math.round((session.actualDuration ?? 0) * feedback.rpe)}`,
+      duration: 3000
     })
   }
 
@@ -170,6 +195,7 @@ export const useAppStore = defineStore('app', () => {
     // Computed
     isPublicMode,
     isAthleteMode,
+    hasProfile,
 
     // Actions
     init,
@@ -179,6 +205,7 @@ export const useAppStore = defineStore('app', () => {
     showToast,
     dismissToast,
     addSession,
+    applyFeedback,
     clearAllData
   }
 })
