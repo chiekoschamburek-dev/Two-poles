@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>运动饮食类 App 界面方向对比 · 调研产出</title>
+<style>
+/* ===== 页面外壳 ===== */
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0f1417;color:#e6ebef;font-family:"Segoe UI Variable Text","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:40px 36px 64px;-webkit-font-smoothing:antialiased}
+.page-head{max-width:1720px;margin:0 auto 8px}
+.page-head h1{font-size:30px;letter-spacing:-.02em;font-weight:700}
+.page-head p{color:#93a1ac;font-size:14px;margin-top:6px;line-height:1.6}
+.board{display:flex;gap:34px;justify-content:center;align-items:flex-start;max-width:1780px;margin:34px auto 0;flex-wrap:wrap}
+.col{width:392px}
+.col-title{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.col-title b{font-size:16px}
+.col-title span{font-size:12px;color:#8b98a4}
+.tag{font-size:11px;padding:3px 8px;border-radius:999px;font-weight:600;letter-spacing:.02em}
+.tag-rec{background:#1f6f5c;color:#c9f5e4}
+.tag-alt{background:#2a4a6d;color:#cfe4fb}
+.tag-bad{background:#6d2a2a;color:#f8cfcf}
+.phone{width:392px;height:826px;border-radius:44px;padding:12px;background:#1b2226;box-shadow:0 30px 70px -30px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.06)}
+.screen{width:100%;height:100%;border-radius:34px;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.scroll{flex:1;overflow:hidden}
+.legend{max-width:1720px;margin:44px auto 0;border-top:1px solid #263038;padding-top:22px}
+.legend h2{font-size:17px;margin-bottom:14px}
+.legend ol{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:10px 26px}
+.legend li{font-size:13px;color:#a7b3bd;line-height:1.65}
+.legend li b{color:#e6ebef;font-weight:600}
+.legend i{font-style:normal;font-size:11px;color:#7f8d99}
+.chip-ev{display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;background:#243039;color:#9fb0bd;margin-left:6px}
+
+/* ===== 通用：标注点 ===== */
+.dot{position:absolute;width:22px;height:22px;border-radius:50%;background:#ffd166;color:#3a2b00;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:40;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+
+/* ===== 方向 A：克制平面 + 数据大字（浅色） ===== */
+.a .screen{background:#ffffff;color:#15181b}
+.a .statusbar,.b .statusbar,.c .statusbar{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:600;flex:none}
+.a .statusbar{color:#15181b}
+.a .top{display:flex;align-items:center;justify-content:space-between;padding:6px 20px 14px}
+.a .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#7c858d;font-weight:600}
+.a h2.big{font-size:26px;letter-spacing:-.02em;font-weight:700;margin-top:2px}
+.a .iconbtn{width:36px;height:36px;border-radius:10px;border:1px solid #e5e7eb;display:flex;align-items:center;justify-content:center;font-size:15px;color:#4b5563;background:#fff}
+.a .pad{padding:0 20px}
+.a .card{border:1px solid #e5e7eb;border-radius:14px;background:#fff;padding:16px;margin-bottom:12px}
+.a .kcal-row{display:flex;align-items:flex-end;justify-content:space-between}
+.a .num{font-size:44px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
+.a .num small{font-size:14px;font-weight:500;color:#7c858d;letter-spacing:0}
+.a .remain{text-align:right;font-size:12px;color:#7c858d;line-height:1.5}
+.a .remain b{display:block;font-size:18px;color:#0f766e;font-variant-numeric:tabular-nums}
+.a .bar{height:6px;border-radius:999px;background:#eceff1;margin-top:14px;overflow:hidden}
+.a .bar i{display:block;height:100%;width:73%;background:#0f766e;border-radius:999px}
+.a .macro{margin-top:16px;display:grid;gap:11px}
+.a .mrow{display:grid;grid-template-columns:44px 1fr 78px;align-items:center;gap:10px;font-size:12px}
+.a .mrow span:first-child{color:#4b5563;font-weight:600}
+.a .mtrack{height:5px;background:#eceff1;border-radius:999px;position:relative}
+.a .mtrack i{position:absolute;left:0;top:0;bottom:0;background:#15181b;border-radius:999px}
+.a .mtrack u{position:absolute;top:-3px;bottom:-3px;width:2px;background:#c3cad1;text-decoration:none}
+.a .mrow span:last-child{text-align:right;color:#4b5563;font-variant-numeric:tabular-nums}
+.a .sec-h{display:flex;align-items:center;justify-content:space-between;margin:22px 0 10px}
+.a .sec-h b{font-size:15px}
+.a .sec-h i{font-style:normal;font-size:12px;color:#0f766e;font-weight:600}
+.a .train{display:flex;gap:12px;align-items:center}
+.a .train .tinfo{flex:1}
+.a .train .tinfo b{font-size:15px;display:block}
+.a .train .tinfo span{font-size:12px;color:#7c858d}
+.a .btn{background:#0f766e;color:#fff;border:none;border-radius:11px;padding:11px 16px;font-size:13px;font-weight:600;height:44px;display:flex;align-items:center}
+.a .quick{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.a .qbtn{border:1px solid #e5e7eb;border-radius:12px;padding:12px 6px;text-align:center;background:#fff}
+.a .qbtn em{font-style:normal;font-size:19px;display:block;margin-bottom:4px}
+.a .qbtn span{font-size:12px;color:#374151;font-weight:500}
+.a .week{display:flex;align-items:flex-end;gap:7px;height:58px;margin-top:6px}
+.a .week i{flex:1;background:#d7dde2;border-radius:3px;display:block}
+.a .week i.on{background:#0f766e}
+.a .note{font-size:11px;color:#7c858d;margin-top:10px;line-height:1.5}
+.a .nav{flex:none;height:74px;border-top:1px solid #e5e7eb;display:grid;grid-template-columns:repeat(4,1fr);padding-bottom:14px;background:#fff}
+.a .nav div{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11px;color:#9ca3af}
+.a .nav div.on{color:#0f766e;font-weight:600}
+.a .nav div.rec em{width:44px;height:44px;border-radius:14px;background:#15181b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;margin-top:-14px;box-shadow:0 4px 12px rgba(0,0,0,.18)}
+.a .nav em{font-style:normal;font-size:17px}
+.a .trust{font-size:10.5px;color:#9ca3af;text-align:center;padding:6px 0 14px;line-height:1.6}
+.a .trust a{color:#0f766e;font-weight:600;text-decoration:underline}
+
+/* ===== 方向 A2：记录弹层 ===== */
+.sheet-scr{background:#f6f7f8}
+.sheet-scr .ghost{opacity:.35;filter:saturate(.5)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:18px 20px 26px;box-shadow:0 -14px 40px -18px rgba(0,0,0,.3)}
+.sheet .grab{width:38px;height:4px;border-radius:999px;background:#dfe3e7;margin:0 auto 14px}
+.sheet h3{font-size:19px;letter-spacing:-.02em}
+.sheet .sub{font-size:12px;color:#7c858d;margin:4px 0 14px}
+.sheet .ents{display:grid;gap:9px}
+.sheet .ent{display:flex;align-items:center;gap:13px;border:1px solid #e5e7eb;border-radius:13px;padding:13px 14px;background:#fff}
+.sheet .ent.pri{border-color:#0f766e;background:#f0f7f5}
+.sheet .ent em{font-style:normal;width:38px;height:38px;border-radius:10px;background:#eceff1;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none}
+.sheet .ent.pri em{background:#0f766e;color:#fff}
+.sheet .ent b{font-size:14px;display:block}
+.sheet .ent span{font-size:11.5px;color:#7c858d}
+.sheet .ent .arrow{margin-left:auto;color:#c3cad1;font-size:16px}
+.sheet .cand{margin-top:14px;border:1px dashed #cbd2d8;border-radius:13px;padding:13px}
+.sheet .cand .chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}
+.sheet .chip{font-size:12px;padding:6px 10px;border-radius:999px;background:#eceff1;color:#374151;font-weight:500}
+.sheet .chip.sel{background:#15181b;color:#fff}
+.sheet .chip i{font-style:normal;opacity:.6;margin-left:4px;font-variant-numeric:tabular-nums}
+.sheet .rng{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#4b5563}
+.sheet .rng b{font-size:15px;font-variant-numeric:tabular-nums;color:#15181b}
+.sheet .sw{width:38px;height:22px;border-radius:999px;background:#dfe3e7;position:relative;flex:none}
+.sheet .sw::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.sheet .units{display:flex;gap:6px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #eceff1}
+.sheet .units .chip{font-size:11.5px;padding:5px 9px}
+.sheet .confirm{margin-top:14px;height:48px;border-radius:12px;background:#0f766e;color:#fff;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.sheet .alt{margin-top:10px;text-align:center;font-size:12px;color:#7c858d}
+.sheet .alt u{color:#0f766e;text-decoration:none;font-weight:600}
+
+/* ===== 方向 B：深色运动态 ===== */
+.b .screen{background:#0b0c0e;color:#eef1f4}
+.b .statusbar{color:#eef1f4}
+.b .bhead{display:flex;align-items:center;justify-content:space-between;padding:2px 20px 10px}
+.b .bhead span{font-size:12px;color:#8e99a4}
+.b .bhead b{font-size:13px;color:#cfd6dd;font-weight:600}
+.b .cam{margin:0 16px;height:296px;border-radius:18px;background:linear-gradient(160deg,#1a1f24,#101317 60%,#181d22);position:relative;overflow:hidden;border:1px solid #232a31}
+.b .cam svg{position:absolute;inset:0;width:100%;height:100%}
+.b .cam .hud{position:absolute;left:12px;bottom:12px;background:rgba(11,12,14,.72);border:1px solid #2b333b;border-radius:9px;padding:7px 10px;font-size:11px;color:#a9b4bf;line-height:1.5}
+.b .cam .hud b{color:#4ade80;font-variant-numeric:tabular-nums}
+.b .cam .form{position:absolute;right:12px;top:12px;background:rgba(11,12,14,.72);border:1px solid #2b333b;border-radius:9px;padding:7px 10px;font-size:11px;color:#a9b4bf}
+.b .cam .form b{color:#fbbf24}
+.b .counter{display:flex;flex-direction:column;align-items:center;margin:20px 0 4px}
+.b .counter .n{font-size:104px;font-weight:700;letter-spacing:-.05em;line-height:.92;font-variant-numeric:tabular-nums;color:#fff}
+.b .counter .l{font-size:13px;color:#8e99a4;margin-top:10px;letter-spacing:.02em}
+.b .counter .l b{color:#eef1f4;font-variant-numeric:tabular-nums}
+.b .tempo{display:flex;gap:6px;justify-content:center;margin-top:14px}
+.b .tempo i{width:44px;height:5px;border-radius:999px;background:#242b33}
+.b .tempo i.on{background:#4ade80}
+.b .tempo span{font-size:11px;color:#8e99a4;align-self:center;margin-left:8px;font-variant-numeric:tabular-nums}
+.b .ctrl{position:absolute;left:0;right:0;bottom:0;padding:0 16px 26px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.b .ctrl div{height:64px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;border:1px solid #2b333b;color:#cfd6dd}
+.b .ctrl div.pri{background:#eef1f4;color:#0b0c0e;border-color:#eef1f4}
+
+/* ===== 方向 C：现状（玻璃拟态 + 常驻渐变） ===== */
+.c .screen{background:
+  radial-gradient(1100px 620px at 8% -12%, rgba(8,126,128,.13) 0%, transparent 62%),
+  radial-gradient(880px 560px at 100% 4%, rgba(36,104,160,.15) 0%, transparent 60%),
+  radial-gradient(760px 620px at 62% 108%, rgba(120,92,190,.11) 0%, transparent 58%),
+  linear-gradient(180deg,#f7fafc 0%,#eaf1f6 100%);color:#1a1a1a}
+.c .statusbar{color:#fff}
+.c .topbar{height:56px;background:linear-gradient(135deg,#16334b,#1e4159);display:flex;align-items:center;justify-content:space-between;padding:0 18px;color:#fff;flex:none}
+.c .topbar b{font-size:14px;display:flex;align-items:center;gap:8px}
+.c .topbar b i{width:18px;height:18px;border-radius:50%;border:2.5px solid #4fd1c5;border-top-color:transparent;display:block}
+.c .topbar .me{width:30px;height:30px;border-radius:50%;background:#eaf1f6;color:#16334b;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.c .body{padding:16px 16px 0;flex:1;overflow:hidden}
+.c .eyebrow{font-size:10px;letter-spacing:.16em;color:#087e80;font-weight:700}
+.c h2{font-size:22px;color:#16334b;letter-spacing:-.03em;font-weight:700;margin:4px 0 2px}
+.c .lede{font-size:12px;color:#627585;margin-bottom:12px}
+.c .hero{background:linear-gradient(135deg,#2468a0,#2d7bb8);border-radius:20px;padding:16px;color:#fff;box-shadow:0 18px 44px -18px rgba(9,68,82,.42);margin-bottom:12px;position:relative}
+.c .hero .e{font-size:9px;letter-spacing:.16em;opacity:.85}
+.c .hero b{display:block;font-size:17px;margin:4px 0 2px}
+.c .hero span{font-size:11px;opacity:.85}
+.c .hero .btns{display:flex;gap:8px;margin-top:12px}
+.c .hero .btns div{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:10px;padding:8px 12px;font-size:12px;font-weight:600;backdrop-filter:blur(6px)}
+.c .hero .ring{position:absolute;right:14px;top:14px;width:52px;height:52px;border-radius:50%;border:4px solid rgba(255,255,255,.25);border-top-color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.c .grid4{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.c .mc{border-radius:16px;padding:13px;color:#fff;min-height:76px;box-shadow:0 8px 20px -10px rgba(18,44,68,.4)}
+.c .mc .e{font-size:9px;letter-spacing:.14em;opacity:.9}
+.c .mc b{display:block;font-size:22px;margin-top:6px;font-variant-numeric:tabular-nums}
+.c .mc span{font-size:10px;opacity:.85}
+.c .mc1{background:linear-gradient(135deg,#087e80,#0a9b9d)}
+.c .mc2{background:linear-gradient(135deg,#2468a0,#2d7bb8)}
+.c .mc3{background:linear-gradient(135deg,#6b5be2,#8b7bf0)}
+.c .mc4{background:linear-gradient(135deg,#d7a54b,#e5b565)}
+.c .glass{background:rgba(255,255,255,.9);backdrop-filter:blur(10px);border:1px solid #dce5ed;border-radius:20px;padding:14px;box-shadow:0 1px 2px rgba(18,44,68,.05),0 8px 20px -10px rgba(18,44,68,.14);margin-bottom:10px}
+.c .glass .e{font-size:9px;letter-spacing:.16em;color:#087e80;font-weight:700}
+.c .glass h4{font-size:15px;color:#16334b;margin:3px 0 8px}
+.c .row{display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid #e8eef3;font-size:12px;color:#3c4b58}
+.c .row i{font-style:normal;width:22px;height:22px;border-radius:7px;background:#eef4f8;color:#087e80;display:flex;align-items:center;justify-content:center;font-size:11px}
+.c .row span{margin-left:auto;color:#8895a5;font-variant-numeric:tabular-nums}
+.c .nav{flex:none;height:66px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-top:1px solid #dce5ed;display:grid;grid-template-columns:repeat(5,1fr);align-items:center;font-size:10px;color:#8895a5}
+.c .nav div{text-align:center}
+.c .nav div.on{color:#087e80;font-weight:700}
+.c .nav em{font-style:normal;display:block;font-size:15px;margin-bottom:2px}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>运动饮食类 App：哪种前端界面更受欢迎 · 对比结论</h1>
+  <p>依据 2024–2026 一手用户声音（Reddit / HN / V2EX / 少数派 / 知乎 / App Store 评论）与 NN/g 研究结论整理。左三列为建议方向，最右列是本项目现状（玻璃拟态 + 常驻渐变）作为对照。黄色标号对应下方证据说明。</p>
+</div>
+
+<div class="board">
+
+  <!-- ============ A1 今日总览 ============ -->
+  <div class="col">
+    <div class="col-title"><b>方向 A1 · 今日总览</b><span>克制平面 + 数据大字</span><i class="tag tag-rec">建议主界面</i></div>
+    <div class="phone a"><div class="screen">
+      <div class="statusbar"><span>9:41</span><span>●●● ⌁ ▮</span></div>
+      <div class="top">
+        <div><div class="eyebrow">10月16日 周五</div><h2 class="big">今天</h2></div>
+        <div style="display:flex;gap:8px"><div class="iconbtn">◐</div><div class="iconbtn">我</div></div>
+      </div>
+      <div class="pad scroll">
+        <div class="card">
+          <div class="eyebrow">能量 · 区间目标</div>
+          <div class="kcal-row" style="margin-top:8px">
+            <div class="num">1 860<small> / 2 450 kcal</small></div>
+            <div class="remain">还可吃<b>590</b></div>
+          </div>
+          <div class="bar"><i></i></div>
+          <div class="macro">
+            <div class="mrow"><span>蛋白</span><div class="mtrack"><i style="width:76%"></i><u style="left:88%"></u></div><span>92 / 120 g</span></div>
+            <div class="mrow"><span>碳水</span><div class="mtrack"><i style="width:70%"></i><u style="left:82%"></u></div><span>210 / 300 g</span></div>
+            <div class="mrow"><span>脂肪</span><div class="mtrack"><i style="width:71%"></i><u style="left:78%"></u></div><span>54 / 76 g</span></div>
+          </div>
+          <div class="note">竖线是当日建议上限，不是"越界即失败"。没记的餐只算"未记录"，不并入 0。</div>
+        </div>
+
+        <div class="sec-h"><b>今日训练</b><i>改条件 ›</i></div>
+        <div class="card train">
+          <div class="tinfo"><b>无器材基础体能</b><span>20 min · 宿舍 · 第 3 / 5 组</span></div>
+          <button class="btn">继续跟练</button>
+        </div>
+
+        <div class="sec-h"><b>记一笔</b><i>今日 2 / 3 餐</i></div>
+        <div class="quick">
+          <div class="qbtn"><em>▣</em><span>拍照识别</span></div>
+          <div class="qbtn"><em>★</em><span>常吃</span></div>
+          <div class="qbtn"><em>⌕</em><span>搜索</span></div>
+        </div>
+
+        <div class="sec-h"><b>本周</b><i>连续 5 天 ›</i></div>
+        <div class="card">
+          <div class="week">
+            <i class="on" style="height:62%"></i><i class="on" style="height:88%"></i><i class="on" style="height:44%"></i><i class="on" style="height:100%"></i><i class="on" style="height:70%"></i><i style="height:20%"></i><i style="height:20%"></i>
+          </div>
+          <div class="note">5/7 天有记录。周平均体重 −0.3 kg，仍在正常波动区间内。</div>
+        </div>
+        <div class="trust">数据只存在这台设备 · 无广告 · 无社区 feed · 无积分商城 <a>导出 JSON</a></div>
+      </div>
+      <div class="nav">
+        <div class="on"><em>◷</em>今日</div>
+        <div class="rec"><em>＋</em>记录</div>
+        <div><em>◔</em>图表</div>
+        <div><em>≡</em>我的</div>
+      </div>
+      <div class="dot" style="right:14px;top:52px">1</div>
+      <div class="dot" style="left:16px;top:150px">2</div>
+      <div class="dot" style="right:16px;top:150px">5</div>
+      <div class="dot" style="left:16px;top:246px">19</div>
+      <div class="dot" style="left:16px;top:300px">8</div>
+      <div class="dot" style="left:16px;bottom:150px">3</div>
+      <div class="dot" style="right:14px;bottom:34px">7</div>
+    </div></div>
+  </div>
+
+  <!-- ============ A2 记录弹层 ============ -->
+  <div class="col">
+    <div class="col-title"><b>方向 A2 · 记这一餐</b><span>三入口 · 拍照优先</span><i class="tag tag-rec">留存关键</i></div>
+    <div class="phone a"><div class="screen sheet-scr">
+      <div class="statusbar"><span>9:41</span><span>●●● ⌁ ▮</span></div>
+      <div class="pad ghost" style="padding-top:8px">
+        <div class="eyebrow">10月16日 周五</div>
+        <h2 class="big" style="margin-bottom:12px">今天</h2>
+        <div class="card"><div class="num" style="font-size:34px">1 860<small> / 2 450 kcal</small></div><div class="bar"><i></i></div></div>
+        <div class="card" style="height:88px"></div>
+      </div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <h3>记午餐</h3>
+        <div class="sub">30 秒内记完。先选一个入口就行。</div>
+        <div class="ents">
+          <div class="ent pri"><em>▣</em><div><b>拍照识别</b><span>本机识别，照片不上传、不落盘</span></div><div class="arrow">›</div></div>
+          <div class="ent"><em>★</em><div><b>常吃</b><span>米饭、鸡蛋、鸡胸、无糖酸奶 · 共 12 项</span></div><div class="arrow">›</div></div>
+          <div class="ent"><em>⌕</em><div><b>搜索</b><span>支持"番茄炒蛋"这类菜名</span></div><div class="arrow">›</div></div>
+        </div>
+        <div class="cand">
+          <div class="chips">
+            <span class="chip sel">米饭 <i>92%</i></span>
+            <span class="chip sel">鸡蛋 <i>87%</i></span>
+            <span class="chip">西兰花 <i>61%</i></span>
+            <span class="chip">+ 手动加</span>
+          </div>
+          <div class="units">
+            <span class="chip sel">一碗</span><span class="chip">半碗</span><span class="chip">一拳</span><span class="chip">1 份外卖</span><span class="chip">200 g</span>
+          </div>
+          <div class="rng">
+            <div>热量估算 <b>≈ 420 – 520 kcal</b> <span style="color:#7c858d">· 区间，非精确值</span></div>
+            <div class="sw"></div>
+          </div>
+        </div>
+        <div class="confirm">确认记录</div>
+        <div class="alt">懒得填克数？<u>只记"吃了什么"</u>，结构记录同样进周报</div>
+      </div>
+      <div class="dot" style="left:16px;top:150px">3</div>
+      <div class="dot" style="right:16px;top:262px">4</div>
+      <div class="dot" style="left:16px;bottom:120px">6</div>
+    </div></div>
+  </div>
+
+  <!-- ============ B 深色运动态 ============ -->
+  <div class="col">
+    <div class="col-title"><b>方向 B · 跟练中</b><span>深色高对比 · 运动态</span><i class="tag tag-alt">建议深色模式</i></div>
+    <div class="phone b"><div class="screen">
+      <div class="statusbar"><span>9:41</span><span>●●● ⌁ ▮</span></div>
+      <div class="bhead"><span>‹ 退出</span><b>无器材基础体能 · 3 / 5 组</b><span>静音</span></div>
+      <div class="cam">
+        <svg viewBox="0 0 360 296" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round">
+          <circle cx="180" cy="72" r="17" stroke="#eef1f4"/>
+          <path d="M180 89 L180 158"/>
+          <path d="M180 104 L142 132 M180 104 L218 132"/>
+          <path d="M142 132 L136 168" stroke="#fbbf24"/>
+          <path d="M218 132 L224 168" stroke="#fbbf24"/>
+          <path d="M180 158 L152 208 M180 158 L208 208"/>
+          <path d="M152 208 L146 258 M208 208 L214 258" stroke="#4ade80"/>
+          <circle cx="152" cy="208" r="5" fill="#4ade80" stroke="none"/>
+          <circle cx="208" cy="208" r="5" fill="#4ade80" stroke="none"/>
+          <circle cx="180" cy="158" r="5" fill="#eef1f4" stroke="none"/>
+        </svg>
+        <div class="form">姿态 <b>良好</b> · 膝内扣 0</div>
+        <div class="hud">髋角 <b>94°</b> · 膝角 <b>101°</b><br>可见度 0.92 / 0.88</div>
+      </div>
+      <div class="counter">
+        <div class="n">12</div>
+        <div class="l">下蹲 · 本组目标 <b>15</b> · 剩余 <b>0:38</b></div>
+        <div class="tempo"><i class="on"></i><i class="on"></i><i class="on"></i><span>节奏 2 – 0 – 2</span></div>
+      </div>
+      <div class="ctrl">
+        <div>暂停</div>
+        <div class="pri">结束并记 RPE</div>
+      </div>
+      <div class="dot" style="right:14px;top:120px">9</div>
+      <div class="dot" style="left:16px;top:330px">2</div>
+      <div class="dot" style="right:14px;bottom:34px">10</div>
+    </div></div>
+  </div>
+
+  <!-- ============ C 现状对照 ============ -->
+  <div class="col">
+    <div class="col-title"><b>本项目现状</b><span>玻璃拟态 + 常驻渐变</span><i class="tag tag-bad">对照 / 建议收敛</i></div>
+    <div class="phone c"><div class="screen">
+      <div class="topbar"><b><i></i>两仪·TwoPoles</b><div class="me">我</div></div>
+      <div class="body scroll">
+        <div class="eyebrow">◆ FRIDAY · OCTOBER 16</div>
+        <h2>今天，也从小一步开始</h2>
+        <div class="lede">晚上好，朋友。把计划变成一次轻松的行动。</div>
+        <div class="hero">
+          <div class="ring">0/3</div>
+          <div class="e">今日训练 · 20 MIN</div>
+          <b>无器材基础体能</b><span>宿舍 · 无器材 · 无跳跃</span>
+          <div class="btns"><div>▶ 开始跟练</div><div>⚙ 调整条件</div></div>
+        </div>
+        <div class="grid4">
+          <div class="mc mc1"><div class="e">本周训练完成</div><b>0 / 3</b><span>有计划</span></div>
+          <div class="mc mc2"><div class="e">今日可用时间</div><b>20 分钟</b><span>适合轻强度</span></div>
+          <div class="mc mc3"><div class="e">类别覆盖</div><b>0 / 3</b><span>未跟踪 %</span></div>
+          <div class="mc mc4"><div class="e">基础体能</div><b>目标</b><span>查看目标说明</span></div>
+        </div>
+        <div class="glass">
+          <div class="e">◆ TODAY'S SESSION</div>
+          <h4>今天的训练</h4>
+          <div class="row"><i>◔</i>动态热身 · 激活全身<span>4 min</span></div>
+          <div class="row"><i>◑</i>站姿弯举 · 2 组 × 12 次<span>6 min</span></div>
+          <div class="row"><i>●</i>舒缓整理 · 呼吸·拉伸<span>4 min</span></div>
+        </div>
+        <div class="glass" style="padding:11px">
+          <div class="e" style="color:#d7a54b">⚠ 已记录的餐食只展示"未记录"，不会被判断成"没吃"。</div>
+        </div>
+      </div>
+      <div class="nav">
+        <div class="on"><em>◱</em>概览</div><div><em>▤</em>计划</div><div><em>◉</em>跟练</div><div><em>◫</em>饮食</div><div><em>◨</em>周报</div>
+      </div>
+      <div class="dot" style="left:14px;top:96px">8</div>
+      <div class="dot" style="right:14px;top:186px">11</div>
+      <div class="dot" style="left:14px;top:262px">12</div>
+      <div class="dot" style="right:14px;bottom:76px">7</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="legend">
+  <h2>每个决策对应的证据</h2>
+  <ol>
+    <li><b>1 首页只放"当天能执行"的信息</b>，周报/档案/趋势下钻。NN/g 明确点名"一页塞多个目标"是健康类 App 的结构性缺陷。<span class="chip-ev">NN/g 2025-11 · 高</span></li>
+    <li><b>2 颜色只承担语义</b>：状态、进度、风险。装饰性渐变与彩色卡片会让色觉障碍用户（全球约 2.3 亿男性）读不到信息。<span class="chip-ev">NN/g 2025-06 · 高</span></li>
+    <li><b>3 记录三入口 + 拍照优先</b>：海外"我放弃 MFP 是因为数据库/搜索"是最高频弃用理由；国内用户自建工具的第一诉求就是"3 秒记完、支持菜名"。<span class="chip-ev">Reddit 2025-01 / V2EX 2025-07 · 高</span></li>
+    <li><b>4 AI 识别给候选 + 区间，不给单点真值</b>，且默认关闭。国内一手实测 14 个成品菜样本<b style="color:#d8e0e7">平均误差约 62%</b>（"菜被汤挡着就完全测不出"）；海外同样把"看起来更差"当共识。<span class="chip-ev">B站实测 2025-12 / Reddit 2025-10 · 高</span></li>
+    <li><b>5 数字是主角</b>：44–104px 大字 + <code>tabular-nums</code> 等宽数字，避免跳动时字宽变化。<span class="chip-ev">竞品实现 · 中</span></li>
+    <li><b>6 无热量/无评价的"结构记录"降级路径</b>，避免"没记 = 没吃"的误判，也降低放弃成本。<span class="chip-ev">Reddit 2025-08 · 中</span></li>
+    <li><b>7 底部导航 3–4 项，砍掉"发现/商城"</b>。被好评的小众工具（食卡卡、训记、Peak）都是"每页只干一件事"；Keep 9.0（2026-04）反过来把商城 Tab 砍掉、完练率与留存提升，官方口径与第三方评价一致。<span class="chip-ev">B站 2025-12 / Keep 9.0 改版 2026-04 · 高</span></li>
+    <li><b>8 动效只在操作之后出现</b>。常驻流光、入场错位、循环呼吸在 NN/g 的失败模式清单里属于"性能与注意力问题"。<span class="chip-ev">NN/g 2025-11 · 高</span></li>
+    <li><b>9 跟练态：高对比 + 非纯白文字、64px 触控目标</b>。<b style="color:#d8e0e7">注意：134 人实验显示深色/浅色没有一致绩效优势，散光人群在深色下反而更差（halation）</b>——所以深色是"跟随系统 + 运动场景优化"，不是"更高级"。户外眩光下有效对比度骤降（DXOMARK 实测）。<span class="chip-ev">arXiv 2024-10 / DXOMARK · 高</span></li>
+    <li><b>10 结束才要 RPE</b>，不在训练中弹问卷。训练中断一次记录的成本远高于补一次反馈。<span class="chip-ev">竞品实现 · 中</span></li>
+    <li><b>11 现状：语义色被装饰色稀释</b>。四张彩色渐变卡里"0/3"用蓝、"20 分钟"用紫，颜色不携带任何含义，只增加视觉噪声。<span class="chip-ev">对照本项目 tokens.css · 高</span></li>
+    <li><b>12 现状：4 层环境光 + feTurbulence 颗粒 + 玻璃模糊常驻</b>，正是国内用户吐槽的"首页像运营位"方向；且低端安卓 WebView 上首屏成本明显。<span class="chip-ev">NN/g + 国内反馈 · 中</span></li>
+    <li><b>13 记录粒度是"食材级 + 中式菜名"</b>，不是"一份盖浇饭"。自建工具作者的第一结论：<span style="color:#d8e0e7">「数据库要食材级，菜名是用户自己拼的」</span>。<span class="chip-ev">少数派 2026-07 / V2EX 2025-07 · 高</span></li>
+    <li><b>14 "深色 + 荧光"在国内口碑正在恶化</b>（"黑底绿字装极客"、"所有 App 都做成这样真的审美疲劳"）。Apple HIG 也<b style="color:#d8e0e7">反对 App 内自建外观开关</b>——正确做法是跟随系统 + 两套外观各自过 4.5:1（自定义小字建议 7:1）。<span class="chip-ev">知乎 2025-11 / Apple HIG · 高</span></li>
+    <li><b>15 "无广告/本地存储"要写进文案层</b>，它已是国内用户换 App 的首要理由和主动传播点，只藏在设置里等于没有。<span class="chip-ev">App Store 中文区 2025-06 / 少数派 2025-03 · 高</span></li>
+    <li><b>16 记录成本要写成硬指标</b>：一餐 ≤3 步、一次训练 ≤2 步（默认复用上次计划 / 最近吃过）。国内独立开发者复盘的共同结论是"穿过运营位、弹窗、会员引导"是流失主因。<span class="chip-ev">CSDN 2026-09 / 少数派 2026-07 · 高</span></li>
+    <li><b>17 桌面小组件是被反复点名、至今没人做好的入口</b>（"系统健康 App 小组件只有一个圆环，小米健康连小组件都没有"）。本项目是 Web 壳，可先做"今日还剩多少 + 一键记一餐"的 PWA 快捷方式。<span class="chip-ev">少数派 2023-08（需求仍空缺）· 中</span></li>
+    <li><b>18 差异化只能来自"饮食 + 训练 + 周报合在一屏"</b>：纯训练记录的界面已被训记/Hevy 做到饱和，虎扑自建帖评论区原话"毫无差异化，训记哪个没有"。<span class="chip-ev">虎扑 2026-05 · 高</span></li>
+    <li><b>19 用条形，不用环形</b>。一手用户评论："我喜欢能量与宏量的目标条，很好读、配色好，<b style="color:#d8e0e7">而且是条不是圆形图</b>"；HIG 也明令环形只能承载"活动/锻炼/站立"、禁止装饰化与混排。<span class="chip-ev">Cronometer 评论 2024-02 / Apple HIG · 高</span></li>
+    <li><b>20 别把功能塞进抽屉</b>。本项目"设置/档案"藏在侧边抽屉，而 NN/g 179 人 6 站点定量测试：隐藏导航可发现性降 &gt;20%，任务完成时间移动端 +15%、桌面 +39%，主观难度 +21%。<span class="chip-ev">NN/g Hamburger · 高</span></li>
+    <li><b>21 玻璃拟态有明确反对证据</b>：NN/g《Liquid Glass Is Cracked》逐条指出半透明叠加让文字"伪装"、控件拥挤、可预测性下降；Apple 随后自己补了"降透明/色调"开关与透明度滑杆。<b style="color:#d8e0e7">官方规范从未推荐把 blur 当默认表面。</b><span class="chip-ev">NN/g 2025-10-10 · 高</span></li>
+    <li><b>22 输入方式多样性 &gt; 视觉花哨</b>：11 款饮食 App 的 SUS 从 91（Bitesnap）到 38.5，最显著相关因素是"多种录入方式 + 可编辑已记录内容"；记录依从性从第 1 周 68% 衰减到 3 个月 21%，漏记主因"太耗时"。<span class="chip-ev">JMIR 2023 / SnappyMeal 2025-11 · 高</span></li>
+    <li><b>23 把"记一整天要多少次交互"当成 KPI</b>。竞品公开基准：同一套记录任务 MyNetDiary 711 次 / Cronometer 1,003 次 / MyFitnessPal 1,035 次，对应月度评分 4.45 / 3.87 / 2.88。<span class="chip-ev">MyNetDiary Scorecard 2026-10（厂商自测，需打折）· 中</span></li>
+    <li><b>24 广告与付费墙不得插入"选食物 → 确认"动作链</b>。最一致的流失触发器不是"高级功能收费"，而是<b style="color:#d8e0e7">把曾经免费的记录入口移进付费墙</b>（MFP 条码 2022-10-01 付费化，至今仍是社区痛点）。<span class="chip-ev">Cibo 2026-08 / JMIR 2021 · 高</span></li>
+    <li><b>25 目标给区间，不给红线</b>。58,881 条 X 帖子中筛出的 13,799 条负面里，"记录垃圾食品后的羞耻感""达不到僵硬目标而失望"占大头；Apple 圆环"可暂停"成为 watchOS 11 好评度最高的功能。<span class="chip-ev">UCL/拉夫堡 BJHP 2025-10 · 高</span></li>
+  </ol>
+  <p style="max-width:1720px;margin:26px auto 0;font-size:12px;color:#7f8d99;line-height:1.75">
+    <b style="color:#d8e0e7">设计师品味 ≠ 用户证据。</b>Dribbble / Behance / Mobbin 的点赞与收录量不能当作"用户更喜欢"——那套"彩色渐变 + 玻璃卡片 + 发光数据卡"是设计师互评的产物，真实用户侧证据几乎全部相反。<br>
+    <b style="color:#d8e0e7">有用户侧证据：</b>可见底部 Tab（NN/g 179 人 + Apple WWDC21 用户测试）、条形优于圆环（Cronometer 一手评论"是条不是圆形图，很好读"）、输入方式多样性（SUS 91 vs 38.5）、收费与广告位置（72,084 条评论分类分析：收费类均值 <b style="color:#d8e0e7">2.3 星</b>，全站均值 4.4）。<br>
+    <b style="color:#d8e0e7">只有设计侧证据，本项目不采用：</b>Bento 网格、可变字体、果冻微交互、新拟物、插画与吉祥物（用户测试原话 "childish / ridiculous"，多数建议移除）、宏量元素三环。<br>
+    <b style="color:#d8e0e7">证据互相矛盾：</b>深色为默认主题（偏好投票 81.9% vs 134 人绩效实验无一致优势、NN/g 称浅色阅读更快）；AI 拍照（商店 4.8 星 vs 学术测量混合菜误差最高 270%）。<br>
+    <b style="color:#d8e0e7">反面教材（改版方式）：</b>watchOS 26 把"大磁贴一键开始"改成滚动列表 → 6 个月后 26.4 回滚；Garmin Connect 2024 磁贴化 + 健康统计限 8 块 → 长期负面；Samsung Health 把 AI 洞察卡置顶挤掉用户数据 → 要求"可隐藏"。<b style="color:#d8e0e7">结论：任何洞察卡必须可隐藏/重排，大改版要能回旧版。</b>
+  </p>
+</div>
+
+</body>
+</html>
