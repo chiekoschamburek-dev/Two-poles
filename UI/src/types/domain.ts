@@ -179,6 +179,16 @@ export interface MealItem {
   photoConfidence?: number
 }
 
+/** 表单里的一行草稿：类别有默认值，份量允许留空（留空即"部分记录"） */
+export interface MealDraft {
+  foodName: string
+  category: FoodCategory
+  portionSize: number | ''
+  portionUnit: string
+  source?: 'manual' | 'photo'
+  photoConfidence?: number
+}
+
 export interface EnergyEstimateRef {
   foodName: string
   low: number

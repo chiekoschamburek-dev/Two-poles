@@ -97,14 +97,13 @@ export function getPhaseText(phase: ExercisePhase): string {
 export function getConfidenceLevel(confidence: number): {
   level: 'high' | 'medium' | 'low'
   text: string
-  color: string
 } {
   if (confidence >= 0.8) {
-    return { level: 'high', text: '识别良好', color: 'var(--color-success)' }
+    return { level: 'high', text: '识别良好' }
   } else if (confidence >= 0.5) {
-    return { level: 'medium', text: '识别一般', color: 'var(--color-warning)' }
+    return { level: 'medium', text: '识别一般' }
   } else {
-    return { level: 'low', text: '识别较差', color: 'var(--color-danger)' }
+    return { level: 'low', text: '识别较差' }
   }
 }
 

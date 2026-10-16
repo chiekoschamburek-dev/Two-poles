@@ -20,16 +20,33 @@
     </div>
 
     <div class="slots">
-      <BaseCard v-for="(slot, i) in summary.slots" :key="slot.id" class="slot animate-slide-in-up" :style="{ animationDelay: 140 + i * 70 + 'ms' }">
+      <BaseCard
+        v-for="(slot, i) in summary.slots"
+        :key="slot.id"
+        class="slot animate-slide-in-up"
+        :class="{ opening: draft?.slot === slot.id }"
+        :style="{ animationDelay: 140 + i * 70 + 'ms' }"
+      >
         <div class="slot-head">
           <h3>{{ slot.label }}</h3>
-          <StatusBadge v-if="slot.meal" :variant="slot.meal.completeness === 'complete' ? 'success' : 'warning'">
+          <StatusBadge v-if="draft?.slot === slot.id" variant="info">记录中</StatusBadge>
+          <StatusBadge v-else-if="slot.meal" :variant="slot.meal.completeness === 'complete' ? 'success' : 'warning'">
             {{ slot.meal.completeness === 'complete' ? '完整记录' : '部分记录' }}
           </StatusBadge>
           <StatusBadge v-else variant="neutral">未记录</StatusBadge>
         </div>
 
-        <template v-if="slot.meal">
+        <MealForm
+          v-if="draft && draft.slot === slot.id"
+          :label="slot.label"
+          :initial-time="draft.time"
+          :initial-items="draft.items"
+          :show-estimate="showEstimate"
+          @save="onSave"
+          @cancel="draft = null"
+        />
+
+        <template v-else-if="slot.meal">
           <p class="meal-time">{{ slot.meal.time }} · {{ slot.meal.items.length }} 项</p>
           <ul class="items">
             <li v-for="item in slot.meal.items" :key="item.id">
@@ -62,9 +79,19 @@
     <BaseCard class="snacks animate-slide-in-up" style="animation-delay:360ms">
       <div class="slot-head">
         <h3>加餐</h3>
-        <BaseButton variant="ghost" size="sm" :icon="Plus" @click="startAdd('snack')">添加加餐</BaseButton>
+        <StatusBadge v-if="draft?.slot === 'snack'" variant="info">记录中</StatusBadge>
+        <BaseButton v-else variant="ghost" size="sm" :icon="Plus" @click="startAdd('snack')">添加加餐</BaseButton>
       </div>
-      <ul v-if="snacks.length" class="items">
+      <MealForm
+        v-if="draft && draft.slot === 'snack'"
+        label="加餐"
+        :initial-time="draft.time"
+        :initial-items="draft.items"
+        :show-estimate="showEstimate"
+        @save="onSave"
+        @cancel="draft = null"
+      />
+      <ul v-else-if="snacks.length" class="items">
         <li v-for="meal in snacks" :key="meal.id">
           <span class="iname">{{ meal.time }}</span>
           <span class="icat">{{ meal.items.map(i => i.foodName).join('、') }}</span>
@@ -72,75 +99,6 @@
         </li>
       </ul>
       <p v-else class="muted">今天没有记录加餐。不记录也是合法状态。</p>
-    </BaseCard>
-
-    <BaseCard v-if="editing" class="form animate-scale-in">
-      <h3>{{ editing === 'new' ? '记录一餐' : '补记 / 修改' }}</h3>
-      <div class="form-grid">
-        <label class="field">
-          <span class="field-label">餐次</span>
-          <select v-model="form.mealType">
-            <option value="breakfast">早餐</option>
-            <option value="lunch">午餐</option>
-            <option value="dinner">晚餐</option>
-            <option value="snack">加餐</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">时间</span>
-          <input v-model="form.time" type="time" />
-        </label>
-      </div>
-
-      <div class="photo">
-        <input ref="fileRef" type="file" accept="image/*" capture="environment" class="file-input" @change="onPick" />
-        <div class="photo-bar">
-          <BaseButton variant="ghost" size="sm" :icon="Camera" :disabled="photoBusy" @click="pickFile">{{ photoBusy ? '识别中…' : '拍照 / 选图识别' }}</BaseButton>
-          <span class="photo-state">{{ photoState }}</span>
-        </div>
-        <div v-if="photoPreview" class="photo-body">
-          <img :src="photoPreview" alt="待识别的食物照片" class="photo-img" />
-          <ul v-if="photoDetected.length" class="cand">
-            <li v-for="c in photoDetected" :key="c.name">
-              <span class="cand-t"><b>{{ c.name }}</b><small>{{ c.category }} · {{ Math.round(c.confidence * 100) }}%<template v-if="c.count > 1"> · {{ c.count }} 处</template></small></span>
-              <button class="cand-add" :aria-label="`把${c.name}加入这一餐`" @click="adopt(c)"><Plus :size="15" />加入</button>
-            </li>
-          </ul>
-        </div>
-        <p v-if="photoError" class="photo-note">{{ photoError }}</p>
-        <p v-else class="photo-note">端侧模型只覆盖 9 类常见食物（苹果、香蕉、橙子、西兰花、胡萝卜、披萨、热狗、甜甜圈、蛋糕），认不出属正常，直接手动填即可。</p>
-      </div>
-
-      <div class="rows">
-        <div v-for="(row, i) in form.items" :key="i" class="row">
-          <input v-model="row.foodName" type="text" class="r-name" placeholder="吃了什么，例如：燕麦粥" :aria-label="`第 ${i + 1} 项食物名称`" />
-          <span v-if="row.source === 'photo'" class="badge-photo">照片 {{ Math.round((row.photoConfidence ?? 0) * 100) }}%</span>
-          <select v-model="row.category" class="r-cat" :aria-label="`第 ${i + 1} 项类别`">
-            <option v-for="c in FOOD_CATEGORIES" :key="c" :value="c">{{ c }}</option>
-          </select>
-          <input v-model.number="row.portionSize" type="number" min="0" step="1" class="r-size" placeholder="份量" :aria-label="`第 ${i + 1} 项份量`" />
-          <select v-model="row.portionUnit" class="r-unit" :aria-label="`第 ${i + 1} 项单位`">
-            <option v-for="u in UNITS" :key="u" :value="u">{{ u }}</option>
-          </select>
-          <span v-if="showEstimate && rowEstimate(row)" class="kc">{{ kcLabel(rowEstimate(row)) }}</span>
-          <button class="mini-del" aria-label="删除这一项" :disabled="form.items.length === 1" @click="removeRow(i)"><X :size="15" /></button>
-        </div>
-        <BaseButton variant="ghost" size="sm" :icon="Plus" @click="addRow">再加一项</BaseButton>
-      </div>
-
-      <p v-if="showEstimate && formEstimate" class="kc-sum">
-        这一餐粗估 <b>{{ formEstimate.low }}–{{ formEstimate.high }} kcal</b>
-        <small>（{{ formEstimate.counted }}/{{ formEstimate.named }} 项可估；±25% 区间；{{ FOOD_SOURCE_LABEL }}；单位→克数为演示假设，未计入烹调油）</small>
-      </p>
-      <p v-else-if="showEstimate" class="kc-sum off">开了热量粗估，但目前没有可估的条目：需要食物在内置参考表里，且份量已填。</p>
-
-      <p class="tip">份量可以留空——留空会记为"部分记录"，我们不会替你猜克数。</p>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-
-      <div class="form-actions">
-        <BaseButton variant="ghost" @click="cancel">取消</BaseButton>
-        <BaseButton :icon="Check" @click="save">保存这一餐</BaseButton>
-      </div>
     </BaseCard>
 
     <BaseCard class="rules animate-slide-in-up" style="animation-delay:420ms">
@@ -161,43 +119,31 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Plus, X, Check, Trash2, Sparkles, Camera } from 'lucide-vue-next'
+import { Plus, Trash2, Sparkles } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import MealForm from '@/components/meals/MealForm.vue'
 import { useAppStore } from '@/stores/app'
-import { useFoodPhoto } from '@/composables/useFoodPhoto'
-import type { DetectedFood } from '@/composables/useFoodPhoto'
-import type { Meal } from '@/types/domain'
-import { FOOD_CATEGORIES, LIMITATIONS, MEAL_SLOTS, RULE_VERSION, summarizeDay } from '@/services/mealRules'
-import { estimateEnergy, FOOD_SOURCE_LABEL } from '@/services/foodComposition'
+import type { Meal, MealDraft } from '@/types/domain'
+import { LIMITATIONS, MEAL_SLOTS, RULE_VERSION, summarizeDay } from '@/services/mealRules'
 import { shortDate, toISODate } from '@/utils/time'
 
 const store = useAppStore()
-const UNITS = ['碗', '盘', '份', '个', '杯', '片', '克', '把']
 
 const now = new Date()
 const date = toISODate(now)
 const dateLabel = shortDate(now)
 const summary = computed(() => summarizeDay(store.meals, date))
 const snacks = computed(() => store.meals.filter(m => m.date === date && m.mealType === 'snack'))
+const showEstimate = computed(() => store.privacy.showEnergyEstimate)
 
-interface Row {
-  foodName: string
-  category: (typeof FOOD_CATEGORIES)[number]
-  portionSize: number | ''
-  portionUnit: string
-  source?: 'manual' | 'photo'
-  photoConfidence?: number
+/** 表单就地展开在 draft.slot 那张卡里；同一时刻最多一个 */
+const draft = ref<{ slot: Meal['mealType']; time: string; items: MealDraft[]; replacesId: string | null } | null>(null)
+
+function blankRow(): MealDraft {
+  return { foodName: '', category: '谷薯类', portionSize: '', portionUnit: '碗' }
 }
-
-const editing = ref<Meal | 'new' | null>(null)
-const error = ref('')
-const form = ref<{ mealType: Meal['mealType']; time: string; items: Row[] }>({
-  mealType: 'breakfast',
-  time: '08:00',
-  items: [{ foodName: '', category: '谷薯类', portionSize: '', portionUnit: '碗' }]
-})
 
 function defaultTime(type: Meal['mealType']) {
   const slot = MEAL_SLOTS.find(s => s.id === type)
@@ -206,61 +152,49 @@ function defaultTime(type: Meal['mealType']) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-const {
-  status: photoStatus,
-  busy: photoBusy,
-  errorMessage: photoError,
-  previewUrl: photoPreview,
-  detected: photoDetected,
-  analyze: analyzePhoto,
-  reset: resetPhoto
-} = useFoodPhoto()
-const fileRef = ref<HTMLInputElement | null>(null)
-const showEstimate = computed(() => store.privacy.showEnergyEstimate)
-const photoState = computed(() => {
-  if (photoStatus.value === 'loading') return '端侧识别中…（首次需加载 6.9 MB 模型）'
-  if (photoDetected.value.length) return `识别到 ${photoDetected.value.length} 类，勾选后加入`
-  if (photoStatus.value === 'done') return '没认出可对照的食物'
-  return '照片只在本机推理，不上传、不保存'
-})
-
-function pickFile() {
-  fileRef.value?.click()
+function startAdd(type: Meal['mealType']) {
+  draft.value = { slot: type, time: defaultTime(type), items: [blankRow()], replacesId: null }
 }
 
-async function onPick(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (file) await analyzePhoto(file)
-  input.value = ''
-}
-
-function rowOf(c: DetectedFood): Row {
-  return { foodName: c.name, category: c.category, portionSize: '', portionUnit: '份', source: 'photo', photoConfidence: c.confidence }
-}
-
-function adopt(c: DetectedFood) {
-  const existing = form.value.items.find(i => i.foodName === c.name)
-  if (existing) {
-    existing.source = 'photo'
-    existing.photoConfidence = Math.max(existing.photoConfidence ?? 0, c.confidence)
-    return
+function startEdit(meal: Meal) {
+  draft.value = {
+    slot: meal.mealType,
+    time: meal.time,
+    items: meal.items.map(i => ({
+      foodName: i.foodName,
+      category: i.category,
+      portionSize: i.portionSize ?? '',
+      portionUnit: i.portionUnit ?? '碗',
+      source: i.source,
+      photoConfidence: i.photoConfidence
+    })),
+    replacesId: meal.id
   }
-  const first = form.value.items[0]
-  if (!first.foodName) form.value.items[0] = rowOf(c)
-  else form.value.items.push(rowOf(c))
 }
 
-function rowEstimate(row: Row) {
-  return estimateEnergy({
-    foodName: row.foodName,
-    portionSize: row.portionSize === '' ? undefined : Number(row.portionSize),
-    portionUnit: row.portionUnit
+function onSave(value: { time: string; items: MealDraft[] }) {
+  if (!draft.value) return
+  const { slot, replacesId } = draft.value
+  if (replacesId) store.meals = store.meals.filter(m => m.id !== replacesId)
+  store.addMeal({
+    date,
+    mealType: slot,
+    time: value.time,
+    items: value.items.map(i => ({
+      foodName: i.foodName,
+      category: i.category,
+      portionSize: i.portionSize === '' ? undefined : Number(i.portionSize),
+      portionUnit: i.portionUnit || undefined,
+      source: i.source ?? 'manual',
+      photoConfidence: i.photoConfidence
+    }))
   })
+  draft.value = null
 }
 
-function kcLabel(e: ReturnType<typeof rowEstimate>) {
-  return e ? `≈${e.low}–${e.high} kcal` : ''
+function remove(mealId: string) {
+  if (draft.value?.replacesId === mealId) draft.value = null
+  store.removeMeal(mealId)
 }
 
 function mealEnergy(meal: Meal) {
@@ -271,172 +205,53 @@ function mealEnergy(meal: Meal) {
   const rest = meal.items.length - refs.length
   return `${low}–${high} kcal（${refs.length}/${meal.items.length} 项可估${rest > 0 ? '，其余缺份量或不在参考表内' : ''}）`
 }
-
-const formEstimate = computed(() => {
-  const list = form.value.items.map(rowEstimate).filter((e): e is NonNullable<typeof e> => e !== null)
-  const named = form.value.items.filter(i => i.foodName.trim()).length
-  if (!list.length) return null
-  return {
-    low: list.reduce((s, e) => s + e.low, 0),
-    high: list.reduce((s, e) => s + e.high, 0),
-    counted: list.length,
-    named
-  }
-})
-
-function blankRow(): Row {
-  return { foodName: '', category: '谷薯类', portionSize: '', portionUnit: '碗' }
-}
-
-function startAdd(type: Meal['mealType']) {
-  error.value = ''
-  editing.value = 'new'
-  form.value = { mealType: type, time: defaultTime(type), items: [blankRow()] }
-}
-
-function startEdit(meal: Meal) {
-  error.value = ''
-  editing.value = meal
-  form.value = {
-    mealType: meal.mealType,
-    time: meal.time,
-    items: meal.items.map(i => ({
-      foodName: i.foodName,
-      category: i.category,
-      portionSize: i.portionSize ?? '',
-      portionUnit: i.portionUnit ?? '碗'
-    }))
-  }
-}
-
-function addRow() {
-  form.value.items.push(blankRow())
-}
-
-function removeRow(index: number) {
-  if (form.value.items.length > 1) form.value.items.splice(index, 1)
-}
-
-function cancel() {
-  editing.value = null
-  error.value = ''
-  resetPhoto()
-}
-
-function save() {
-  const items = form.value.items
-    .map(i => ({
-      foodName: i.foodName.trim(),
-      category: i.category,
-      portionSize: i.portionSize === '' ? undefined : Number(i.portionSize),
-      portionUnit: i.portionUnit || undefined,
-      source: i.source ?? 'manual',
-      photoConfidence: i.photoConfidence
-    }))
-    .filter(i => i.foodName)
-
-  if (!items.length) {
-    error.value = '至少填一项食物名称，不然结构规则没有输入可判断。'
-    return
-  }
-  if (!/^\d{2}:\d{2}$/.test(form.value.time)) {
-    error.value = '时间格式应为 HH:MM。'
-    return
-  }
-
-  const replaced = editing.value && editing.value !== 'new' ? editing.value.id : null
-  if (replaced) store.meals = store.meals.filter(m => m.id !== replaced)
-  store.addMeal({ date, mealType: form.value.mealType, time: form.value.time, items })
-  editing.value = null
-  error.value = ''
-}
-
-function remove(mealId: string) {
-  if (editing.value && editing.value !== 'new' && editing.value.id === mealId) cancel()
-  store.removeMeal(mealId)
-}
 </script>
 
 <style scoped>
 .page-wrap{max-width:var(--content-max-width);margin:auto}
 .page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px}
-.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-teal);font-weight:700}.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--gradient-highlight);transform:rotate(45deg);margin-right:8px}
-.page-head h1{font-size:28px;margin:9px 0 8px;background:linear-gradient(100deg,#12303f 0%,#0a7d80 52%,#2f6fb6 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-accent);font-weight:700}.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--color-accent);transform:rotate(45deg);margin-right:8px}
+.page-head h1{font-size:28px;margin:9px 0 8px;color:var(--color-ink)}
 .page-head p{color:var(--color-text-secondary);font-size:13px;margin:0;max-width:620px;line-height:1.7}
-.strip{display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:16px 20px;margin-bottom:20px;border-radius:18px;background:linear-gradient(135deg,#eefaf7,#f1f6fc);border:1px solid #d6ecea;position:relative;overflow:hidden}
+.strip{display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:16px 20px;margin-bottom:20px;border-radius:18px;background:linear-gradient(135deg,var(--color-accent-soft),var(--color-neutral-soft));border:1px solid var(--color-accent-line);position:relative;overflow:hidden}
 .strip-item{display:flex;flex-direction:column;gap:3px}
 .strip-item span{font-size:11px;color:var(--color-text-muted)}
-.strip-item b{font-size:18px;color:var(--color-navy)}
-.strip-bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:#dfe8ee}
-.strip-bar i{display:block;height:100%;background:var(--gradient-teal);transition:width var(--motion-slower) var(--easing-ease-out)}
-.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.strip-item b{font-size:18px;color:var(--color-ink)}
+.strip-bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--color-divider)}
+.strip-bar i{display:block;height:100%;background:var(--color-accent);transition:width var(--motion-slower) var(--easing-ease-out)}
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start}
 .slot{padding:20px;display:flex;flex-direction:column}
+/* 展开的那张卡占满整行：手指点在哪表单就在哪，同时给一行四列控件留出宽度 */
+.slot.opening{grid-column:1/-1}
 .slot-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
 .slot-head h3{font-size:17px}
 .meal-time{font-size:12px;color:var(--color-text-muted);margin:0 0 10px}
 .items{list-style:none;padding:0;margin:0 0 12px;display:grid;gap:8px}
-.items li{display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 10px;border-radius:10px;background:#f5f8fa}
-.iname{flex:1;color:var(--color-navy);font-weight:600;min-width:0;overflow-wrap:anywhere}
-.icat{font-size:11px;color:var(--color-teal);background:#e6f5f2;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.items li{display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 10px;border-radius:10px;background:var(--color-neutral-soft)}
+.iname{flex:1;color:var(--color-ink);font-weight:600;min-width:0;overflow-wrap:anywhere}
+.icat{font-size:11px;color:var(--color-accent);background:var(--color-accent-soft);padding:3px 8px;border-radius:999px;white-space:nowrap}
 .ipart{font-size:11px;color:var(--color-text-muted);white-space:nowrap}
 .analysis{border-top:1px solid var(--color-divider);padding-top:10px;margin-bottom:12px;display:grid;gap:6px}
 .analysis p{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--color-text-secondary);margin:0}
-.analysis strong{color:var(--color-navy);flex:none}
-.analysis .warn{color:#8d6d26}
+.analysis strong{color:var(--color-ink);flex:none}
+.analysis .warn{color:var(--color-caution)}
 .slot-actions{display:flex;gap:8px;margin-top:auto}
 .slot-actions :deep(button){width:auto;flex:1;padding:0 12px;font-size:13px}
 .empty{margin-top:auto}
 .empty p{font-size:13px;color:var(--color-text-secondary);line-height:1.7;margin:6px 0 12px}
-.snacks{margin-top:16px}
+.snacks{margin-top:16px;padding:20px}
 .muted{font-size:13px;color:var(--color-text-muted)}
 .mini-del{color:var(--color-text-muted);display:grid;place-items:center;padding:4px;border-radius:8px;transition:all var(--motion-fast);flex:none}
-.mini-del:hover:not(:disabled){background:#fdeaea;color:var(--color-danger)}
-.mini-del:disabled{opacity:.4;cursor:not-allowed}
-.form{margin-top:16px;padding:22px}
-.form h3{font-size:17px;margin-bottom:14px}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
-.field{display:block}
-.field-label{display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px}
-.field input,.field select,.row input,.row select{padding:10px 12px;border:1px solid var(--color-border);border-radius:11px;font-size:13px;font-family:inherit;color:var(--color-navy);background:#fff}
-.rows{display:grid;gap:8px;margin-bottom:12px}
-.photo{border:1px dashed #a9d9d4;border-radius:15px;padding:14px;margin-bottom:14px;background:linear-gradient(160deg,#f4fbfa,#f6f9fd);box-shadow:inset 0 1px 0 #fff;transition:border-color var(--motion-base) var(--easing-ease-out),box-shadow var(--motion-base) var(--easing-ease-out)}
-.photo:hover{border-color:#6cc3b8;box-shadow:inset 0 1px 0 #fff,0 0 0 3px rgba(8,126,128,.08)}
-.file-input{display:none}
-.photo-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.photo-bar :deep(button){width:auto;padding:0 16px;margin:0}
-.photo-state{font-size:12px;color:var(--color-text-muted)}
-.photo-body{display:flex;gap:12px;margin-top:12px;align-items:flex-start;flex-wrap:wrap}
-.photo-img{width:120px;height:120px;object-fit:cover;border-radius:12px;background:#e8eef3;box-shadow:0 0 0 1px rgba(18,44,68,.08),0 8px 20px -10px rgba(18,44,68,.35)}
-.cand{list-style:none;padding:0;margin:0;display:grid;gap:6px;flex:1;min-width:190px}
-.cand li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:11px;background:rgba(255,255,255,.9);border:1px solid rgba(220,229,237,.85);box-shadow:var(--inner-light);transition:transform var(--motion-fast) var(--easing-ease-out),box-shadow var(--motion-fast)}
-.cand li:hover{transform:translateX(2px);box-shadow:var(--inner-light),var(--ring-teal)}
-.cand-t b{font-size:13px;color:var(--color-navy);margin-right:6px}
-.cand-t small{font-size:11px;color:var(--color-text-muted)}
-.cand-add{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:600;color:var(--color-teal);padding:6px 10px;border-radius:9px;background:#e8f7f5;transition:all var(--motion-fast)}
-.cand-add:hover{background:var(--gradient-teal);color:#fff}
-.photo-note{font-size:11px;color:var(--color-text-muted);line-height:1.7;margin:10px 0 0}
-.badge-photo{font-size:11px;color:var(--color-teal);background:#e6f5f2;padding:4px 9px;border-radius:999px;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(8,126,128,.16);font-variant-numeric:tabular-nums}
-.kc{font-size:11px;color:#6b5324;background:linear-gradient(140deg,#fff7e9,#fffdf6);padding:4px 9px;border-radius:999px;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(215,165,75,.28);font-variant-numeric:tabular-nums}
-.kc-sum{font-size:13px;color:var(--color-navy);background:linear-gradient(150deg,#f5f9fb,#f8f6fc);border-radius:12px;padding:11px 13px;margin:0 0 10px;box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgba(18,44,68,.05)}
-.kc-sum small{display:block;font-size:11px;color:var(--color-text-muted);margin-top:3px;line-height:1.6}
-.kc-sum.off{font-size:12px;color:var(--color-text-secondary)}
-.row{display:flex;gap:8px;align-items:center}
-.r-name{flex:1;min-width:0}
-.r-cat{width:104px;flex:none}
-.r-size{width:72px;flex:none}
-.r-unit{width:74px;flex:none}
-.tip{font-size:12px;color:var(--color-text-muted);margin:0 0 10px;line-height:1.6}
-.error{font-size:13px;color:var(--color-danger);background:#fdeaea;border-radius:11px;padding:10px 13px;margin:0 0 12px}
-.form-actions{display:flex;gap:10px;justify-content:flex-end}
-.form-actions :deep(button){width:auto;padding:0 22px}
+.mini-del:hover:not(:disabled){background:var(--color-danger-soft);color:var(--color-danger)}
+.badge-photo{font-size:11px;color:var(--color-accent);background:var(--color-accent-soft);padding:4px 9px;border-radius:999px;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(15,118,110,.16);font-variant-numeric:tabular-nums}
 .rules{margin-top:16px}
 .why{display:flex;gap:16px;align-items:flex-start}
-.why-icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:13px;color:white;background:linear-gradient(150deg,#06706f,#0a9b9d 62%,#2468a0);box-shadow:var(--shadow-teal),inset 0 1px 0 rgba(255,255,255,.42)}
+.why-icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:13px;color:white;background:var(--color-accent);box-shadow:var(--shadow-accent),inset 0 1px 0 rgba(255,255,255,.42)}
 .why h3{font-size:16px;margin:5px 0 8px}
 .lims{list-style:none;padding:0;margin:0;display:grid;gap:6px}
 .lims li{position:relative;padding-left:16px;font-size:12px;color:var(--color-text-secondary);line-height:1.7}
-.lims li::before{content:'·';position:absolute;left:2px;top:-1px;color:var(--color-teal);font-weight:700;font-size:16px}
+.lims li::before{content:'·';position:absolute;left:2px;top:-1px;color:var(--color-accent);font-weight:700;font-size:16px}
 .ver{font-size:11px;color:var(--color-text-muted);margin:10px 0 0}
 @media(max-width:1024px){.slots{grid-template-columns:1fr 1fr}}
-@media(max-width:767px){.slots{grid-template-columns:1fr}.page-head{align-items:flex-start}.row{flex-wrap:wrap}.r-cat,.r-size,.r-unit{width:auto;flex:1}.r-name{flex:1 1 100%}.form-actions,.slot-actions{flex-direction:column}.form-actions :deep(button),.slot-actions :deep(button){width:100%}}
+@media(max-width:767px){.slots{grid-template-columns:1fr}.page-head{align-items:flex-start}.slot-actions{flex-direction:column}.slot-actions :deep(button){width:100%}}
 </style>

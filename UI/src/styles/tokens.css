@@ -1,58 +1,55 @@
 /* ===== Design Tokens ===== */
-/* Modern gradient style with glass effects */
+/* 颜色只承担语义：单一强调色 + 冷灰阶；装饰渐变只保留品牌位 */
+/* 取值来自 research/ui-directions.html 的推荐方向（#0f766e / #f6f7f8 / #e5e7eb / #15181b） */
 
 :root {
-  /* === Colors === */
-  /* Navy gradients */
-  --color-navy: #16334b;
-  --color-navy-light: #1e4159;
-  --gradient-navy: linear-gradient(135deg, #16334b 0%, #1e4159 100%);
+  /* === 强调色：交互、进度、"已达成"共用一种颜色 === */
+  --color-accent: #0f766e;
+  --color-accent-strong: #0b5b56;   /* hover/active 走更深而非更亮，白字对比度随之上升 */
+  --color-accent-soft: #e7f1ef;     /* 选中态浅底 */
+  --color-accent-line: #cbe0dc;
+  --color-on-accent: #ffffff;         /* 强调色/品牌底上的前景 */
 
-  /* Teal gradients */
-  --color-teal: #087e80;
-  --color-teal-light: #0a9b9d;
-  --gradient-teal: linear-gradient(135deg, #087e80 0%, #0a9b9d 100%);
-
-  /* Blue gradients */
-  --color-blue: #2468a0;
-  --color-blue-light: #2d7bb8;
-  --gradient-blue: linear-gradient(135deg, #2468a0 0%, #2d7bb8 100%);
-
-  /* Accent gradients */
-  --gradient-success: linear-gradient(135deg, #5a9b6c 0%, #6eb57e 100%);
-  --gradient-warning: linear-gradient(135deg, #d7a54b 0%, #e5b565 100%);
-  --gradient-danger: linear-gradient(135deg, #c94b4b 0%, #d66565 100%);
-  --gradient-highlight: linear-gradient(135deg, #087e80 0%, #2468a0 100%);
-
-  /* Surface colors */
-  --color-bg: #f2f6f9;
-  /* 环境光：多层径向光晕叠加在冷白底上，固定不随滚动，营造纵深而非平涂 */
+  /* === 墨色与冷灰阶 === */
+  --color-ink: #15181b;
+  --color-bg: #f6f7f8;
   --color-bg-gradient:
-    radial-gradient(1100px 620px at 8% -12%, rgba(8, 126, 128, 0.13) 0%, transparent 62%),
-    radial-gradient(880px 560px at 100% 4%, rgba(36, 104, 160, 0.15) 0%, transparent 60%),
-    radial-gradient(760px 620px at 62% 108%, rgba(120, 92, 190, 0.11) 0%, transparent 58%),
-    linear-gradient(180deg, #f7fafc 0%, #eaf1f6 100%);
+    radial-gradient(1000px 560px at 50% -20%, rgba(255, 255, 255, 0.85) 0%, transparent 62%),
+    linear-gradient(180deg, #f7f8f9 0%, #f0f2f4 100%);
   --color-card: #ffffff;
-  --color-card-glass: rgba(255, 255, 255, 0.9);
-  --color-border: #dce5ed;
-  --color-divider: #e8eef3;
+  --color-border: #e5e7eb;
+  --color-divider: #eef1f3;
 
-  /* 颗粒质感： feTurbulence 生成的内联噪点，叠加极不透明度消除大面积渐变的"塑料感" */
+  /* 颗粒层：调研要求压到 .02 以下，只用于消除大面积平涂的"塑料感" */
   --texture-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-  --texture-grain-opacity: 0.035;
+  --texture-grain-opacity: 0.018;
 
-  /* Text colors */
-  --color-text-primary: #1a1a1a;
-  --color-text-secondary: #627585;
-  --color-text-muted: #8895a5;
-  --color-text-on-navy: #ffffff;
-  --color-text-on-teal: #ffffff;
+  /* === 文本 === */
+  --color-text-primary: #15181b;
+  --color-text-secondary: #4b5563;
+  --color-text-muted: #5c666e;        /* 实测 5.9:1 on 白 / 5.1:1 on neutral-soft，12px 也能过 AA */
+  --color-text-inverse: #dbe3e8;    /* 品牌位（顶栏）上的次级字 */
 
-  /* Semantic colors */
-  --color-success: #5a9b6c;
-  --color-warning: #d7a54b;
-  --color-danger: #c94b4b;
-  --color-info: #2468a0;
+  /* === 语义色：只表达状态，且永远与文字/形状同时出现 === */
+  --color-success: var(--color-accent);   /* "已完成/已记录"就是强调色本身，不再另开一种绿 */
+  --color-success-soft: var(--color-accent-soft);
+  --color-caution: #8a5a00;               /* 部分记录、待确认、粗估（Okabe-Ito 橙加深到可过 4.5:1） */
+  --color-caution-soft: #fbf1dd;
+  --color-danger: #b42318;                /* 仅用于错误与破坏性操作 */
+  --color-danger-strong: #8f1d13;
+  --color-danger-soft: #fdeceb;
+  --color-neutral: #5c666e;               /* 未记录 / 未知 / 休息：与 muted 同值，保证 12px 也能读 */
+  --color-neutral-soft: #eef1f3;
+
+  /* === 品牌位专用渐变：只允许出现在标志、顶栏与英雄区 === */
+  /* 两仪的两极是这个 App 唯一的"双色"场合：界面其余部分一律单强调色 */
+  --brand-pole-a: #0f766e;
+  --brand-pole-a-light: #4fd1c5;
+  --brand-pole-b: #1f4b64;
+  --brand-pole-b-light: #8fb8d8;
+  --gradient-brand: linear-gradient(112deg, #12303f 0%, #16334b 46%, #1f4b64 100%);
+  --gradient-hero: linear-gradient(115deg, #0b5b56 0%, #0f766e 54%, #1f4b64 100%);
+  --shadow-accent: 0 8px 20px -10px rgba(15, 118, 110, 0.55);
 
   /* === Spacing === */
   --space-1: 4px;
@@ -105,22 +102,15 @@
   /* === Shadows === */
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.06);
-  --shadow-base: 0 4px 8px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 8px 16px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.12), 0 6px 12px rgba(0, 0, 0, 0.08);
-  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.15), 0 8px 16px rgba(0, 0, 0, 0.1);
 
-  /* Colored shadows for gradients */
-  --shadow-teal: 0 8px 24px rgba(8, 126, 128, 0.25);
-  --shadow-blue: 0 8px 24px rgba(36, 104, 160, 0.25);
-
-  /* 冷调分层阴影：近距锐影 + 中距扩散 + 远距环境影，替代单层灰黑阴影 */
-  --shadow-card: 0 1px 2px rgba(18, 44, 68, 0.05), 0 8px 20px -10px rgba(18, 44, 68, 0.14), 0 24px 48px -24px rgba(18, 44, 68, 0.16);
-  --shadow-card-lg: 0 2px 4px rgba(18, 44, 68, 0.06), 0 16px 32px -12px rgba(18, 44, 68, 0.2), 0 36px 64px -28px rgba(18, 44, 68, 0.22);
-  --shadow-hero: 0 18px 44px -18px rgba(9, 68, 82, 0.42), 0 40px 80px -40px rgba(20, 60, 100, 0.32);
+  /* 冷调分层阴影：近距锐影 + 中距扩散 + 远距环境影 */
+  --shadow-card: 0 1px 2px rgba(21, 24, 27, 0.05), 0 8px 20px -10px rgba(21, 24, 27, 0.12), 0 24px 48px -24px rgba(21, 24, 27, 0.14);
+  --shadow-card-lg: 0 2px 4px rgba(21, 24, 27, 0.06), 0 16px 32px -12px rgba(21, 24, 27, 0.18), 0 36px 64px -28px rgba(21, 24, 27, 0.2);
+  --shadow-hero: 0 18px 44px -18px rgba(11, 91, 86, 0.42), 0 40px 80px -40px rgba(18, 48, 63, 0.32);
   /* 顶亮底暗的内描边，让平面卡片有"厚度" */
-  --inner-light: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(20, 50, 74, 0.05);
-  --ring-teal: 0 0 0 1px rgba(8, 126, 128, 0.22);
+  --inner-light: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(21, 24, 27, 0.05);
+  --ring-accent: 0 0 0 1px rgba(15, 118, 110, 0.28);
 
   /* === Z-index === */
   --z-base: 0;
