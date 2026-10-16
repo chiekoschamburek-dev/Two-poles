@@ -1,5 +1,4 @@
 {
-  "name": "two-poles",
   "assets": {
     "directory": "./dist",
     "notFoundStrategy": "singlePageApplication"
