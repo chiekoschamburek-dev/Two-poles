@@ -6,7 +6,7 @@
         <div class="mode-text"><small>当前模式</small><strong>{{ currentLabel }}</strong></div>
         <ChevronDown :size="16" :class="{ flip: menuOpen }" />
       </button>
-      <div v-if="menuOpen" class="mode-menu" role="menu">
+      <div v-if="menuOpen" class="mode-menu animate-scale-in" role="menu">
         <button
           v-for="m in modes"
           :key="m.id"
@@ -21,7 +21,7 @@
       </div>
     </div>
     <nav>
-      <RouterLink v-for="item in items" :key="item.to" :to="item.to" class="nav-item" @click="emit('close')">
+      <RouterLink v-for="(item, i) in items" :key="item.to" :to="item.to" class="nav-item animate-slide-in-up" :style="{ animationDelay: 60 + i * 55 + 'ms' }" @click="emit('close')">
         <component :is="item.icon" :size="19" /><span>{{ item.label }}</span>
       </RouterLink>
     </nav>

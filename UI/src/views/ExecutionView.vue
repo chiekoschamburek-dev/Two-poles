@@ -19,7 +19,7 @@
     </div>
 
     <div class="execution-grid">
-      <BaseCard class="stage-card glass">
+      <BaseCard class="stage-card glass animate-slide-in-up" style="animation-delay:90ms">
         <div class="stage-container">
           <div class="demo-frame">
             <div class="skeleton-overlay">
@@ -39,9 +39,10 @@
               </svg>
             </div>
             <div class="stage-overlay">
-              <span class="confidence-badge" :class="confidenceClass">{{ confidenceText }}</span>
-              <span class="phase-badge">{{ phaseLabel }}</span>
+              <span class="confidence-badge animate-fade-in" :class="confidenceClass" :key="confidenceClass">{{ confidenceText }}</span>
+              <span class="phase-badge" :class="{ 'animate-pulse': status === 'resting' }">{{ phaseLabel }}</span>
             </div>
+            <div class="frame-sheen gradient-shimmer" v-if="!finished && !paused"></div>
             <p class="stage-live" aria-live="polite">{{ message }}</p>
           </div>
           <div class="stage-hint">关键点示意图 · 实际使用时在本地处理</div>
@@ -60,21 +61,21 @@
       </BaseCard>
 
       <div class="info-cards">
-        <BaseCard class="count-card">
+        <BaseCard class="count-card animate-slide-in-up" style="animation-delay:150ms">
           <div class="count-label">当前组数</div>
           <div class="count-big">{{ displaySet }} <span>/ {{ exercise.sets }}</span></div>
           <div class="count-progress"><div class="progress-fill" :style="{ width: setProgress + '%' }"></div></div>
         </BaseCard>
 
-        <BaseCard class="count-card primary">
+        <BaseCard class="count-card primary animate-slide-in-up" style="animation-delay:210ms">
           <div class="count-label">本组完成次数</div>
-          <div class="count-big">{{ reps }} <span>/ {{ exercise.repsPerSet }}</span></div>
+          <div class="count-big">{{ displayReps }} <span>/ {{ exercise.repsPerSet }}</span></div>
           <div class="reps-grid" :style="{ gridTemplateColumns: 'repeat(' + exercise.repsPerSet + ', 1fr)' }">
-            <span v-for="n in exercise.repsPerSet" :key="n" :class="{ done: n <= reps }"></span>
+            <span v-for="n in exercise.repsPerSet" :key="n" :class="{ done: n <= displayReps }"></span>
           </div>
         </BaseCard>
 
-        <BaseCard>
+        <BaseCard class="animate-slide-in-up" style="animation-delay:270ms">
           <div class="status-item">
             <Activity :size="18" class="status-icon" />
             <div><strong>{{ phaseLabel }}</strong><small>{{ message || '保持动作流畅' }}</small></div>
@@ -89,7 +90,7 @@
           </div>
         </BaseCard>
 
-        <BaseCard v-if="!finished" class="actions-card">
+        <BaseCard v-if="!finished" class="actions-card animate-slide-in-up" style="animation-delay:330ms">
           <h3>完成后记录</h3>
           <p>完成次数可以修正。看不清时暂停计数，不输出姿势安全结论。共 {{ exercise.sets }} 组，每组 {{ exercise.repsPerSet }} 次，组间休息 {{ exercise.restDuration / 1000 }} 秒。</p>
           <BaseButton variant="secondary" size="sm" :icon="Edit3" @click="toggleEdit">手动修正</BaseButton>
@@ -100,7 +101,7 @@
           <BaseButton variant="ghost" size="sm" :icon="FileText" @click="leave">放弃本次记录</BaseButton>
         </BaseCard>
 
-        <BaseCard v-else class="actions-card summary">
+        <BaseCard v-else class="actions-card summary animate-slide-in-up">
           <h3>本次已记录</h3>
           <ul class="summary-list">
             <li><span>动作</span><b>{{ exercise.name }}</b></li>
@@ -120,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { X, Pause, Play, SkipForward, Square, Activity, Gauge, Edit3, FileText, Timer } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
@@ -142,6 +143,7 @@ const store = useAppStore()
 const exercise = ref(getDemoExercise(route.query.exercise as string))
 const setIndex = ref(1)
 const reps = ref(0)
+const displayReps = ref(0)
 const confidence = ref(0)
 const message = ref('准备开始')
 const phase = ref<ExercisePhase>('idle')
@@ -160,6 +162,7 @@ let restElapsed = 0
 let eventIndex = 0
 let lastTs = 0
 let rafId = 0
+let tweenRaf = 0
 let confidenceSum = 0
 let confidenceCount = 0
 let recorded = false
@@ -167,6 +170,26 @@ let recorded = false
 const confidenceLevel = computed(() => getConfidenceLevel(confidence.value))
 const confidenceClass = computed(() => confidenceLevel.value.level)
 const confidenceText = computed(() => confidenceLevel.value.text)
+
+function tweenRepsTo(target: number) {
+  cancelAnimationFrame(tweenRaf)
+  const from = displayReps.value
+  const delta = target - from
+  if (!delta) return
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    displayReps.value = target
+    return
+  }
+  const startedAt = performance.now()
+  const step = (now: number) => {
+    const p = Math.min((now - startedAt) / 320, 1)
+    displayReps.value = Math.round(from + delta * (1 - Math.pow(1 - p, 3)))
+    if (p < 1) tweenRaf = requestAnimationFrame(step)
+  }
+  tweenRaf = requestAnimationFrame(step)
+}
+
+watch(reps, value => tweenRepsTo(value))
 
 const displaySet = computed(() => Math.min(setIndex.value, exercise.value.sets))
 const setProgress = computed(() => {
@@ -316,8 +339,10 @@ function selectExercise(name: string) {
 
 function restart() {
   cancelAnimationFrame(rafId)
+  cancelAnimationFrame(tweenRaf)
   setIndex.value = 1
   reps.value = 0
+  displayReps.value = 0
   confidence.value = 0
   message.value = '准备开始'
   phase.value = 'idle'
@@ -344,7 +369,10 @@ function leave() {
 }
 
 onMounted(() => restart())
-onUnmounted(() => cancelAnimationFrame(rafId))
+onUnmounted(() => {
+  cancelAnimationFrame(rafId)
+  cancelAnimationFrame(tweenRaf)
+})
 </script>
 
 <style scoped>
@@ -369,6 +397,7 @@ onUnmounted(() => cancelAnimationFrame(rafId))
 .skeleton.occluded{opacity:.28}
 .skeleton circle{animation:pulse 2s ease-in-out infinite}
 .skeleton line{animation:pulse 2s ease-in-out infinite}
+.frame-sheen{position:absolute;inset:0;border-radius:16px;opacity:.45;pointer-events:none}
 .stage-overlay{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;gap:10px}
 .confidence-badge,.phase-badge{padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);box-shadow:var(--shadow-sm)}
 .confidence-badge.high{color:#2d7a50;border-left:3px solid #4caf50}
@@ -394,7 +423,7 @@ onUnmounted(() => cancelAnimationFrame(rafId))
 .progress-fill{height:100%;background:var(--gradient-blue);border-radius:10px;transition:width var(--motion-slow) var(--easing-ease-out)}
 .reps-grid{display:grid;gap:6px;margin-top:4px}
 .reps-grid span{height:5px;background:#e8eef3;border-radius:3px}
-.reps-grid span.done{background:var(--gradient-teal)}
+.reps-grid span.done{background:var(--gradient-teal);animation:scaleIn var(--motion-base) var(--easing-spring) both}
 .status-item{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)}
 .status-item:last-child{border:0}
 .status-icon{color:var(--color-text-secondary);margin-top:2px}
@@ -409,7 +438,12 @@ onUnmounted(() => cancelAnimationFrame(rafId))
 .correct-form input{flex:1;min-width:0;padding:0 12px;height:36px;border:1px solid var(--color-border);border-radius:11px;font-size:14px;color:var(--color-navy);background:#fff}
 .correct-form :deep(button){width:auto;margin-bottom:0;padding:0 18px}
 .summary-list{display:grid;gap:9px;list-style:none;padding:0;margin:0 0 14px}
-.summary-list li{display:flex;justify-content:space-between;font-size:13px;color:var(--color-text-secondary)}
+.summary-list li{display:flex;justify-content:space-between;font-size:13px;color:var(--color-text-secondary);animation:slideInUp var(--motion-base) var(--easing-spring) both}
+.summary-list li:nth-child(2){animation-delay:70ms}
+.summary-list li:nth-child(3){animation-delay:140ms}
+.summary-list li:nth-child(4){animation-delay:210ms}
+.summary-list li:nth-child(5){animation-delay:280ms}
+.summary-list li:nth-child(6){animation-delay:350ms}
 .summary-list b{color:var(--color-navy)}
 .stored-note{font-size:12px;color:var(--color-teal)}
 @media(max-width:1024px){.execution-grid{grid-template-columns:1fr}.info-cards{grid-template-columns:repeat(2,1fr)}.actions-card{grid-column:1/-1}}

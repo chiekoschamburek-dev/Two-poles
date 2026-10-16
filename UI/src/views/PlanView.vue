@@ -1,11 +1,11 @@
 <template>
   <div class="page-wrap">
-    <div class="page-head">
+    <div class="page-head animate-slide-in-up">
       <div><span class="eyebrow">TRAINING PLAN</span><h1>训练计划</h1><p>把每一次完成，变成下一次更好的安排。</p></div>
       <BaseButton :icon="Plus" @click="newVersion">新建计划</BaseButton>
     </div>
 
-    <div class="toolbar">
+    <div class="toolbar animate-slide-in-up" style="animation-delay:90ms">
       <div class="tabs" role="tablist">
         <button role="tab" :aria-selected="view === 'week'" :class="{ active: view === 'week' }" @click="view = 'week'">本周</button>
         <button role="tab" :aria-selected="view === 'cycle'" :class="{ active: view === 'cycle' }" @click="view = 'cycle'">四周周期</button>
@@ -14,7 +14,7 @@
     </div>
 
     <div v-if="view === 'week'" class="layout">
-      <BaseCard class="calendar">
+      <BaseCard class="calendar animate-slide-in-up" style="animation-delay:160ms">
         <div class="month">
           <button aria-label="上一月" @click="shiftMonth(-1)"><ChevronLeft :size="18" /></button>
           <strong>{{ monthLabel }}</strong>
@@ -38,7 +38,7 @@
         </div>
       </BaseCard>
 
-      <BaseCard class="detail">
+      <BaseCard :key="selected" class="detail animate-slide-in-up" style="animation-delay:230ms">
         <div class="detail-head">
           <div><span class="eyebrow">{{ eyebrow }}</span><h2>{{ selectedDateLabel }}</h2></div>
           <StatusBadge :variant="planForSelected.length ? (isPast ? 'neutral' : 'info') : 'success'">
@@ -71,7 +71,7 @@
     </div>
 
     <div v-else class="cycle">
-      <BaseCard v-for="phase in cyclePhases" :key="phase.name" class="phase" :class="{ current: phase.current }">
+      <BaseCard v-for="(phase, i) in cyclePhases" :key="phase.name" class="phase animate-slide-in-up" :class="{ current: phase.current }" :style="{ animationDelay: 160 + i * 90 + 'ms' }">
         <span class="phase-tag">{{ phase.current ? '当前' : '计划中' }}</span>
         <h3>{{ phase.name }}</h3>
         <p>{{ phase.note }}</p>
@@ -80,7 +80,7 @@
       </BaseCard>
     </div>
 
-    <BaseCard class="version-card">
+    <BaseCard class="version-card animate-slide-in-up" style="animation-delay:300ms">
       <div>
         <span class="eyebrow">PLAN HISTORY</span>
         <h3>{{ adjustResolved ? '调整建议已处理' : '有 1 条调整建议等待确认' }}</h3>
@@ -92,7 +92,7 @@
       <StatusBadge v-else variant="success">已接受</StatusBadge>
     </BaseCard>
 
-    <BaseCard v-if="adjustOpen && !adjustResolved" class="adjust">
+    <BaseCard v-if="adjustOpen && !adjustResolved" class="adjust animate-scale-in">
       <div class="adjust-row">
         <div><span class="adjust-label">原安排</span><strong>{{ adjustment.from }}</strong><small>{{ adjustment.fromDetail }}</small></div>
         <ArrowRight :size="18" class="adjust-arrow" />
@@ -303,7 +303,7 @@ const cyclePhases = computed(() => {
 .page-head h1{font-size:32px;margin:7px 0}.page-head p{color:var(--color-text-secondary);margin:0}
 .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
 .tabs{padding:4px;background:#e8eff3;border-radius:12px;display:flex}
-.tabs button{padding:9px 20px;border-radius:9px;color:var(--color-text-secondary);font-size:13px}
+.tabs button{padding:9px 20px;border-radius:9px;color:var(--color-text-secondary);font-size:13px;transition:all var(--motion-base) var(--easing-spring)}
 .tabs button.active{background:white;color:var(--color-teal);font-weight:700;box-shadow:var(--shadow-sm)}
 .version{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--color-text-secondary);padding:9px 13px;background:white;border:1px solid var(--color-border);border-radius:10px}
 .version strong{color:var(--color-teal)}
@@ -319,7 +319,7 @@ const cyclePhases = computed(() => {
 .calendar-grid .blank{height:58px}
 .calendar-grid button:hover{background:#eef8f5}
 .calendar-grid button.today{background:var(--gradient-teal);color:white;font-weight:700;box-shadow:var(--shadow-teal)}
-.calendar-grid button.selected:not(.today){background:#e8f7f3;color:var(--color-teal);font-weight:700}
+.calendar-grid button.selected:not(.today){background:#e8f7f3;color:var(--color-teal);font-weight:700;animation:scaleIn var(--motion-fast) var(--easing-spring)}
 .calendar-grid button.rest{color:#b5c0c8}
 .calendar-grid i{position:absolute;width:5px;height:5px;border-radius:50%;background:var(--color-teal);bottom:8px;left:50%;transform:translateX(-50%)}
 .calendar-grid .today i{background:white}

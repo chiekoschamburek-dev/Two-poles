@@ -20,7 +20,7 @@
 ## 🎨 设计特性
 
 - **现代渐变风格**: 使用精美的CSS渐变和玻璃态效果
-- **丰富的微交互**: 流畅的动画和过渡效果
+- **丰富的微交互**: 页面级错位入场、Hero 渐变流光、按钮扫光、卡片悬浮景深、计数补间滚动与状态弹性（均走 `animations.css` 关键帧 + CSS 变量时序，无动画库依赖）
 - **响应式设计**: 断点已定义（移动/平板/桌面），未在真实设备上逐一验证
 - **双模式支持**: ✅ 侧边栏"当前模式"可切换大众/运动员模式，会写入 localStorage、给出差异说明并弹出 Toast；运动员模式目前仍只是展示层差异（周期计划、负荷与 RPE 未实现）
 - **无障碍**: ⚠️ 布局与关键控件带 ARIA（抽屉 `aria-expanded`、模式菜单 `role=menu`、演示播报 `aria-live`），但"完整键盘导航"未整体核对
@@ -107,8 +107,9 @@ UI/
 - ✅ **暂停与后台安全**: 累计时间增量而非墙钟，单帧增量钳制在 250ms，恢复或切回标签页不会跳计数
 - ✅ 跳过本组、结束并记录、手动修正（计入 `manualCorrections`）均可用
 - ✅ 结果经 `summarizeSession()` 写入 `store.sessions` 并持久化；汇总卡显示组数/次数/平均置信度/修正次数/完成状态
+- ✅ 计数与 reps 小格经 320ms 补间滚动出现（`prefers-reduced-motion` 下直接落位）
 - ✅ 实时置信度指示器（初始值为 0，进入页面会先显示"识别较差"）
-- ⚠️ 骨架图是按阶段位移的 SVG 示意，不是真实关键点渲染
+- ⚠️ 骨架图是按阶段位移的 SVG 示意（叠加 shimmer 光带），不是真实关键点渲染
 - ❌ 手动记录降级表单（"放弃本次记录"直接返回概览，不产生记录）
 - ✅ 隐私优先的本地处理说明文案
 
@@ -223,6 +224,7 @@ npm install @mediapipe/tasks-vision
 - 组件内使用scoped样式
 - 复用tokens.css中的设计令牌
 - 渐变效果使用gradients.css中的类
+- ⚠️ 同一个元素别既挂全局动画工具类（`.animate-*`、`.gradient-animated`）又在 scoped 里写 `animation`/`background` 简写：两者都是简写属性，`gradients.css` 在 `animations.css` 之后加载会整条覆盖，`background` 简写还会把 `background-size` 重置回 `auto`。要多段动画就在同一处用逗号并列（见 `DashboardView` 的 `.hero`）
 
 ## 🧪 测试建议
 

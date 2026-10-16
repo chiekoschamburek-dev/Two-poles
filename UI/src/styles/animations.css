@@ -180,20 +180,25 @@
 }
 
 /* === Utility Animation Classes === */
+/* fill-mode 让带 animation-delay 的错位入场在等待期保持首帧状态，避免先闪一下再动 */
 .animate-fade-in {
-  animation: fadeIn var(--motion-base) var(--easing-ease-out);
+  animation: fadeIn var(--motion-base) var(--easing-ease-out) both;
 }
 
 .animate-slide-in-up {
-  animation: slideInUp var(--motion-base) var(--easing-ease-out);
+  animation: slideInUp var(--motion-slow) var(--easing-spring) both;
+}
+
+.animate-scale-in {
+  animation: scaleIn var(--motion-base) var(--easing-ease-out) both;
 }
 
 .animate-bounce-in {
-  animation: bounceIn var(--motion-slow) var(--easing-spring);
+  animation: bounceIn var(--motion-slow) var(--easing-spring) both;
 }
 
 .animate-shake {
-  animation: shake var(--motion-slow) var(--easing-ease-in-out);
+  animation: shake var(--motion-slow) var(--easing-ease-in-out) both;
 }
 
 .animate-pulse {
@@ -216,10 +221,13 @@
 
   .animate-fade-in,
   .animate-slide-in-up,
+  .animate-scale-in,
   .animate-bounce-in,
   .animate-shake,
   .animate-pulse,
-  .animate-spin {
+  .animate-spin,
+  .gradient-animated,
+  .gradient-shimmer {
     animation: none;
   }
 }
