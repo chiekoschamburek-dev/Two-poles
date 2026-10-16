@@ -15,9 +15,18 @@ const wasmFiles = [
   'vision_wasm_nosimd_internal.js',
   'vision_wasm_nosimd_internal.wasm'
 ]
-const modelUrl = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task'
-const modelBytes = 5777746
-const modelOut = join(outDir, 'models/pose_landmarker_lite.task')
+const models = [
+  {
+    name: 'pose_landmarker_lite.task',
+    url: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+    bytes: 5777746
+  },
+  {
+    name: 'efficientdet_lite0.tflite',
+    url: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite',
+    bytes: 7254339
+  }
+]
 
 if (!existsSync(wasmSrc)) {
   console.error('未找到 @mediapipe/tasks-vision，请先 npm install')
@@ -33,24 +42,29 @@ for (const f of wasmFiles) {
   console.log('copied', f, (statSync(to).size / 1048576).toFixed(1), 'MB')
 }
 
-if (existsSync(modelOut) && statSync(modelOut).size === modelBytes) {
-  console.log('model 已存在，跳过下载')
-} else {
-  console.log('downloading pose_landmarker_lite.task ...')
-  const res = await fetch(modelUrl)
+for (const model of models) {
+  const dest = join(outDir, 'models', model.name)
+  if (existsSync(dest) && statSync(dest).size === model.bytes) {
+    console.log('已有', model.name)
+    continue
+  }
+  console.log('downloading', model.name, '...')
+  const res = await fetch(model.url)
   if (!res.ok || !res.body) {
-    console.error('模型下载失败：HTTP', res.status)
+    console.error('模型下载失败：', model.name, 'HTTP', res.status)
     process.exit(1)
   }
-  await pipeline(res.body, createWriteStream(modelOut))
-  const size = statSync(modelOut).size
-  if (size !== modelBytes) {
-    console.error(`模型大小不符：${size} != ${modelBytes}，请重跑本脚本`)
+  await pipeline(res.body, createWriteStream(dest))
+  const size = statSync(dest).size
+  if (size !== model.bytes) {
+    console.error(`${model.name} 大小不符：${size} != ${model.bytes}，请重跑本脚本`)
     process.exit(1)
   }
-  console.log('downloaded model', (size / 1048576).toFixed(1), 'MB')
+  console.log('downloaded', model.name, (size / 1048576).toFixed(1), 'MB')
 }
 
-console.log('\n完成。摄像头跟练所需资源已就绪：')
-console.log('  /mediapipe/wasm/            (4 个文件, ~27 MB)')
-console.log('  /mediapipe/models/pose_landmarker_lite.task  (5.5 MB)')
+console.log('\n完成。端侧推理资源已就绪：')
+console.log('  /mediapipe/wasm/                     (4 个文件, ~27 MB)')
+for (const model of models) {
+  console.log(`  /mediapipe/models/${model.name}  (${(model.bytes / 1048576).toFixed(1)} MB)`)
+}

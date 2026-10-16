@@ -173,6 +173,18 @@ export interface MealItem {
   portionSize?: number
   portionUnit?: string
   confirmed: boolean
+  /** 条目来源：手动填写或端侧照片识别后由用户确认 */
+  source?: 'manual' | 'photo'
+  /** 照片识别时的最高置信度 */
+  photoConfidence?: number
+}
+
+export interface EnergyEstimateRef {
+  foodName: string
+  low: number
+  high: number
+  grams: number
+  source: string
 }
 
 export interface MealAnalysis {
@@ -182,6 +194,8 @@ export interface MealAnalysis {
   missingCategories: FoodCategory[]
   unknownItems: string[]
   hasNutritionEstimate: boolean
+  /** 仅当用户在设置里打开热量粗估时才有值；一律以区间呈现 */
+  estimateRefs?: EnergyEstimateRef[]
   ruleVersion: string
   limitations: string[]
   createdAt: string
@@ -258,6 +272,8 @@ export interface PrivacySettings {
   saveVideoLocally: boolean
   dataRetentionDays: number
   exportFormat: 'json' | 'csv'
+  /** 热量粗估默认关闭：单张照片估不出分量，只在用户主动打开时才显示区间 */
+  showEnergyEstimate: boolean
 }
 
 // === Toast Notifications ===

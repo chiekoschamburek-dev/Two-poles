@@ -3,12 +3,21 @@ import { ref, computed } from 'vue'
 import type { FoodCategory, Meal, MealItem, Mode, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
+import { estimateEnergy, ESTIMATE_BAND, FOOD_SOURCE_LABEL } from '@/services/foodComposition'
+import type { EnergyEstimate } from '@/services/foodComposition'
 
 export interface NewMealInput {
   date: string
   mealType: Meal['mealType']
   time: string
-  items: { foodName: string; category: FoodCategory; portionSize?: number; portionUnit?: string }[]
+  items: {
+    foodName: string
+    category: FoodCategory
+    portionSize?: number
+    portionUnit?: string
+    source?: 'manual' | 'photo'
+    photoConfidence?: number
+  }[]
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -21,7 +30,8 @@ export const useAppStore = defineStore('app', () => {
     cameraEnabled: true,
     saveVideoLocally: false,
     dataRetentionDays: 90,
-    exportFormat: 'json'
+    exportFormat: 'json',
+    showEnergyEstimate: false
   })
   const toasts = ref<Toast[]>([])
   const initialized = ref(false)
@@ -203,9 +213,23 @@ export const useAppStore = defineStore('app', () => {
     const dayCategories = [...new Set(
       meals.value.filter(m => m.date === input.date).flatMap(m => m.items.map(i => i.category))
     )]
-    const analysis = completeness === 'unknown'
-      ? undefined
-      : { ...analyzeMeal(items, dayCategories), id: newId(), mealId, createdAt: new Date().toISOString() }
+    const estimates = privacy.value.showEnergyEstimate
+      ? items
+        .map(i => estimateEnergy({ foodName: i.foodName, portionSize: i.portionSize, portionUnit: i.portionUnit }))
+        .filter((e): e is EnergyEstimate => e !== null)
+      : []
+    const base = completeness === 'unknown' ? null : analyzeMeal(items, dayCategories)
+    const analysis = base ? {
+      ...base,
+      hasNutritionEstimate: estimates.length > 0,
+      estimateRefs: estimates.map(e => ({ ...e, source: FOOD_SOURCE_LABEL })),
+      limitations: estimates.length
+        ? [...base.limitations, `热量为区间粗估（±${Math.round(ESTIMATE_BAND * 100)}%），依赖所填份量与${FOOD_SOURCE_LABEL}。`]
+        : base.limitations,
+      id: newId(),
+      mealId,
+      createdAt: new Date().toISOString()
+    } : undefined
     const meal: Meal = {
       id: mealId,
       userId: userProfile.value?.id || 'demo-user',
@@ -249,7 +273,7 @@ export const useAppStore = defineStore('app', () => {
     userProfile.value = null
     sessions.value = []
     meals.value = []
-    privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json' }
+    privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json', showEnergyEstimate: false }
     localStorage.removeItem('twopoles_state')
     showToast({
       type: 'success',
