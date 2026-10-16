@@ -101,19 +101,13 @@
       <p v-else class="muted">今天没有记录加餐。不记录也是合法状态。</p>
     </BaseCard>
 
-    <BaseCard class="rules animate-slide-in-up" style="animation-delay:420ms">
-      <div class="why">
-        <div class="why-icon"><Sparkles :size="20" /></div>
-        <div>
-          <span class="eyebrow">HOW THIS WORKS</span>
-          <h3>这些结论是怎么来的</h3>
-          <ul class="lims">
-            <li v-for="l in LIMITATIONS" :key="l">{{ l }}</li>
-          </ul>
-          <p class="ver">规则版本 {{ RULE_VERSION }} · 是否含营养估算：否 · 数据仅存本机浏览器</p>
-        </div>
-      </div>
-    </BaseCard>
+    <InsightCard class="rules animate-slide-in-up" style="animation-delay:420ms" card-id="meal-rules" eyebrow="HOW THIS WORKS" title="这些结论是怎么来的">
+      <template #icon><Sparkles :size="20" /></template>
+      <ul class="lims">
+        <li v-for="l in LIMITATIONS" :key="l">{{ l }}</li>
+      </ul>
+      <p class="ver">规则版本 {{ RULE_VERSION }} · 是否含营养估算：否 · 数据仅存本机浏览器</p>
+    </InsightCard>
   </div>
 </template>
 
@@ -123,6 +117,7 @@ import { Plus, Trash2, Sparkles } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import InsightCard from '@/components/common/InsightCard.vue'
 import MealForm from '@/components/meals/MealForm.vue'
 import { useAppStore } from '@/stores/app'
 import type { Meal, MealDraft } from '@/types/domain'
@@ -245,9 +240,6 @@ function mealEnergy(meal: Meal) {
 .mini-del:hover:not(:disabled){background:var(--color-danger-soft);color:var(--color-danger)}
 .badge-photo{font-size:11px;color:var(--color-accent);background:var(--color-accent-soft);padding:4px 9px;border-radius:999px;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(15,118,110,.16);font-variant-numeric:tabular-nums}
 .rules{margin-top:16px}
-.why{display:flex;gap:16px;align-items:flex-start}
-.why-icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:13px;color:white;background:var(--color-accent);box-shadow:var(--shadow-accent),inset 0 1px 0 rgba(255,255,255,.42)}
-.why h3{font-size:16px;margin:5px 0 8px}
 .lims{list-style:none;padding:0;margin:0;display:grid;gap:6px}
 .lims li{position:relative;padding-left:16px;font-size:12px;color:var(--color-text-secondary);line-height:1.7}
 .lims li::before{content:'·';position:absolute;left:2px;top:-1px;color:var(--color-accent);font-weight:700;font-size:16px}

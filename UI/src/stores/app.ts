@@ -35,6 +35,8 @@ export const useAppStore = defineStore('app', () => {
   })
   const toasts = ref<Toast[]>([])
   const initialized = ref(false)
+  /** 被用户收起的解释/洞察类卡片 id。调研结论：这类卡片必须可隐藏，不能常驻占位 */
+  const collapsedCards = ref<string[]>([])
 
   // === Computed ===
   const isPublicMode = computed(() => currentMode.value === 'public')
@@ -56,6 +58,7 @@ export const useAppStore = defineStore('app', () => {
         sessions.value = Array.isArray(data.sessions) ? data.sessions : []
         meals.value = Array.isArray(data.meals) ? data.meals : []
         if (data.privacy) privacy.value = { ...privacy.value, ...data.privacy }
+        if (Array.isArray(data.collapsed)) collapsedCards.value = data.collapsed
       } catch (error) {
         console.error('Failed to load state from localStorage:', error)
       }
@@ -72,7 +75,8 @@ export const useAppStore = defineStore('app', () => {
       profile: userProfile.value,
       sessions: sessions.value,
       meals: meals.value,
-      privacy: privacy.value
+      privacy: privacy.value,
+      collapsed: collapsedCards.value
     }
     localStorage.setItem('twopoles_state', JSON.stringify(state))
   }
@@ -265,6 +269,18 @@ export const useAppStore = defineStore('app', () => {
     persistState()
   }
 
+  /** 收起/展开一张解释类卡片 */
+  function toggleCard(id: string) {
+    const i = collapsedCards.value.indexOf(id)
+    if (i >= 0) collapsedCards.value.splice(i, 1)
+    else collapsedCards.value.push(id)
+    persistState()
+  }
+
+  function isCardCollapsed(id: string) {
+    return collapsedCards.value.includes(id)
+  }
+
   /**
    * Clear all data
    */
@@ -274,6 +290,7 @@ export const useAppStore = defineStore('app', () => {
     sessions.value = []
     meals.value = []
     privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json', showEnergyEstimate: false }
+    collapsedCards.value = []
     localStorage.removeItem('twopoles_state')
     showToast({
       type: 'success',
@@ -292,6 +309,7 @@ export const useAppStore = defineStore('app', () => {
     privacy,
     toasts,
     initialized,
+    collapsedCards,
 
     // Computed
     isPublicMode,
@@ -310,6 +328,8 @@ export const useAppStore = defineStore('app', () => {
     addMeal,
     removeMeal,
     updatePrivacy,
+    toggleCard,
+    isCardCollapsed,
     clearAllData
   }
 })

@@ -97,19 +97,13 @@
       </div>
     </BaseCard>
 
-    <BaseCard class="quality animate-slide-in-up" style="animation-delay:430ms">
-      <div class="why">
-        <div class="why-icon"><ShieldCheck :size="20" /></div>
-        <div>
-          <span class="eyebrow">DATA QUALITY</span>
-          <h3>这份报告没说的三件事</h3>
-          <ul class="lims">
-            <li v-for="q in report.dataQuality" :key="q">{{ q }}</li>
-          </ul>
-          <p class="ver">{{ report.ruleVersion }} · 数据只存本机浏览器（{{ store.sessions.length }} 条训练 / {{ store.meals.length }} 条餐食）</p>
-        </div>
-      </div>
-    </BaseCard>
+    <InsightCard class="quality animate-slide-in-up" style="animation-delay:430ms" card-id="report-quality" eyebrow="DATA QUALITY" title="这份报告没说的三件事" tone="ink">
+      <template #icon><ShieldCheck :size="20" /></template>
+      <ul class="lims">
+        <li v-for="q in report.dataQuality" :key="q">{{ q }}</li>
+      </ul>
+      <p class="ver">{{ report.ruleVersion }} · 数据只存本机浏览器（{{ store.sessions.length }} 条训练 / {{ store.meals.length }} 条餐食）</p>
+    </InsightCard>
   </div>
 </template>
 
@@ -123,6 +117,7 @@ import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import MetricCard from '@/components/common/MetricCard.vue'
+import InsightCard from '@/components/common/InsightCard.vue'
 import { useAppStore } from '@/stores/app'
 import type { TrainingSession } from '@/types/domain'
 import { FOOD_CATEGORIES } from '@/services/mealRules'
@@ -246,9 +241,6 @@ function goToday() {
 .empty p{font-size:13px;color:var(--color-text-secondary);margin:0 0 14px}
 .empty-actions{display:flex;gap:10px}
 .empty-actions :deep(button){width:auto;padding:0 20px}
-.quality .why{display:flex;gap:16px;align-items:flex-start}
-.why-icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:13px;color:white;background:var(--color-ink);box-shadow:0 10px 22px -12px rgba(21,24,27,.6),inset 0 1px 0 rgba(255,255,255,.28)}
-.quality h3{font-size:16px;margin:5px 0 8px}
 .lims{list-style:none;padding:0;margin:0;display:grid;gap:6px}
 .lims li{position:relative;padding-left:16px;font-size:12px;color:var(--color-text-secondary);line-height:1.7}
 .lims li::before{content:'·';position:absolute;left:2px;color:var(--color-accent);font-weight:700;font-size:16px}
