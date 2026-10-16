@@ -1,0 +1,51 @@
+[
+  {
+    "url": "https://api.crossref.org/works?query.title=A%20new%20approach%20to%20monitoring%20exercise%20training&rows=1",
+    "final": "https://api.crossref.org/works?query.title=A%20new%20approach%20to%20monitoring%20exercise%20training&rows=1",
+    "status": 200,
+    "title": "",
+    "meta": [],
+    "bytes": 2853,
+    "snippet": "{\"status\":\"ok\",\"message-type\":\"work-list\",\"message-version\":\"1.0.0\",\"message\":{\"facets\":{},\"total-results\":6512256,\"items\":[{\"indexed\":{\"date-parts\":[[2026,9,18]],\"date-time\":\"2026-09-18T05:23:39Z\",\"timestamp\":1789709019389,\"version\":\"4.0.1\"},\"reference-count\":0,\"publisher\":\"Ovid Technologies (Wolters Kluwer Health)\",\"issue\":\"1\",\"content-domain\":{\"domain\":[],\"crossmark-restriction\":false},\"short-container-title\":[\"J Strength Cond Res\"],\"published-print\":{\"date-parts\":[[2001]]},\"DOI\":\"10.1519\\/1533-4287(2001)015<0109:anatme>2.0.co;2\",\"type\":\"journal-article\",\"created\":{\"date-parts\":[[2004,5,6]],\"date-time\":\"2004-05-06T21:30:02Z\",\"timestamp\":1083879002000},\"page\":\"109\",\"source\":\"Crossref\",\"is-referenced-by-count\":56,\"title\":[\"A New Approach to Monitoring Exercise Training\"],\"prefix\":\"10.1519\",\"volume\":\"15\",\"author\":[{\"given\":\"CARL\",\"family\":\"FOSTER\",\"sequence\":\"first\",\"affiliation\":[],\"role\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},{\"given\":\"JESSICA A.\",\"family\":\"FLORHAUG\",\"sequence\":\"additional\",\"affiliation\":[],\"role\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},{\"given\":\"JODI\",\"family\":\"FRANKLIN\",\"sequence\":\"additional\",\"affiliation\":[],\"role\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},{\"given\":\"LORI\",\"family\":\"GOTTSCHALL\",\"sequence\":\"additional\",\"affiliation\":[],\"role\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},{\"given\":\"LAURI A.\",\"family\":\"HROVATIN\",\"sequence\":\"additional\",\"affiliation\":[],\"role\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},{\"given\":\"SUZANNE\",\"family\":\"PARKER\",\"sequence\":\"additional\",\"affiliation\":[],\"role\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},{\"given\":\"PAMELA\",\"family\":\"DOLESHAL\",\"sequence\":\"additional\",\"affiliation\":[],\"role\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]},{\"given\":\"CHRISTOPHER\",\"family\":\"DODGE\",\"sequence\":\"additional\",\"affiliation\":[],\"role\":[{\"vocabulary\":\"crossref\",\"role\":\"author\"}]}],\"member\":\"276\",\"container-title\":[\"The Journal of Strength and Conditioning Research\"],\"language\":\"en\",\"link\":[{\"URL\":\"http:\\/\\/journals.lww.com\\/00124278-200102000-00019\",\"content-type\":\"unspecified\",\"content-version\":\"vor\",\"intended-application\":\"similarity-checking\"}],\"deposited\":{\"date-parts\":[[2022,2,7]],\"date-time\":\"2022-02-07T17:18:31Z\",\"timestamp\":1644254311000},\"score\":31.294445,\"resource\":{\"primary\":{\"URL\":\"http:\\/\\/nsca.allenpress.com\\/nscaonline\\/?request=get-abstract&doi=10.1519%2F1533-4287(2001)015%3C0109%3AANATME%3E2.0.CO%3B2\"}},\"issued\":{\"date-parts\":[[2001]]},\"references-count\":0,\"journal-issue\":{\"issue\":\"1\",\"published-print\":{\"date-parts\":[[2001]]}},\"URL\":\"https:\\/\\/doi.org\\/10.1519\\/1533-4287(2001)015<0109:anatme>2.0.co;2\",\"ISSN\":[\"1064-8011\",\"1533-4287\"],\"issn-type\":[{\"value\":\"1064-8011\",\"type\":\"print\"},{\"value\":\"1533-4287\",\"type\":\"electronic\"}],\"published\":{\"date-parts\":[[2001]]}}],\"items-per-page\":1,\"query\":{\"start-index\":0,\"search-terms\":null}}}"
+  },
+  {
+    "url": "https://connect.garmin.com/",
+    "final": "https://connectus.garmin.cn/",
+    "status": 200,
+    "title": "Garmin Connect",
+    "meta": [],
+    "bytes": 22799,
+    "snippet": ""
+  },
+  {
+    "url": "https://www.myfitnesspal.com/",
+    "final": "https://www.myfitnesspal.com/",
+    "status": 200,
+    "title": "Calorie Tracker &amp; BMR Calculator to Reach Your Goals | MyFitnessPal",
+    "meta": [],
+    "bytes": 959569,
+    "snippet": ""
+  },
+  {
+    "url": "http://dg.cnsoc.org/newslist_0402_1.htm",
+    "final": "http://dg.cnsoc.org/newslist_0402_1.htm",
+    "status": 200,
+    "title": "2022版平衡膳食八准则_中国居民膳食指南",
+    "meta": [],
+    "bytes": 7307,
+    "snippet": ""
+  },
+  {
+    "url": "https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/web_js?hl=en",
+    "error": "<urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>"
+  },
+  {
+    "url": "https://www.garmin.com/en-US/garmin-technology/running-science/physiological-measurements/training-load/",
+    "final": "https://www.garmin.com/en-US/garmin-technology/running-science/physiological-measurements/training-load/",
+    "status": 200,
+    "title": "Training Load | Garmin Technology",
+    "meta": [],
+    "bytes": 238638,
+    "snippet": ""
+  }
+]
