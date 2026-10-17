@@ -5,7 +5,7 @@
       <BaseButton :icon="Plus" @click="newVersion">新建计划</BaseButton>
     </div>
 
-    <div class="toolbar animate-slide-in-up" style="animation-delay:90ms">
+    <div class="toolbar animate-slide-in-up">
       <div class="tabs" role="tablist">
         <button role="tab" :aria-selected="view === 'week'" :class="{ active: view === 'week' }" @click="view = 'week'">本周</button>
         <button role="tab" :aria-selected="view === 'cycle'" :class="{ active: view === 'cycle' }" @click="view = 'cycle'">四周周期</button>
@@ -14,7 +14,7 @@
     </div>
 
     <div v-if="view === 'week'" class="layout">
-      <BaseCard class="calendar animate-slide-in-up" style="animation-delay:160ms">
+      <BaseCard class="calendar animate-slide-in-up">
         <div class="month">
           <button aria-label="上一月" @click="shiftMonth(-1)"><ChevronLeft :size="18" /></button>
           <strong>{{ monthLabel }}</strong>
@@ -38,7 +38,7 @@
         </div>
       </BaseCard>
 
-      <BaseCard :key="selected" class="detail animate-slide-in-up" style="animation-delay:230ms">
+      <BaseCard :key="selected" class="detail animate-slide-in-up">
         <div class="detail-head">
           <div><span class="eyebrow">{{ eyebrow }}</span><h2>{{ selectedDateLabel }}</h2></div>
           <StatusBadge :variant="planForSelected.length ? (isPast ? 'neutral' : 'info') : 'success'">
@@ -71,7 +71,7 @@
     </div>
 
     <div v-else class="cycle">
-      <BaseCard v-for="(phase, i) in cyclePhases" :key="phase.name" class="phase animate-slide-in-up" :class="{ current: phase.current }" :style="{ animationDelay: 160 + i * 90 + 'ms' }">
+      <BaseCard v-for="phase in cyclePhases" :key="phase.name" class="phase animate-slide-in-up" :class="{ current: phase.current }">
         <span class="phase-tag">{{ phase.current ? '当前' : '计划中' }}</span>
         <h3>{{ phase.name }}</h3>
         <p>{{ phase.note }}</p>
@@ -80,7 +80,7 @@
       </BaseCard>
     </div>
 
-    <BaseCard class="version-card animate-slide-in-up" style="animation-delay:300ms">
+    <BaseCard class="version-card animate-slide-in-up">
       <div>
         <span class="eyebrow">PLAN HISTORY</span>
         <h3>{{ adjustResolved ? '调整建议已处理' : '有 1 条调整建议等待确认' }}</h3>

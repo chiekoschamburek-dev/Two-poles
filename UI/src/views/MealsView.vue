@@ -11,7 +11,7 @@
       </StatusBadge>
     </div>
 
-    <div class="strip animate-slide-in-up" style="animation-delay:80ms" aria-live="polite">
+    <div class="strip animate-slide-in-up" aria-live="polite">
       <div class="strip-item"><span>类别覆盖</span><b>{{ summary.coverage.length }} / 8</b></div>
       <div class="strip-item"><span>完整记录</span><b>{{ summary.completeCount }} 餐</b></div>
       <div class="strip-item"><span>部分记录</span><b>{{ summary.partialCount }} 餐</b></div>
@@ -21,11 +21,10 @@
 
     <div class="slots">
       <BaseCard
-        v-for="(slot, i) in summary.slots"
+        v-for="slot in summary.slots"
         :key="slot.id"
         class="slot animate-slide-in-up"
         :class="{ opening: draft?.slot === slot.id }"
-        :style="{ animationDelay: 140 + i * 70 + 'ms' }"
       >
         <div class="slot-head">
           <h3>{{ slot.label }}</h3>
@@ -76,7 +75,7 @@
       </BaseCard>
     </div>
 
-    <BaseCard class="snacks animate-slide-in-up" style="animation-delay:360ms">
+    <BaseCard class="snacks animate-slide-in-up">
       <div class="slot-head">
         <h3>加餐</h3>
         <StatusBadge v-if="draft?.slot === 'snack'" variant="info">记录中</StatusBadge>
@@ -101,7 +100,7 @@
       <p v-else class="muted">今天没有记录加餐。不记录也是合法状态。</p>
     </BaseCard>
 
-    <InsightCard class="rules animate-slide-in-up" style="animation-delay:420ms" card-id="meal-rules" eyebrow="HOW THIS WORKS" title="这些结论是怎么来的">
+    <InsightCard class="rules animate-slide-in-up" card-id="meal-rules" eyebrow="HOW THIS WORKS" title="这些结论是怎么来的">
       <template #icon><Sparkles :size="20" /></template>
       <ul class="lims">
         <li v-for="l in LIMITATIONS" :key="l">{{ l }}</li>

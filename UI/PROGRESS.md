@@ -4,6 +4,7 @@
 > 下文"已创建的文件结构"不含 views/components（当时确实还没写），"预期完成度 组件库 0% / 视图页面 0%"也已过时：现在已有 9 个组件与 **7 个都有界面的页面**（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）。其中列为 ✅ 的 `src/utils/animations.ts`（动画工具函数）因始终无人调用，已在后续清理中删除。
 > 未实现的规划（`journey|training|meals|reports` 组件目录、LoadingSpinner / ConfirmDialog / EmptyState / IncompleteState、ModeSwitcher / ModeComparison、周报图表等）**至今一个都没有创建**，请勿据此判断交付状态。（模式切换与调整预览后来以内联方式做进了 SidebarNav / PlanView，但没有拆成独立组件。）
 > 当前真实状态请看 `README.md` 首节"当前实现状态"与 `交付说明.md` 的修订记录。
+> 另注：下文"核心服务"里列为 ✅ 的**错位延迟计算**与"动效时序"里的 **Slower (600ms) 错位入场**，已在 2026-10-16 第十三轮按调研结论取消（常驻循环动画与入场错位全部删除）；`animations.css` 现只保留 7 个仍有人用的关键帧。
 
 ## 📊 项目状态
 

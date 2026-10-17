@@ -207,4 +207,6 @@ sync_state(user_id, last_sync_at)
    - ② 单一强调色 + 语义色重标（第十一轮，取值依据 `UI/research/界面偏好调研.md` P0-1/P0-2 与 `ui-directions.html`）：强调色收敛为 `#0f766e` 一种，指标卡去渐变改白卡 + 1px 描边 + 单层阴影且只在真达成时着色，语义色只留 success(=强调色)/caution/danger/neutral 并用点形/条形做非颜色冗余，装饰渐变只保留品牌位。实测 7 条路由 281 个文本节点 0 项 AA 失败，并修掉 `--color-on-accent` 拼错名与 muted 3.75:1 不达 AA 两个真 bug。
    - ③ 环改条 + 洞察卡可收起（第十二轮）：概览餐次圆环删除，改三段条（实心=完整、半填+caution 描边=部分、空心=未记录），`aria-label` 逐条播报；三处解释卡统一为 `InsightCard`，收起状态写入 localStorage 并实测刷新后保持；新按钮触控目标从 68×32 提到 68×44。
    - 第九轮的表面与排版档（`--font-display`、标题字距、分层阴影）保留，但当时加的 4 层环境光与 .035 颗粒已降为 1 层与 .018，页标题渐变裁切文字已改为纯墨色。
-   - 仍未做：第④步常驻动画收敛（hero `gradientShift 9s infinite`、指标卡掠光等仍在）；洞察卡的"可下移/可重排"（只做了可隐藏）；调研 P1-4 底部 4 Tab、P1-7 双主题 + 跟随系统；真实关键点驱动的骨架动画与图表入场。
+   - ④ 常驻动画改按需已完成（第十二/十三轮）：概览基线 4 个常驻无限动画（`pulse@mode-dot`、`sheenSweep::after@mini-progress`、`gradientShift@hero`、`spin::before@hero-orb`）与跟练页 13 个全部删除，37 处行内 `animation-delay` 入场错位取消；仅保留两处"操作进行中"才存在的循环（演示回放扫光、休息徽标呼吸）。复测：6 页常驻无限动画 0、跟练页 1。`animations.css` 233→105 行，`index.css` 20.07→18.70 kB（gzip 4.97）。
+   - 仍未做：图表入场动画（本来就没有）、真实关键点驱动的骨架动画；调研 P1-4 底部 4 Tab、P1-7 双主题 + 跟随系统；侧栏/Toast/跟练舞台的 `backdrop-filter` 毛玻璃尚未逐处降级。
+   - ②③④ 三步的做法与数字见 `UI/交付说明.md` 第十一至十三轮；其中记录了我自己造成的一次破坏与恢复（`sed /pattern/d` 删规则时删掉了 DashboardView 整行主样式，随后从 HEAD 取回该行、在该行内用 `s///` 完成原本要做的删除并复测选择器完整性）。

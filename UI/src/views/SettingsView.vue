@@ -9,7 +9,7 @@
       <StatusBadge :variant="store.hasProfile ? 'success' : 'neutral'">{{ store.hasProfile ? '已建档' : '未建档' }}</StatusBadge>
     </div>
 
-    <BaseCard class="section animate-slide-in-up" style="animation-delay:70ms">
+    <BaseCard class="section animate-slide-in-up">
       <h2>使用方式</h2>
       <p class="sub">切换会立即生效并写入本机；两种模式目前只有展示内容不同。</p>
       <div class="choices">
@@ -30,7 +30,7 @@
       </div>
     </BaseCard>
 
-    <BaseCard class="section animate-slide-in-up" style="animation-delay:130ms">
+    <BaseCard class="section animate-slide-in-up">
       <h2>隐私</h2>
       <p class="sub">当前实现里，摄像头画面只在本机做姿态推理，不上传、也不落盘。下面的开关记录的是你的偏好。</p>
 
@@ -74,7 +74,7 @@
       </div>
     </BaseCard>
 
-    <BaseCard class="section animate-slide-in-up" style="animation-delay:190ms">
+    <BaseCard class="section animate-slide-in-up">
       <h2>我的数据</h2>
       <div class="stats">
         <div class="stat"><span>训练记录</span><b>{{ store.sessions.length }}</b></div>
@@ -90,7 +90,7 @@
       <p v-if="exportError" class="error" role="alert">{{ exportError }}</p>
     </BaseCard>
 
-    <BaseCard class="section danger animate-slide-in-up" style="animation-delay:250ms">
+    <BaseCard class="section danger animate-slide-in-up">
       <h2>清除全部数据</h2>
       <p class="sub">删除档案、模式、全部训练与餐食记录，并清空本机存储。此操作不可撤销。</p>
       <template v-if="!confirming">

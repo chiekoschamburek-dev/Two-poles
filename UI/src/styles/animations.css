@@ -1,40 +1,15 @@
 /* ===== Keyframe Animations ===== */
+/* 只保留"有消费者"的关键帧与工具类；入场一律无错位（不带 delay），循环动效仅用于加载/演示进行中的状态 */
 
-/* === Fade === */
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-@keyframes fadeOut {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
-/* === Slide === */
 @keyframes slideInUp {
   from {
     opacity: 0;
     transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
   }
   to {
     opacity: 1;
@@ -53,7 +28,6 @@
   }
 }
 
-/* === Scale === */
 @keyframes scaleIn {
   from {
     opacity: 0;
@@ -82,115 +56,20 @@
   }
 }
 
-/* === Shake === */
-@keyframes shake {
-  0%, 100% {
-    transform: translateX(0);
-  }
-  10%, 30%, 50%, 70%, 90% {
-    transform: translateX(-3px);
-  }
-  20%, 40%, 60%, 80% {
-    transform: translateX(3px);
-  }
-}
-
-/* === Pulse === */
+/* 进行中状态的呼吸提示：加载骨架、休息阶段徽标 */
 @keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
-@keyframes pulseScale {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-}
-
-/* === Spin === */
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* === Shimmer (for skeleton loading) === */
-@keyframes shimmer {
-  0% {
-    background-position: -468px 0;
-  }
-  100% {
-    background-position: 468px 0;
-  }
-}
-
+/* 演示回放边框上的流动扫光（仅在演示进行中显示） */
 @keyframes shimmerGradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
-/* === Sheen Sweep (transform-based, safe on already-gradient surfaces) === */
-@keyframes sheenSweep {
-  0% {
-    transform: translateX(-45%) rotate(12deg);
-  }
-  55%, 100% {
-    transform: translateX(330%) rotate(12deg);
-  }
-}
-
-/* === Progress Bar === */
-@keyframes progress {
-  from {
-    width: 0%;
-  }
-  to {
-    width: 100%;
-  }
-}
-
-/* === Checkmark Draw === */
-@keyframes drawCheck {
-  0% {
-    stroke-dashoffset: 100;
-  }
-  100% {
-    stroke-dashoffset: 0;
-  }
-}
-
-/* === Gradient Shift === */
-@keyframes gradientShift {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
-/* === Utility Animation Classes === */
-/* fill-mode 让带 animation-delay 的错位入场在等待期保持首帧状态，避免先闪一下再动 */
+/* fill-mode 让入场在首帧即保持起始状态，避免先闪一下再动 */
 .animate-fade-in {
   animation: fadeIn var(--motion-base) var(--easing-ease-out) both;
 }
@@ -207,19 +86,10 @@
   animation: bounceIn var(--motion-slow) var(--easing-spring) both;
 }
 
-.animate-shake {
-  animation: shake var(--motion-slow) var(--easing-ease-in-out) both;
-}
-
 .animate-pulse {
   animation: pulse var(--motion-slow) var(--easing-ease-in-out) infinite;
 }
 
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-/* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -233,10 +103,7 @@
   .animate-slide-in-up,
   .animate-scale-in,
   .animate-bounce-in,
-  .animate-shake,
   .animate-pulse,
-  .animate-spin,
-  .gradient-animated,
   .gradient-shimmer {
     animation: none;
   }

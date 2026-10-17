@@ -21,7 +21,7 @@
       </div>
     </div>
     <nav>
-      <RouterLink v-for="(item, i) in items" :key="item.to" :to="item.to" class="nav-item animate-slide-in-up" :style="{ animationDelay: 60 + i * 55 + 'ms' }" @click="emit('close')">
+      <RouterLink v-for="item in items" :key="item.to" :to="item.to" class="nav-item animate-slide-in-up" @click="emit('close')">
         <component :is="item.icon" :size="19" /><span>{{ item.label }}</span>
       </RouterLink>
     </nav>
@@ -82,7 +82,7 @@ function choose(id: Mode) {
 .mode-card small,.mode-card strong{display:block}
 .mode-card small{font-size:11px;color:var(--color-text-muted)}
 .mode-card strong{font-size:13px;margin-top:2px}
-.mode-dot{width:9px;height:9px;border-radius:50%;background:var(--color-accent);box-shadow:0 0 0 4px var(--color-accent)22;flex:none;animation:pulse 2.6s var(--easing-ease-in-out) infinite}
+.mode-dot{width:9px;height:9px;border-radius:50%;background:var(--color-accent);box-shadow:0 0 0 4px var(--color-accent)22;flex:none}
 .flip{transform:rotate(180deg);transition:transform var(--motion-fast)}
 .mode-menu{margin-top:10px;padding:8px;border-radius:14px;background:white;border:1px solid var(--color-border);box-shadow:var(--shadow-lg);display:grid;gap:6px}
 .mode-option{padding:10px 12px;border-radius:11px;text-align:left;transition:background var(--motion-fast)}
@@ -103,7 +103,6 @@ nav{display:grid;gap:7px}
 .nav-item.router-link-active{font-weight:600}
 .sidebar-foot{margin-top:auto}
 .mini-progress{position:relative;overflow:hidden;padding:14px;border-radius:14px;background:var(--gradient-brand);color:white;margin-bottom:14px;box-shadow:var(--shadow-card),var(--inner-light)}
-.mini-progress::after{content:'';position:absolute;top:-70%;left:-25%;width:40%;height:240%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);transform:rotate(12deg);animation:sheenSweep 5.5s var(--easing-ease-in-out) infinite}
 .mini-progress span{font-size:12px;opacity:.78}
 .mini-progress b{float:right;font-size:14px;font-variant-numeric:tabular-nums}
 .mini-progress div{height:5px;background:#ffffff38;border-radius:10px;clear:both;margin-top:12px;overflow:hidden}

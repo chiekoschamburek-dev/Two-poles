@@ -24,7 +24,7 @@
     </div>
 
     <div class="execution-grid">
-      <BaseCard class="stage-card glass animate-slide-in-up" style="animation-delay:90ms">
+      <BaseCard class="stage-card glass animate-slide-in-up">
         <div class="stage-container">
           <div class="demo-frame">
             <template v-if="mode === 'camera'">
@@ -70,13 +70,13 @@
       </BaseCard>
 
       <div class="info-cards">
-        <BaseCard class="count-card animate-slide-in-up" style="animation-delay:150ms">
+        <BaseCard class="count-card animate-slide-in-up">
           <div class="count-label">当前组数</div>
           <div class="count-big">{{ displaySet }} <span>/ {{ exercise.sets }}</span></div>
           <div class="count-progress"><div class="progress-fill" :style="{ width: setProgress + '%' }"></div></div>
         </BaseCard>
 
-        <BaseCard class="count-card primary animate-slide-in-up" style="animation-delay:210ms">
+        <BaseCard class="count-card primary animate-slide-in-up">
           <div class="count-label">本组完成次数</div>
           <div class="count-big">{{ displayReps }} <span>/ {{ exercise.repsPerSet }}</span></div>
           <div class="reps-grid" :style="{ gridTemplateColumns: 'repeat(' + exercise.repsPerSet + ', 1fr)' }">
@@ -84,7 +84,7 @@
           </div>
         </BaseCard>
 
-        <BaseCard class="animate-slide-in-up" style="animation-delay:270ms">
+        <BaseCard class="animate-slide-in-up">
           <div class="status-item">
             <Activity :size="18" class="status-icon" />
             <div><strong>{{ phaseLabel }}</strong><small>{{ message || '保持动作流畅' }}</small></div>
@@ -106,7 +106,7 @@
           </div>
         </BaseCard>
 
-        <BaseCard v-if="!finished" class="actions-card animate-slide-in-up" style="animation-delay:330ms">
+        <BaseCard v-if="!finished" class="actions-card animate-slide-in-up">
           <h3>完成后记录</h3>
           <p>完成次数可以修正。看不清时暂停计数，不输出姿势安全结论。共 {{ exercise.sets }} 组，每组 {{ exercise.repsPerSet }} 次，组间休息 {{ exercise.restDuration / 1000 }} 秒。</p>
           <BaseButton variant="secondary" size="sm" :icon="Edit3" @click="toggleEdit">手动修正</BaseButton>
@@ -507,13 +507,11 @@ onUnmounted(() => {
 .stage-container{padding:24px;background:var(--color-neutral-soft)}
 .demo-frame{aspect-ratio:4/5;background:linear-gradient(135deg,var(--color-neutral-soft),var(--color-accent-soft));border-radius:16px;position:relative;overflow:hidden;display:grid;place-items:center}
 .skeleton-overlay{width:100%;height:100%;display:grid;place-items:center}
-.skeleton{width:60%;height:90%;opacity:.85;filter:drop-shadow(0 2px 8px rgba(10,155,157,.25));transition:transform var(--motion-base) var(--easing-ease-out)}
+.skeleton{width:60%;height:90%;opacity:.85;filter:drop-shadow(0 2px 8px rgba(15,118,110,.25));transition:transform var(--motion-base) var(--easing-ease-out)}
 .skeleton.down{transform:translateY(14px) scaleY(.94)}
 .skeleton.up{transform:translateY(-6px)}
 .skeleton.held{opacity:.5}
 .skeleton.occluded{opacity:.28}
-.skeleton circle{animation:pulse 2s ease-in-out infinite}
-.skeleton line{animation:pulse 2s ease-in-out infinite}
 .frame-sheen{position:absolute;inset:0;border-radius:16px;opacity:.45;pointer-events:none}
 .stage-overlay{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;gap:10px}
 .confidence-badge,.phase-badge{padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);box-shadow:var(--shadow-sm)}
@@ -556,11 +554,6 @@ onUnmounted(() => {
 .correct-form :deep(button){width:auto;margin-bottom:0;padding:0 18px}
 .summary-list{display:grid;gap:9px;list-style:none;padding:0;margin:0 0 14px}
 .summary-list li{display:flex;justify-content:space-between;font-size:13px;color:var(--color-text-secondary);animation:slideInUp var(--motion-base) var(--easing-spring) both}
-.summary-list li:nth-child(2){animation-delay:70ms}
-.summary-list li:nth-child(3){animation-delay:140ms}
-.summary-list li:nth-child(4){animation-delay:210ms}
-.summary-list li:nth-child(5){animation-delay:280ms}
-.summary-list li:nth-child(6){animation-delay:350ms}
 .summary-list b{color:var(--color-ink)}
 .stored-note{font-size:12px;color:var(--color-accent)}
 .feedback{border-top:1px solid var(--color-divider);margin-top:14px;padding-top:14px;text-align:left}

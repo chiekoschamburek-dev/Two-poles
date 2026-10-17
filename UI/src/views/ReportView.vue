@@ -15,13 +15,13 @@
 
     <div class="kpis">
       <MetricCard label="计划场次" :value="report.plannedSessions" hint="按本周期的安排" :icon="CalendarDays" />
-      <MetricCard class="animate-slide-in-up" style="animation-delay:70ms" label="有记录场次" :value="report.completedSessions" hint="未记录不等于没练" :icon="CheckCircle2" accent="blue" />
-      <MetricCard class="animate-slide-in-up" style="animation-delay:140ms" label="总时长" :value="report.totalDuration + ' min'" hint="来自实际记录" :icon="Clock3" accent="purple" />
-      <MetricCard class="animate-slide-in-up" style="animation-delay:210ms" label="训练负荷合计" :value="report.totalLoad === null ? '未记录' : String(report.totalLoad)" :hint="report.totalLoad === null ? '缺少 RPE，暂不可算' : 'Σ 时长 × RPE'" :icon="Flame" accent="orange" />
+      <MetricCard class="animate-slide-in-up" label="有记录场次" :value="report.completedSessions" hint="未记录不等于没练" :icon="CheckCircle2" accent="blue" />
+      <MetricCard class="animate-slide-in-up" label="总时长" :value="report.totalDuration + ' min'" hint="来自实际记录" :icon="Clock3" accent="purple" />
+      <MetricCard class="animate-slide-in-up" label="训练负荷合计" :value="report.totalLoad === null ? '未记录' : String(report.totalLoad)" :hint="report.totalLoad === null ? '缺少 RPE，暂不可算' : 'Σ 时长 × RPE'" :icon="Flame" accent="orange" />
     </div>
 
     <div class="grid">
-      <BaseCard class="chart-card animate-slide-in-up" style="animation-delay:260ms">
+      <BaseCard class="chart-card animate-slide-in-up">
         <div class="card-head">
           <div><span class="eyebrow">LOAD BY DAY</span><h3>每日负荷</h3></div>
           <div class="legend">
@@ -58,7 +58,7 @@
         <p class="axis-note">蓝点＝该日按计划应训练（周一 / 周三 / 周五的安排）。</p>
       </BaseCard>
 
-      <BaseCard class="animate-slide-in-up" style="animation-delay:320ms">
+      <BaseCard class="animate-slide-in-up">
         <div class="card-head"><div><span class="eyebrow">MEALS</span><h3>餐食结构</h3></div><StatusBadge :variant="report.totalMeals ? 'info' : 'neutral'">{{ report.totalMeals ? `${report.recordedMeals} 条记录` : '未记录' }}</StatusBadge></div>
         <svg viewBox="0 0 340 190" class="chart" role="img" aria-label="本周食物类别出现次数条形图">
           <g v-for="(c, i) in categoryRows" :key="c.name">
@@ -72,7 +72,7 @@
       </BaseCard>
     </div>
 
-    <BaseCard class="sessions animate-slide-in-up" style="animation-delay:380ms">
+    <BaseCard class="sessions animate-slide-in-up">
       <div class="card-head"><div><span class="eyebrow">SESSIONS</span><h3>本周训练记录</h3></div></div>
       <table v-if="sessions.length">
         <thead><tr><th>日期</th><th>动作</th><th>时长</th><th>次数 / 组</th><th>RPE</th><th>负荷</th><th>状态</th></tr></thead>
@@ -97,7 +97,7 @@
       </div>
     </BaseCard>
 
-    <InsightCard class="quality animate-slide-in-up" style="animation-delay:430ms" card-id="report-quality" eyebrow="DATA QUALITY" title="这份报告没说的三件事" tone="ink">
+    <InsightCard class="quality animate-slide-in-up" card-id="report-quality" eyebrow="DATA QUALITY" title="这份报告没说的三件事" tone="ink">
       <template #icon><ShieldCheck :size="20" /></template>
       <ul class="lims">
         <li v-for="q in report.dataQuality" :key="q">{{ q }}</li>
