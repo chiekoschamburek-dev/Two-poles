@@ -277,7 +277,7 @@ function submit() {
 .cand-t b{font-size:13px;color:var(--color-ink);margin-right:6px}
 .cand-t small{font-size:11px;color:var(--color-text-muted)}
 .cand-add{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:600;color:var(--color-accent);padding:6px 10px;border-radius:9px;background:var(--color-accent-soft);transition:all var(--motion-fast)}
-.cand-add:hover{background:var(--color-accent);color:#fff}
+.cand-add:hover{background:var(--color-accent);color:var(--color-on-accent)}
 .photo-note{font-size:11px;color:var(--color-text-muted);line-height:1.7;margin:10px 0 0}
 .badge-photo{font-size:11px;color:var(--color-accent);background:var(--color-accent-soft);padding:4px 9px;border-radius:999px;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(15,118,110,.16);font-variant-numeric:tabular-nums}
 .kc{font-size:11px;color:var(--color-caution);background:var(--color-caution-soft);padding:4px 9px;border-radius:999px;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(215,165,75,.28);font-variant-numeric:tabular-nums}

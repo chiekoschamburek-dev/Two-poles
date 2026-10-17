@@ -467,7 +467,7 @@ watch(
 .item-actions{display:flex;gap:6px;flex-wrap:wrap}
 .mini{font-size:11px;padding:7px 10px;min-height:32px;border-radius:9px;background:var(--color-neutral-soft);color:var(--color-text-secondary);transition:all var(--motion-fast)}
 .mini:hover:not(:disabled){background:var(--color-accent-soft);color:var(--color-accent)}
-.mini[aria-pressed="true"]{background:var(--color-accent);color:#fff}
+.mini[aria-pressed="true"]{background:var(--color-accent);color:var(--color-on-accent)}
 .mini:disabled{opacity:.45;cursor:not-allowed}
 .rest-note{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);padding:14px 0}
 .replace{margin-top:16px;padding-top:14px;border-top:1px solid var(--color-divider);display:grid;gap:10px}

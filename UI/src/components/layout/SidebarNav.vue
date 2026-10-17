@@ -129,7 +129,7 @@ function cancel() {
 .sc-cols ul{margin:0;padding-left:16px;line-height:1.65;color:var(--color-text-secondary)}
 .sc-actions{display:flex;gap:8px}
 .sc-go,.sc-cancel{flex:1;min-height:44px;border-radius:11px;font-size:12px;font-weight:700;transition:all var(--motion-fast)}
-.sc-go{background:var(--color-accent);color:#fff}
+.sc-go{background:var(--color-accent);color:var(--color-on-accent)}
 .sc-go:hover{filter:brightness(1.06)}
 .sc-cancel{background:var(--color-neutral-soft);color:var(--color-text-secondary)}
 nav{display:grid;gap:7px}
