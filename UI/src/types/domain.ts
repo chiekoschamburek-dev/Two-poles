@@ -40,6 +40,8 @@ export interface UserProfile {
   experience: string
   availableTimes: string[]
   equipment: string[]
+  /** 常训练的场地，供 F04 过滤；旧档案可能没有这个字段 */
+  availableVenues?: string[]
   restrictions: string[]
 
   // Athlete-specific fields
@@ -194,6 +196,8 @@ export interface EnergyEstimateRef {
   low: number
   high: number
   grams: number
+  /** 数值口径，例："熟重 · 116 kcal/100 g" */
+  basis: string
   source: string
 }
 
@@ -285,6 +289,9 @@ export interface PrivacySettings {
   /** 热量粗估默认关闭：单张照片估不出分量，只在用户主动打开时才显示区间 */
   showEnergyEstimate: boolean
 }
+
+/** 三态而不是开关：调研指出"半适配深色"和"强制深色"都是高频差评，默认跟随系统 */
+export type ThemePreference = 'system' | 'light' | 'dark'
 
 // === Toast Notifications ===
 

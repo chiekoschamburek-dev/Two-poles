@@ -96,9 +96,13 @@
           <div class="status-item" v-if="live">
             <Ruler :size="18" class="status-icon teal" />
             <div>
-              <strong>膝 {{ pose.kneeAngle ?? '—' }}° · 髋 {{ pose.hipAngle ?? '—' }}°</strong>
-              <small>肘 {{ pose.elbowAngle ?? '—' }}°（取左侧）· 实时角度仅供参考，不参与计数</small>
+              <strong>膝 {{ pose.kneeAngle ?? '—' }}° · 髋 {{ pose.hipAngle ?? '—' }}° · 肘 {{ pose.elbowAngle ?? '—' }}°</strong>
+              <small>取左侧关键点。{{ camJoint === 'knee' ? '计数看膝角' : '计数看肘角' }}，其余角度只作参考，不判断姿势是否标准。</small>
             </div>
+          </div>
+          <div v-if="live && counter" class="calib">
+            <button class="calib-btn" :disabled="calibrating" @click="runCalibrate">{{ calibrating ? '校准中…' : '校准机位' }}</button>
+            <small>{{ counter.calibratedNeutral.value !== null ? `起始位 ${counter.calibratedNeutral.value}°` : '未校准：用动作库默认阈值' }}</small>
           </div>
           <div class="status-item">
             <Timer :size="18" class="status-icon teal" />
@@ -132,10 +136,10 @@
           <div v-if="!feedbackSaved" class="feedback">
             <h4>这次感觉怎么样？</h4>
             <div class="field">
-              <span class="field-label">RPE 主观用力程度（1 轻 · 10 力竭）</span>
+              <span class="field-label">RPE 主观用力程度（0 几乎不费力 · 10 力竭）</span>
               <div class="rpe-row">
                 <button
-                  v-for="n in 10"
+                  v-for="n in RPE_SCALE"
                   :key="n"
                   class="rpe-chip"
                   :class="{ active: rpe === n }"
@@ -178,6 +182,8 @@ import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import { useAppStore } from '@/stores/app'
 import { usePoseCamera } from '@/composables/usePoseCamera'
+import { useRepCounter } from '@/composables/useRepCounter'
+import { findExercise } from '@/services/exercises'
 import type { DemoEvent, ExercisePhase } from '@/types/domain'
 import {
   demoExercises,
@@ -218,6 +224,61 @@ const mode = ref<'demo' | 'camera'>('demo')
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
+/** F05：实时摄像头分支用关键点角度驱动状态机计数；演示回放仍走预设时间线 */
+const counter = ref<ReturnType<typeof useRepCounter> | null>(null)
+const camJoint = ref<'knee' | 'elbow'>('knee')
+const calibrating = ref(false)
+/** session-RPE 量表含 0 档：0 表示几乎不费力 */
+const RPE_SCALE = Array.from({ length: 11 }, (_, i) => i)
+/** 用户手工修正过本组次数后，状态机不再回写 reps */
+let corrected = false
+
+function buildCounter() {
+  const cam = findExercise(exercise.value.name)?.camera
+  if (!cam) {
+    counter.value = null
+    return null
+  }
+  camJoint.value = cam.joint
+  counter.value = useRepCounter({
+    neutral: cam.neutral,
+    bottom: cam.bottom,
+    hysteresis: 8,
+    minStageMs: cam.minStageMs,
+    minRepMs: 700,
+    maxStageMs: 6000,
+    minVisibility: 0.5
+  })
+  counter.value.reset('已就绪：先校准机位，或直接在起始姿势下开始')
+  return counter.value
+}
+
+async function runCalibrate() {
+  calibrating.value = true
+  try {
+    await calibratePose()
+  } finally {
+    calibrating.value = false
+  }
+}
+
+async function calibratePose() {
+  const c = counter.value
+  if (!c || !live.value) return
+  const ok = await c.calibrate(() => {
+    const angle = camJoint.value === 'knee' ? pose.kneeAngle.value : pose.elbowAngle.value
+    return angle === null ? null : { angle, visibility: pose.visibility.value }
+  })
+  store.showToast({
+    type: ok ? 'success' : 'warning',
+    title: ok ? '机位已校准' : '校准未完成',
+    message: ok
+      ? `阈值按你的起始姿势（${c.calibratedNeutral.value}°）设定，不是通用标准姿势判定`
+      : '请让侧面全身完整入镜、光线稳定后重试',
+    duration: 3500
+  })
+}
+
 let setElapsed = 0
 let restElapsed = 0
 let eventIndex = 0
@@ -243,7 +304,9 @@ const sourceNote = computed(() => {
 })
 const stageHint = computed(() =>
   live.value
-    ? '识别：MediaPipe 端侧实时关键点 · 计数：仍由演示时钟推进（两者尚未联动）'
+    ? counter.value
+      ? `识别：端侧关键点实时驱动计数（${camJoint.value === 'knee' ? '膝角' : '肘角'}）· 阈值 ${Math.round(counter.value.lowThreshold.value)}° · ${counter.value.calibratedNeutral.value ? '已按你的机位校准' : '未校准，用规则默认阈值'}`
+      : '识别：端侧关键点 · 该动作暂无计数规则，可用手工修正'
     : '关键点示意图 · 实际使用时在本地处理'
 )
 
@@ -252,14 +315,19 @@ async function switchMode(next: 'demo' | 'camera') {
   if (next === 'camera' && !store.privacy.cameraEnabled) return
   mode.value = next
   if (next === 'camera') {
+    buildCounter()
     await nextTick()
     if (videoRef.value && canvasRef.value) {
       await pose.start(videoRef.value, canvasRef.value)
-      if (pose.status.value !== 'live') mode.value = 'demo'
+      if (pose.status.value !== 'live') {
+        mode.value = 'demo'
+        counter.value = null
+      }
     }
   } else {
     pose.stop()
     pose.errorMessage.value = ''
+    counter.value = null
   }
 }
 
@@ -313,10 +381,29 @@ function tick(ts: number) {
   if (!paused.value && status.value === 'playing') {
     elapsedMs.value += dt
     setElapsed += dt
-    const events = exercise.value.setEvents
-    while (eventIndex < events.length && events[eventIndex].time <= setElapsed) {
-      applyEvent(events[eventIndex])
-      eventIndex++
+    if (live.value && counter.value) {
+      const c = counter.value
+      const angle = camJoint.value === 'knee' ? pose.kneeAngle.value : pose.elbowAngle.value
+      const res = c.feed(angle, pose.visibility.value, ts)
+      if (res.counted) {
+        store.showToast({ type: 'success', title: `第 ${c.count.value} 次`, message: '关键点回到起始位，计为一次', duration: 1200 })
+      }
+      confidence.value = pose.visibility.value
+      confidenceSum += pose.visibility.value
+      confidenceCount++
+      phase.value = res.phase
+      if (res.gate) message.value = res.gate
+      if (!corrected) reps.value = Math.min(c.count.value, exercise.value.repsPerSet)
+      if (c.count.value >= exercise.value.repsPerSet && !corrected) {
+        message.value = '本组次数已达标'
+        finishSet()
+      }
+    } else {
+      const events = exercise.value.setEvents
+      while (eventIndex < events.length && events[eventIndex].time <= setElapsed) {
+        applyEvent(events[eventIndex])
+        eventIndex++
+      }
     }
   } else if (!paused.value && status.value === 'resting') {
     elapsedMs.value += dt
@@ -359,6 +446,8 @@ function startNextSet() {
   reps.value = 0
   eventIndex = 0
   setElapsed = 0
+  corrected = false
+  counter.value?.reset('新一组开始：请回到起始姿势')
   status.value = 'playing'
   message.value = `第 ${setIndex.value} 组开始`
 }
@@ -425,8 +514,9 @@ function applyCorrection() {
   const next = Math.max(0, Math.min(editValue.value, exercise.value.repsPerSet))
   if (next !== reps.value) manualCorrections.value++
   reps.value = next
+  corrected = true
   editOpen.value = false
-  store.showToast({ type: 'info', title: `本组次数已修正为 ${next}`, duration: 2000 })
+  store.showToast({ type: 'info', title: `本组次数已修正为 ${next}`, message: '计数与修正值分别保留，不覆盖模型计数', duration: 2200 })
 }
 
 function togglePause() {
@@ -472,6 +562,8 @@ function restart() {
   confidenceSum = 0
   confidenceCount = 0
   recorded = false
+  corrected = false
+  if (live.value) buildCounter()
   rafId = requestAnimationFrame(tick)
 }
 
@@ -546,11 +638,16 @@ onUnmounted(() => {
 .status-item strong,.status-item small{display:block}
 .status-item strong{font-size:14px}
 .status-item small{font-size:12px;color:var(--color-text-muted);margin-top:3px}
+.calib{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:2px 0 4px}
+.calib-btn{font-size:12px;font-weight:700;color:var(--color-accent);background:var(--color-accent-soft);padding:9px 14px;border-radius:10px;min-height:44px;transition:all var(--motion-fast)}
+.calib-btn:hover:not(:disabled){background:var(--color-accent-line)}
+.calib-btn:disabled{opacity:.55;cursor:progress}
+.calib small{font-size:11px;color:var(--color-text-muted)}
 .actions-card h3{font-size:16px;margin-bottom:8px}
 .actions-card p{font-size:13px;color:var(--color-text-secondary);margin-bottom:16px;line-height:1.6}
 .actions-card :deep(button){width:100%;margin-bottom:8px}
 .correct-form{display:flex;gap:8px;margin-bottom:8px}
-.correct-form input{flex:1;min-width:0;padding:0 12px;height:36px;border:1px solid var(--color-border);border-radius:11px;font-size:14px;color:var(--color-ink);background:#fff}
+.correct-form input{flex:1;min-width:0;padding:0 12px;height:36px;border:1px solid var(--color-border);border-radius:11px;font-size:14px;color:var(--color-ink);background:var(--surface-field)}
 .correct-form :deep(button){width:auto;margin-bottom:0;padding:0 18px}
 .summary-list{display:grid;gap:9px;list-style:none;padding:0;margin:0 0 14px}
 .summary-list li{display:flex;justify-content:space-between;font-size:13px;color:var(--color-text-secondary);animation:slideInUp var(--motion-base) var(--easing-spring) both}
@@ -567,7 +664,7 @@ onUnmounted(() => {
 .field small{display:block;font-size:11px;color:var(--color-text-muted);line-height:1.6}
 .check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);margin-bottom:12px;cursor:pointer}
 .check input{width:16px;height:16px;accent-color:var(--color-accent)}
-.feedback input[type=text],.feedback textarea{width:100%;padding:10px 12px;border:1px solid var(--color-border);border-radius:11px;font-size:13px;font-family:inherit;color:var(--color-ink);background:#fff;resize:vertical}
+.feedback input[type=text],.feedback textarea{width:100%;padding:10px 12px;border:1px solid var(--color-border);border-radius:11px;font-size:13px;font-family:inherit;color:var(--color-ink);background:var(--surface-field);resize:vertical}
 .feedback-saved{font-size:13px;color:var(--color-accent);border-top:1px solid var(--color-divider);margin:14px 0 0;padding-top:14px;text-align:left}
 @media(max-width:1024px){.execution-grid{grid-template-columns:1fr}.info-cards{grid-template-columns:repeat(2,1fr)}.actions-card{grid-column:1/-1}}
 @media(max-width:767px){.page-header{align-items:flex-start}.page-header h1{font-size:22px}.info-cards{grid-template-columns:1fr}}

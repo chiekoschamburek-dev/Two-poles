@@ -164,7 +164,7 @@ ul, ol {
 /* === Scrollbar === */
 html {
   scrollbar-width: thin;
-  scrollbar-color: rgba(21, 24, 27, 0.24) transparent;
+  scrollbar-color: var(--scrollbar-color) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -177,13 +177,13 @@ html {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(15, 118, 110, 0.35), rgba(15, 118, 110, 0.35));
+  background: linear-gradient(180deg, var(--scroll-thumb), var(--scroll-thumb));
   border: 3px solid transparent;
   background-clip: content-box;
   border-radius: var(--radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(15, 118, 110, 0.6), rgba(15, 118, 110, 0.6));
+  background: linear-gradient(180deg, var(--scroll-thumb-hover), var(--scroll-thumb-hover));
   background-clip: content-box;
 }

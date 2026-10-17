@@ -17,11 +17,18 @@
           class="r-name"
           placeholder="吃了什么，例如：燕麦粥"
           :aria-label="`第 ${i + 1} 项食物名称`"
+          @input="onName(row)"
         />
         <span v-if="row.source === 'photo'" class="badge-photo">照片 {{ Math.round((row.photoConfidence ?? 0) * 100) }}%</span>
-        <select v-model="row.category" class="r-cat" :aria-label="`第 ${i + 1} 项类别`">
+        <select
+          v-model="row.category"
+          class="r-cat"
+          :aria-label="`第 ${i + 1} 项类别`"
+          @change="row.catAuto = false"
+        >
           <option v-for="c in FOOD_CATEGORIES" :key="c" :value="c">{{ c }}</option>
         </select>
+        <span v-if="row.foodName.trim() && catHint(row)" class="r-hint" aria-live="polite">{{ catHint(row) }}</span>
         <input v-model.number="row.portionSize" type="number" min="0" step="1" class="r-size" placeholder="份量" :aria-label="`第 ${i + 1} 项份量`" />
         <select v-model="row.portionUnit" class="r-unit" :aria-label="`第 ${i + 1} 项单位`">
           <option v-for="u in UNITS" :key="u" :value="u">{{ u }}</option>
@@ -62,9 +69,9 @@
 
     <p v-if="showEstimate && formEstimate" class="kc-sum">
       这一餐粗估 <b>{{ formEstimate.low }}–{{ formEstimate.high }} kcal</b>
-      <small>（{{ formEstimate.counted }}/{{ formEstimate.named }} 项可估；±25% 区间；{{ FOOD_SOURCE_LABEL }}；单位→克数为演示假设，未计入烹调油）</small>
+      <small>（{{ formEstimate.counted }}/{{ formEstimate.named }} 项可估；±{{ bandPct }}% 区间；{{ FOOD_SOURCE_LABEL }}；单位→克数为演示假设，未计入烹调油；混合菜不参与估算）</small>
     </p>
-    <p v-else-if="showEstimate" class="kc-sum off">开了热量粗估，但目前没有可估的条目：需要食物在内置参考表里，且份量已填。</p>
+    <p v-else-if="showEstimate" class="kc-sum off">开了热量粗估，但目前没有可估的条目：需要食物在内置参考表里、份量已填，且不是混合菜。</p>
 
     <p class="tip">份量可以留空——留空会记为"部分记录"，我们不会替你猜克数。按回车直接保存。</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -82,9 +89,14 @@ import { Camera, Check, ChevronDown, Plus, X } from 'lucide-vue-next'
 import BaseButton from '../common/BaseButton.vue'
 import { useFoodPhoto } from '@/composables/useFoodPhoto'
 import type { DetectedFood } from '@/composables/useFoodPhoto'
-import { FOOD_CATEGORIES } from '@/services/mealRules'
-import { estimateEnergy, FOOD_SOURCE_LABEL } from '@/services/foodComposition'
+import { FOOD_CATEGORIES, suggestCategory, isMixed } from '@/services/mealRules'
+import { ESTIMATE_BAND, estimateEnergy, FOOD_SOURCE_LABEL } from '@/services/foodComposition'
 import type { MealDraft } from '@/types/domain'
+
+/** 表单行：catAuto 只活在界面上，保存前剥掉——它不是业务字段 */
+interface Row extends MealDraft {
+  catAuto?: boolean
+}
 
 const props = defineProps<{
   /** 槽位标签，如"早餐""加餐"；餐次由打开表单的卡片决定，表单内不再选择 */
@@ -99,8 +111,10 @@ const emit = defineEmits<{
 }>()
 
 const UNITS = ['碗', '盘', '份', '个', '杯', '片', '克', '把']
+const bandPct = Math.round(ESTIMATE_BAND * 100)
 const time = ref(props.initialTime)
-const items = ref<MealDraft[]>(props.initialItems.map(i => ({ ...i })))
+/** 编辑已有餐次时，用户当时选的类别就是事实，不再自动改写 */
+const items = ref<Row[]>(props.initialItems.map(i => ({ ...i, catAuto: false })))
 const error = ref('')
 const photoOpen = ref(false)
 const fileRef = ref<HTMLInputElement | null>(null)
@@ -138,12 +152,36 @@ async function onPick(event: Event) {
   input.value = ''
 }
 
-function blankRow(): MealDraft {
-  return { foodName: '', category: '谷薯类', portionSize: '', portionUnit: '碗' }
+function blankRow(): Row {
+  // 类别先落"其他"（即待确认），由名称推断改写——固定默认谷薯类会让"苹果"记成谷薯类
+  return { foodName: '', category: '其他', portionSize: '', portionUnit: '碗', catAuto: true }
 }
 
-function rowOf(c: DetectedFood): MealDraft {
-  return { foodName: c.name, category: c.category, portionSize: '', portionUnit: '份', source: 'photo', photoConfidence: c.confidence }
+function rowOf(c: DetectedFood): Row {
+  return {
+    foodName: c.name,
+    category: suggestCategory(c.name) ?? c.category,
+    portionSize: '',
+    portionUnit: '份',
+    source: 'photo',
+    photoConfidence: c.confidence,
+    catAuto: true
+  }
+}
+
+/** 名称变化时推断类别；用户手动改过类别（catAuto=false）就不再改写 */
+function onName(row: Row) {
+  if (!row.catAuto) return
+  const inferred = suggestCategory(row.foodName)
+  row.category = inferred ?? '其他'
+}
+
+function catHint(row: Row) {
+  const name = row.foodName.trim()
+  if (!name) return ''
+  if (isMixed(name)) return '混合菜：类别与热量待确认，可拆成原料'
+  if (row.category === '其他') return '未命中参考表，类别请人工确认'
+  return row.catAuto ? `类别按参考表推断为${row.category}，可改` : ''
 }
 
 function adopt(c: DetectedFood) {
@@ -187,8 +225,8 @@ const formEstimate = computed(() => {
 })
 
 function submit() {
-  const list = items.value
-    .map(i => ({ ...i, foodName: i.foodName.trim() }))
+  const list: MealDraft[] = items.value
+    .map(({ catAuto: _catAuto, ...i }) => ({ ...i, foodName: i.foodName.trim() }))
     .filter(i => i.foodName)
   if (!list.length) {
     error.value = '至少填一项食物名称，不然结构规则没有输入可判断。'
@@ -208,7 +246,7 @@ function submit() {
 .m-meta{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .field{display:block}
 .field-label{display:block;font-size:11px;color:var(--color-text-muted);margin-bottom:5px}
-.field input,.row input,.row select{padding:10px 12px;border:1px solid var(--color-border);border-radius:11px;font-size:13px;font-family:inherit;color:var(--color-ink);background:#fff}
+.field input,.row input,.row select{padding:10px 12px;border:1px solid var(--color-border);border-radius:11px;font-size:13px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
 .m-note{flex:1;min-width:160px;font-size:12px;color:var(--color-text-secondary);margin:0;line-height:1.6}
 .rows{display:grid;gap:8px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -216,6 +254,7 @@ function submit() {
 .r-cat{width:104px;flex:none}
 .r-size{width:72px;flex:none}
 .r-unit{width:74px;flex:none}
+.r-hint{flex-basis:100%;order:9;font-size:11px;color:var(--color-text-muted);line-height:1.5;margin:-2px 0 0 2px}
 .add-row{display:inline-flex;align-items:center;gap:5px;justify-self:start;padding:7px 12px;border-radius:10px;font-size:12px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);transition:all var(--motion-fast)}
 .add-row:hover{background:var(--color-accent-line)}
 .mini-del{color:var(--color-text-muted);display:grid;place-items:center;padding:4px;border-radius:8px;transition:all var(--motion-fast);flex:none}
@@ -233,7 +272,7 @@ function submit() {
 .photo-body{display:flex;gap:12px;margin-top:12px;align-items:flex-start;flex-wrap:wrap}
 .photo-img{width:120px;height:120px;object-fit:cover;border-radius:12px;background:var(--color-divider);box-shadow:0 0 0 1px rgba(21,24,27,.08),0 8px 20px -10px rgba(21,24,27,.35)}
 .cand{list-style:none;padding:0;margin:0;display:grid;gap:6px;flex:1;min-width:190px}
-.cand li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:11px;background:rgba(255,255,255,.9);border:1px solid rgba(220,229,237,.85);box-shadow:var(--inner-light);transition:transform var(--motion-fast) var(--easing-ease-out),box-shadow var(--motion-fast)}
+.cand li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:11px;background:var(--color-card);border:1px solid rgba(220,229,237,.85);box-shadow:var(--inner-light);transition:transform var(--motion-fast) var(--easing-ease-out),box-shadow var(--motion-fast)}
 .cand li:hover{transform:translateX(2px);box-shadow:var(--inner-light),var(--ring-accent)}
 .cand-t b{font-size:13px;color:var(--color-ink);margin-right:6px}
 .cand-t small{font-size:11px;color:var(--color-text-muted)}

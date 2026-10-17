@@ -41,7 +41,7 @@ onMounted(() => store.init())
 /* 背景由 body 的固定光晕层承担：这里若再画一遍会盖掉噪点层，并让渐变随滚动重复 */
 .shell { min-height: 100vh; }
 .main-content { min-height: calc(100vh - var(--topbar-height)); margin-left: var(--sidebar-width); padding: var(--space-8); }
-.scrim { position: fixed; inset: var(--topbar-height) 0 0; background: rgba(21, 24, 27, .42); z-index: calc(var(--z-sticky) + 1); }
+.scrim { position: fixed; inset: var(--topbar-height) 0 0; background: var(--overlay); z-index: calc(var(--z-sticky) + 1); }
 .fade-enter-active, .fade-leave-active { transition: opacity var(--motion-base); }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .page-enter-active, .page-leave-active { transition: opacity var(--motion-base) var(--easing-ease-out), transform var(--motion-base) var(--easing-ease-out); }

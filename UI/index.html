@@ -6,6 +6,17 @@
     <meta name="description" content="两仪·TwoPoles - 个性化运动与饮食协同助手" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>两仪·TwoPoles</title>
+    <script>
+      // 首帧前把主题落到 DOM，否则深色用户每次刷新都会白闪一下
+      try {
+        var saved = JSON.parse(localStorage.getItem('twopoles_state') || '{}')
+        var pref = saved.theme === 'light' || saved.theme === 'dark' ? saved.theme : 'system'
+        var dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      } catch (e) {
+        document.documentElement.dataset.theme = 'light'
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>

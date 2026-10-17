@@ -14,11 +14,20 @@
     </div>
 
     <div class="kpis">
-      <MetricCard label="计划场次" :value="report.plannedSessions" hint="按本周期的安排" :icon="CalendarDays" />
+      <MetricCard label="计划场次" :value="report.completionRate === null ? '未安排' : report.plannedSessions" :hint="report.completionRate === null ? '这一周没有安排，不计算完成率' : '按你档案过滤后的安排'" :icon="CalendarDays" />
       <MetricCard class="animate-slide-in-up" label="有记录场次" :value="report.completedSessions" hint="未记录不等于没练" :icon="CheckCircle2" accent="blue" />
       <MetricCard class="animate-slide-in-up" label="总时长" :value="report.totalDuration + ' min'" hint="来自实际记录" :icon="Clock3" accent="purple" />
-      <MetricCard class="animate-slide-in-up" label="训练负荷合计" :value="report.totalLoad === null ? '未记录' : String(report.totalLoad)" :hint="report.totalLoad === null ? '缺少 RPE，暂不可算' : 'Σ 时长 × RPE'" :icon="Flame" accent="orange" />
+      <MetricCard
+        class="animate-slide-in-up"
+        label="训练负荷合计"
+        :value="report.totalLoad === null ? '未计入' : String(report.totalLoad)"
+        :hint="report.totalLoad === null ? '本周没有一条带 RPE 的记录' : `只含 ${report.loadDays} 天${report.unloadedDays > 0 ? `；${report.unloadedDays} 天缺 RPE 未计入，不按 0 补` : ''}`"
+        :icon="Flame"
+        accent="orange"
+      />
     </div>
+
+    <p v-if="report.blockedByDiscomfort" class="safety" role="status">本周有训练报了不适：自动加量建议已停止，只保留事实记录。疼痛或明显不适请停止当前训练并寻求适当专业帮助。</p>
 
     <div class="grid">
       <BaseCard class="chart-card animate-slide-in-up">
@@ -55,7 +64,7 @@
             <circle v-if="day.planned" :cx="i * 47 + 29" cy="145" r="2.5" fill="var(--color-accent-strong)" />
           </g>
         </svg>
-        <p class="axis-note">蓝点＝该日按计划应训练（周一 / 周三 / 周五的安排）。</p>
+        <p class="axis-note">蓝点＝按你当前档案过滤后、该日计划应训练的日子；无档案时退回周一 / 周三 / 周五基础模板。</p>
       </BaseCard>
 
       <BaseCard class="animate-slide-in-up">
@@ -134,7 +143,7 @@ const days = computed(() => weekDates(start.value))
 const isCurrentWeek = computed(() => toISODate(weekStart(now)) === toISODate(start.value))
 const rangeLabel = computed(() => `${shortDate(days.value[0])} – ${days.value[6].getMonth() + 1}/${days.value[6].getDate()}`)
 
-const report = computed(() => buildWeeklyReport(store.sessions, store.meals, refDate.value))
+const report = computed(() => buildWeeklyReport(store.sessions, store.meals, refDate.value, { profile: store.userProfile, mode: store.currentMode }))
 const sessions = computed(() => {
   const iso = days.value.map(toISODate)
   return store.sessions.filter(s => iso.includes(s.date)).sort((a, b) => a.date.localeCompare(b.date))
@@ -213,6 +222,7 @@ function goToday() {
 .weeknav button:disabled{opacity:.4;cursor:not-allowed}
 .weeknav .today{width:auto;padding:0 16px;font-size:13px;font-weight:600}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.safety{font-size:13px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:12px;padding:11px 14px;margin:0 0 18px;line-height:1.6}
 .grid{display:grid;grid-template-columns:1.05fr 1fr;gap:16px;margin-bottom:16px}
 .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}
 .card-head h3{font-size:17px;margin-top:6px}

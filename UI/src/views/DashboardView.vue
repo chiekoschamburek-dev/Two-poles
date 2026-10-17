@@ -17,8 +17,8 @@
 import { computed } from 'vue'; import { useRouter } from 'vue-router'; import { useAppStore } from '@/stores/app'; import { Play, SlidersHorizontal, Activity, PlayCircle, GitCompare, TrendingUp, CheckCircle2, Clock3, Utensils, Target, MoreHorizontal, ArrowRight, Sparkles, Flame, PersonStanding, Wind } from 'lucide-vue-next'; import BaseCard from '@/components/common/BaseCard.vue'; import BaseButton from '@/components/common/BaseButton.vue'; import MetricCard from '@/components/common/MetricCard.vue'; import StatusBadge from '@/components/common/StatusBadge.vue'; import InsightCard from '@/components/common/InsightCard.vue'; import { eyebrowDate, greeting, displayName, toISODate } from '@/utils/time'; import { summarizeDay } from '@/services/mealRules'; import { buildWeeklyReport } from '@/services/weekRules';
 const router=useRouter(); const store=useAppStore(); const now=new Date(); const eyebrow=eyebrowDate(now); const hello=greeting(now); const nickname=computed(()=>displayName(store.userProfile?.nickname));
 const mealSummary=computed(()=>summarizeDay(store.meals,toISODate(now)));
-const week=computed(()=>buildWeeklyReport(store.sessions,store.meals,now));
-const weekValue=computed(()=>`${week.value.completedSessions} / ${week.value.plannedSessions}`);
+const week=computed(()=>buildWeeklyReport(store.sessions,store.meals,now,{profile:store.userProfile,mode:store.currentMode}));
+const weekValue=computed(()=>week.value.completionRate===null?'未安排':`${week.value.completedSessions} / ${week.value.plannedSessions}`);
 const loadValue=computed(()=>week.value.totalLoad === null ? '未记录' : String(week.value.totalLoad));
 const mealLabel='今日餐次记录';
 const mealValue=computed(()=>`${mealSummary.value.recorded} / ${mealSummary.value.planned}`);

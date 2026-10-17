@@ -11,7 +11,7 @@
 
     <BaseCard class="section animate-slide-in-up">
       <h2>使用方式</h2>
-      <p class="sub">切换会立即生效并写入本机；两种模式目前只有展示内容不同。</p>
+      <p class="sub">切换前会先列出差异与未完成的计划，确认后才生效；已有记录与计划版本不会被改写。</p>
       <div class="choices">
         <button
           v-for="m in modes"
@@ -19,10 +19,24 @@
           class="choice"
           :class="{ active: store.currentMode === m.id }"
           :aria-pressed="store.currentMode === m.id"
-          @click="store.switchMode(m.id)"
+          :disabled="store.pendingSwitch !== null"
+          @click="store.requestModeSwitch(m.id)"
         >
           <strong>{{ m.label }}</strong><small>{{ m.desc }}</small>
         </button>
+      </div>
+
+      <div v-if="preview" class="switch-confirm" role="group" aria-labelledby="sw-title">
+        <strong id="sw-title">切换到{{ preview.toLabel }}？</strong>
+        <p class="sw-lead">{{ preview.openPlanNote }}</p>
+        <div class="sw-cols">
+          <div><span>会变化</span><ul><li v-for="d in preview.differences" :key="d">{{ d }}</li></ul></div>
+          <div><span>保持不变</span><ul><li v-for="k in preview.keeps" :key="k">{{ k }}</li></ul></div>
+        </div>
+        <div class="actions">
+          <BaseButton size="sm" @click="store.confirmModeSwitch()">确认切换</BaseButton>
+          <BaseButton variant="ghost" size="sm" @click="store.cancelModeSwitch()">取消，保持{{ preview.fromLabel }}</BaseButton>
+        </div>
       </div>
       <div class="row-line">
         <div><strong>档案</strong><small>{{ profileLine }}</small></div>
@@ -75,6 +89,22 @@
     </BaseCard>
 
     <BaseCard class="section animate-slide-in-up">
+      <h2>外观</h2>
+      <p class="sub">默认跟随系统。手动选浅色或深色后就固定下来，不再跟着系统变；这个偏好只存在本机。</p>
+      <div class="chips" role="group" aria-label="主题">
+        <button
+          v-for="t in themes"
+          :key="t.id"
+          class="chip"
+          :class="{ active: store.themePref === t.id }"
+          :aria-pressed="store.themePref === t.id"
+          @click="store.setTheme(t.id)"
+        >{{ t.label }}</button>
+      </div>
+      <p v-if="store.themePref === 'system'" class="fine">系统当前是{{ systemDark ? '深色' : '浅色' }}，页面已跟着切换。</p>
+    </BaseCard>
+
+    <BaseCard class="section animate-slide-in-up">
       <h2>我的数据</h2>
       <div class="stats">
         <div class="stat"><span>训练记录</span><b>{{ store.sessions.length }}</b></div>
@@ -117,7 +147,7 @@ import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
-import type { PrivacySettings } from '@/types/domain'
+import type { PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { RULE_VERSION } from '@/services/mealRules'
 
@@ -127,13 +157,19 @@ const exportError = ref('')
 const retention = ref(store.privacy.dataRetentionDays)
 
 const modes: { id: 'public' | 'athlete'; label: string; desc: string }[] = [
-  { id: 'public', label: '大众模式', desc: '轻量推荐、摄像头计数、简单餐次确认' },
-  { id: 'athlete', label: '运动员模式', desc: '周期训练台与负荷记录（部分功能开发中）' }
+  { id: 'public', label: '大众模式', desc: '按器材与时长过滤的一周安排、摄像头计数、简单餐次确认' },
+  { id: 'athlete', label: '运动员模式', desc: '周期与锁定训练、距离时长与 RPE 负荷、训练日用餐时间线' }
 ]
 const formats: { id: PrivacySettings['exportFormat']; label: string }[] = [
   { id: 'json', label: 'JSON（完整结构）' },
   { id: 'csv', label: 'CSV（表格软件可开）' }
 ]
+const themes: { id: ThemePreference; label: string }[] = [
+  { id: 'system', label: '跟随系统' },
+  { id: 'light', label: '浅色' },
+  { id: 'dark', label: '深色' }
+]
+const systemDark = ref(typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)').matches : false)
 
 const profileLine = computed(() => {
   const p = store.userProfile
@@ -142,14 +178,18 @@ const profileLine = computed(() => {
   return bits.join(' · ')
 })
 const rpeMissing = computed(() => store.sessions.filter(s => s.rpe === null).length)
-const hasData = computed(() => store.sessions.length + store.meals.length > 0 || store.hasProfile)
+const preview = computed(() => store.switchPreview)
+const hasData = computed(() => store.sessions.length + store.meals.length + store.plans.length > 0 || store.hasProfile)
 const payload = computed(() => ({
   exportedAt: new Date().toISOString(),
   profile: store.userProfile,
   mode: store.currentMode,
+  modeLog: store.modeLog,
   privacy: store.privacy,
   sessions: store.sessions,
-  meals: store.meals
+  meals: store.meals,
+  plans: store.plans,
+  planHistory: store.planHistory
 }))
 const sizeKb = computed(() => Math.max(1, Math.round(new Blob([JSON.stringify(payload.value)]).size / 1024)))
 
@@ -167,16 +207,23 @@ function csvCell(value: unknown): string {
 }
 
 function toCsv(): string {
-  const head = ['类别', '日期', '时间', '名称', '类型或类别', '数量', '单位', 'RPE', '不适', '状态', '备注']
+  const head = ['类别', '日期', '时间', '名称', '类型或类别', '时长分钟', '距离米', '次数', '组数', '单位', 'RPE', '负荷', '不适', '状态', '备注']
   const rows = [
     ...store.sessions.map(s => [
       '训练', s.date, s.createdAt.slice(11, 16), s.exerciseName, s.type,
-      s.actualReps ?? '', s.actualSets ?? '', s.rpe ?? '未记录', s.discomfort ? '是' : '否',
-      s.completionStatus, s.notes ?? ''
+      s.actualDuration ?? '', s.actualDistance ?? '', s.actualReps ?? '', s.actualSets ?? '', '',
+      s.rpe ?? '未记录', s.rpe === null || !s.actualDuration ? '未计入' : Math.round(s.actualDuration * s.rpe),
+      s.discomfort ? '是' : '否', s.completionStatus, s.notes ?? ''
     ]),
     ...store.meals.flatMap(m => m.items.map(i => [
+      // 餐食的量写在"次数/数量"列、单位写在"单位"列，其余数值列留空
       '餐食', m.date, m.time, i.foodName, i.category,
-      i.portionSize ?? '', i.portionUnit ?? '', '', '', m.completeness, ''
+      '', '', i.portionSize ?? '', '', i.portionUnit ?? '', '', '', '', m.completeness, i.source === 'photo' ? '照片识别候选，已由用户确认' : ''
+    ])),
+    ...store.plans.flatMap(p => p.items.map(i => [
+      '计划', i.date, '', i.exerciseName, i.type,
+      i.plannedDuration ?? '', i.plannedDistance ?? '', i.plannedReps ?? '', i.plannedSets ?? '', '',
+      '', '', '', i.completed ? '已完成' : '待完成', `v${p.version}｜${p.mode === 'public' ? '大众' : '运动员'}｜${p.reason}`
     ]))
   ]
   return '\ufeff' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n')
@@ -224,6 +271,13 @@ function wipe() {
 .section{padding:22px;margin-bottom:14px}
 .section h2{font-size:17px;margin-bottom:6px}
 .sub{font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:0 0 14px}
+.switch-confirm{display:grid;gap:10px;padding:14px;border-radius:14px;background:var(--color-neutral-soft);border:1px solid var(--color-accent-line);margin-bottom:14px}
+.switch-confirm>strong{font-size:14px;color:var(--color-ink)}
+.sw-lead{font-size:12px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:10px;padding:9px 11px;margin:0;line-height:1.6}
+.sw-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px}
+.sw-cols span{display:block;font-weight:700;color:var(--color-text-muted);margin-bottom:4px}
+.sw-cols ul{margin:0;padding-left:16px;line-height:1.7;color:var(--color-text-secondary)}
+@media(max-width:560px){.sw-cols{grid-template-columns:1fr}}
 .choices{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
 .choice{padding:15px 16px;border-radius:14px;text-align:left;background:var(--color-neutral-soft);border:1px solid transparent;transition:all var(--motion-base) var(--easing-ease-out)}
 .choice strong{display:block;font-size:14px;color:var(--color-ink)}
@@ -237,7 +291,7 @@ function wipe() {
 .toggle{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider);cursor:pointer}
 .toggle input{position:absolute;opacity:0;width:1px;height:1px}
 .tg{width:42px;height:24px;border-radius:999px;background:var(--color-border);flex:none;padding:3px;transition:background var(--motion-base) var(--easing-ease-out)}
-.tg i{display:block;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:var(--shadow-sm);transition:transform var(--motion-base) var(--easing-spring)}
+.tg i{display:block;width:18px;height:18px;border-radius:50%;background:var(--surface-field);box-shadow:var(--shadow-sm);transition:transform var(--motion-base) var(--easing-spring)}
 .toggle input:checked+.tg{background:var(--color-accent)}
 .toggle input:checked+.tg i{transform:translateX(18px)}
 .toggle input:focus-visible+.tg{outline:2px solid var(--color-accent);outline-offset:2px}
@@ -246,7 +300,7 @@ function wipe() {
 .fields{display:grid;grid-template-columns:1fr 1.3fr;gap:16px;margin-top:16px}
 .field{display:block}
 .field-label{display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:7px}
-.field input{width:100%;padding:11px 13px;border:1px solid var(--color-border);border-radius:12px;font-size:14px;font-family:inherit;color:var(--color-ink);background:#fff}
+.field input{width:100%;padding:11px 13px;border:1px solid var(--color-border);border-radius:12px;font-size:14px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{padding:9px 14px;border-radius:999px;font-size:12px;font-weight:600;color:var(--color-text-secondary);background:var(--color-neutral-soft);transition:all var(--motion-fast)}
 .chip:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}

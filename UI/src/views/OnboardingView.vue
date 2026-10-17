@@ -26,7 +26,7 @@
             <em>{{ m.meta }}</em>
           </button>
         </div>
-        <p class="note">之后可以在侧边栏随时切换，切换不会删除已记录的训练。</p>
+        <p class="note">之后可以在侧边栏随时切换：切换前会先列出差异与未完成的计划，确认后才生效，已记录的训练不会被删除。</p>
       </template>
 
       <template v-else-if="step === 2">
@@ -39,6 +39,7 @@
           <label class="field">
             <span class="field-label">年龄</span>
             <input v-model.number="age" type="number" min="12" max="90" placeholder="25" />
+            <small v-if="age && age < 18" class="fine">12–17 岁可建档并记录，但自动训练推荐面向 18 岁及以上。</small>
           </label>
         </div>
 
@@ -71,10 +72,26 @@
         </div>
 
         <div class="field">
+          <span class="field-label">常训练的场地（可多选）</span>
+          <div class="chips">
+            <button v-for="v in venueOptions" :key="v" class="chip" :class="{ active: availableVenues.includes(v) }" :aria-pressed="availableVenues.includes(v)" @click="toggle(availableVenues, v)">{{ v }}</button>
+          </div>
+        </div>
+
+        <div class="field">
           <span class="field-label">需要避开的（可多选）</span>
           <div class="chips">
             <button v-for="r in restrictionOptions" :key="r" class="chip warn" :class="{ active: restrictions.includes(r) }" :aria-pressed="restrictions.includes(r)" @click="toggle(restrictions, r)">{{ r }}</button>
           </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">特殊情况（只决定要不要自动推荐）</span>
+          <div class="chips">
+            <button v-for="g in gateOptions" :key="g" class="chip warn" :class="{ active: restrictions.includes(g) }" :aria-pressed="restrictions.includes(g)" @click="toggle(restrictions, g)">{{ g }}</button>
+          </div>
+          <p v-if="blocked" class="gate" role="status">{{ blocked }}</p>
+          <p v-else class="fine">勾选后仍然可以记录训练与三餐，只是不再自动生成安排；系统不据此判断动作是否安全。</p>
         </div>
       </template>
 
@@ -124,9 +141,11 @@
           <li><span>经验</span><b>{{ experience || '—' }}</b></li>
           <li><span>可用时间</span><b>{{ join(availableTimes) }}</b></li>
           <li><span>器材</span><b>{{ join(equipment) }}</b></li>
+          <li><span>场地</span><b>{{ join(availableVenues) }}</b></li>
           <li><span>需要避开</span><b>{{ join(restrictions) }}</b></li>
+          <li><span>自动推荐</span><b>{{ blocked ? '不生成（仅记录与手工录入）' : '按以上条件生成' }}</b></li>
         </ul>
-        <p class="note">这些条件只用来生成解释文案与筛选建议，系统不会据此判断动作是否安全。</p>
+        <p class="note">这些条件只用来筛选动作与生成解释文案，系统不会据此判断动作是否安全。</p>
       </template>
 
       <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -150,6 +169,8 @@ import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import { useAppStore } from '@/stores/app'
 import type { Mode } from '@/types/domain'
+import { AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
+import { gateReason } from '@/services/exercises'
 
 const router = useRouter()
 const store = useAppStore()
@@ -172,7 +193,10 @@ const goals = ['保持活力', '减脂', '增肌', '改善体态', '专项提升
 const experiences = ['几乎不运动', '偶尔运动', '有一定基础', '长期规律训练']
 const timeOptions = ['10 分钟', '20 分钟', '30 分钟', '45 分钟', '60 分钟']
 const equipmentOptions = ['无器材', '椅子', '弹力带', '哑铃', '单杠', '跑步机']
+const venueOptions = ['宿舍或家', '健身房', '户外']
 const restrictionOptions = ['无跳跃', '膝部负担小', '腰部负担小', '低强度起步']
+/** 这几项不是动作过滤器，而是"是否进入自动推荐"的适用范围门槛 */
+const gateOptions = ['孕期或产后', '伤病或遵医嘱限制']
 const phases = ['基础准备', '强度建立', '量化提升', '减量与测试']
 
 const step = ref(1)
@@ -183,6 +207,7 @@ const goal = ref<string>(profile?.goal ?? '')
 const experience = ref<string>(profile?.experience ?? '')
 const availableTimes = ref<string[]>([...(profile?.availableTimes ?? [])])
 const equipment = ref<string[]>([...(profile?.equipment ?? [])])
+const availableVenues = ref<string[]>([...(profile?.availableVenues ?? [])])
 const restrictions = ref<string[]>([...(profile?.restrictions ?? [])])
 const discipline = ref(profile?.discipline ?? '')
 const cyclePhase = ref(profile?.cyclePhase ?? '')
@@ -211,7 +236,7 @@ function next() {
   error.value = ''
   if (step.value === 2) {
     if (!age.value || age.value < 12 || age.value > 90) {
-      error.value = '请填写 12–90 之间的年龄，用于安排强度上限。'
+      error.value = '请填写 12–90 之间的年龄：12 岁起可记录，自动推荐面向 18 岁及以上。'
       return
     }
     if (!goal.value) {
@@ -225,6 +250,15 @@ function next() {
   }
   if (step.value < total) step.value++
 }
+
+/** 自动推荐是否可用：年龄够且没有命中适用范围门槛 */
+const blocked = computed(() => {
+  if (!Number.isFinite(age.value)) return null
+  if (age.value < AUTO_RECOMMEND_MIN_AGE) {
+    return `未满 ${AUTO_RECOMMEND_MIN_AGE} 岁：本次建档后只提供记录与手工录入，不生成自动训练推荐。`
+  }
+  return gateReason({ restrictions: restrictions.value })
+})
 
 function finish() {
   error.value = ''
@@ -240,6 +274,7 @@ function finish() {
     experience: experience.value,
     availableTimes: [...availableTimes.value],
     equipment: [...equipment.value],
+    availableVenues: [...availableVenues.value],
     restrictions: [...restrictions.value],
     discipline: discipline.value.trim() || undefined,
     cyclePhase: cyclePhase.value || undefined,
@@ -248,11 +283,13 @@ function finish() {
     targetEvent: targetEvent.value.trim() || undefined,
     weight: weight.value === '' ? undefined : Number(weight.value)
   })
-  if (mode.value !== store.currentMode) store.switchMode(mode.value)
+  if (mode.value !== store.currentMode) store.commitMode(mode.value)
+  // 档案条件变了就明确重算本周计划，避免继续显示按旧条件生成的版本
+  if (wasEditing) store.regenerateWeekPlan(new Date())
   store.showToast({
     type: 'success',
     title: wasEditing ? '档案已更新' : '档案已建好',
-    message: '现在概览页的称呼与推荐口径会按这份档案来。',
+    message: blocked.value ? '按你的档案：不生成自动推荐，可手工录入与记录' : '概览页的称呼与推荐口径会按这份档案来。',
     duration: 3000
   })
   router.push('/dashboard')
@@ -280,7 +317,7 @@ function finish() {
 .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
 .field{display:block;margin-bottom:16px}
 .field-label{display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:7px}
-.field input{width:100%;padding:11px 13px;border:1px solid var(--color-border);border-radius:12px;font-size:14px;font-family:inherit;color:var(--color-ink);background:#fff}
+.field input{width:100%;padding:11px 13px;border:1px solid var(--color-border);border-radius:12px;font-size:14px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{padding:9px 14px;border-radius:999px;font-size:13px;font-weight:600;color:var(--color-text-secondary);background:var(--color-neutral-soft);transition:all var(--motion-fast)}
 .chip.warn{background:var(--color-caution-soft);color:var(--color-caution)}
@@ -288,6 +325,9 @@ function finish() {
 .chip.active{background:var(--color-accent);color:white}
 .chip.warn.active{background:var(--color-caution);color:white}
 .note{font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:14px 0 0}
+.fine{font-size:11.5px;color:var(--color-text-muted);line-height:1.6;margin:7px 0 0}
+.gate{font-size:12.5px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:11px;padding:10px 12px;margin:10px 0 0;line-height:1.65}
+.field .chips + .fine,.field .chips + .gate{margin-top:9px}
 .review{list-style:none;padding:0;margin:0 0 8px;display:grid;gap:10px}
 .review li{display:flex;justify-content:space-between;gap:16px;font-size:13px;color:var(--color-text-secondary);border-bottom:1px solid var(--color-divider);padding-bottom:10px}
 .review b{color:var(--color-ink);text-align:right}

@@ -4,7 +4,7 @@
       <div>
         <span class="eyebrow">MEAL LOG · {{ dateLabel }}</span>
         <h1>今天吃了什么，记个大概就好</h1>
-        <p>只做结构记录（出现过哪些类别），不估算热量，也不评价吃得多不多。</p>
+        <p>{{ showEstimate ? '只做结构记录（出现过哪些类别）；热量是按演示参考值算的区间粗估，不评价吃得多不多。' : '只做结构记录（出现过哪些类别），不估算热量，也不评价吃得多不多。' }}</p>
       </div>
       <StatusBadge :variant="summary.recorded === summary.planned ? 'success' : summary.recorded ? 'warning' : 'neutral'">
         {{ summary.recorded }} / {{ summary.planned }} 餐已记录
@@ -103,9 +103,9 @@
     <InsightCard class="rules animate-slide-in-up" card-id="meal-rules" eyebrow="HOW THIS WORKS" title="这些结论是怎么来的">
       <template #icon><Sparkles :size="20" /></template>
       <ul class="lims">
-        <li v-for="l in LIMITATIONS" :key="l">{{ l }}</li>
+        <li v-for="l in limitations" :key="l">{{ l }}</li>
       </ul>
-      <p class="ver">规则版本 {{ RULE_VERSION }} · 是否含营养估算：否 · 数据仅存本机浏览器</p>
+      <p class="ver">规则版本 {{ RULE_VERSION }} · 是否含营养估算：{{ hasEstimateToday ? '是（区间粗估，来源见上）' : '否' }} · 数据仅存本机浏览器</p>
     </InsightCard>
   </div>
 </template>
@@ -120,7 +120,7 @@ import InsightCard from '@/components/common/InsightCard.vue'
 import MealForm from '@/components/meals/MealForm.vue'
 import { useAppStore } from '@/stores/app'
 import type { Meal, MealDraft } from '@/types/domain'
-import { LIMITATIONS, MEAL_SLOTS, RULE_VERSION, summarizeDay } from '@/services/mealRules'
+import { buildLimitations, MEAL_SLOTS, RULE_VERSION, summarizeDay } from '@/services/mealRules'
 import { shortDate, toISODate } from '@/utils/time'
 
 const store = useAppStore()
@@ -131,12 +131,15 @@ const dateLabel = shortDate(now)
 const summary = computed(() => summarizeDay(store.meals, date))
 const snacks = computed(() => store.meals.filter(m => m.date === date && m.mealType === 'snack'))
 const showEstimate = computed(() => store.privacy.showEnergyEstimate)
+/** 免责清单要跟今天实际出的数一致，不能无论有没有估算都写"没有热量估算" */
+const hasEstimateToday = computed(() => store.meals.some(m => m.date === date && (m.analysis?.estimateRefs?.length ?? 0) > 0))
+const limitations = computed(() => buildLimitations(hasEstimateToday.value))
 
 /** 表单就地展开在 draft.slot 那张卡里；同一时刻最多一个 */
 const draft = ref<{ slot: Meal['mealType']; time: string; items: MealDraft[]; replacesId: string | null } | null>(null)
 
 function blankRow(): MealDraft {
-  return { foodName: '', category: '谷薯类', portionSize: '', portionUnit: '碗' }
+  return { foodName: '', category: '其他', portionSize: '', portionUnit: '碗' }
 }
 
 function defaultTime(type: Meal['mealType']) {
@@ -197,7 +200,7 @@ function mealEnergy(meal: Meal) {
   const low = refs.reduce((s, r) => s + r.low, 0)
   const high = refs.reduce((s, r) => s + r.high, 0)
   const rest = meal.items.length - refs.length
-  return `${low}–${high} kcal（${refs.length}/${meal.items.length} 项可估${rest > 0 ? '，其余缺份量或不在参考表内' : ''}）`
+  return `${low}–${high} kcal（${refs.length}/${meal.items.length} 项可估${rest > 0 ? '，其余是混合菜或缺份量' : ''}）· 依据 ${refs[0].basis} · ${refs[0].source}`
 }
 </script>
 

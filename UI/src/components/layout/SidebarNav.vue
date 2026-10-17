@@ -13,11 +13,30 @@
           role="menuitem"
           class="mode-option"
           :class="{ current: m.id === store.currentMode }"
-          @click="choose(m.id)"
+          @click="request(m.id)"
         >
           <strong>{{ m.label }}</strong><small>{{ m.note }}</small>
         </button>
-        <p class="mode-hint">切换只影响概览与计划的展示分支；周期负荷与 RPE 记录尚未实现。</p>
+        <p class="mode-hint">切换前会先列出差异与未完成计划，确认后才生效。</p>
+      </div>
+
+      <div v-if="preview" class="switch-confirm animate-scale-in" role="dialog" aria-modal="false" aria-labelledby="switch-title">
+        <strong id="switch-title">切换到{{ preview.toLabel }}？</strong>
+        <p class="sc-lead">{{ preview.openPlanNote }}</p>
+        <div class="sc-cols">
+          <div>
+            <span>变化</span>
+            <ul><li v-for="d in preview.differences" :key="d">{{ d }}</li></ul>
+          </div>
+          <div>
+            <span>保持不变</span>
+            <ul><li v-for="k in preview.keeps" :key="k">{{ k }}</li></ul>
+          </div>
+        </div>
+        <div class="sc-actions">
+          <button class="sc-go" @click="confirm">确认切换</button>
+          <button class="sc-cancel" @click="cancel">取消</button>
+        </div>
       </div>
     </div>
     <nav>
@@ -63,21 +82,30 @@ const modes: { id: Mode; label: string; note: string }[] = [
 ]
 
 const currentLabel = computed(() => (store.isAthleteMode ? '运动员模式' : '大众模式'))
-const week = computed(() => buildWeeklyReport(store.sessions, store.meals, new Date()))
-const weekValue = computed(() => `${week.value.completedSessions} / ${week.value.plannedSessions}`)
-const weekWidth = computed(() => `${Math.min(100, (week.value.completedSessions / Math.max(1, week.value.plannedSessions)) * 100)}%`)
+const preview = computed(() => store.switchPreview)
+const week = computed(() => buildWeeklyReport(store.sessions, store.meals, new Date(), { profile: store.userProfile, mode: store.currentMode }))
+const weekValue = computed(() => (week.value.completionRate === null ? '本周未安排' : `${week.value.completedSessions} / ${week.value.plannedSessions}`))
+const weekWidth = computed(() => `${Math.min(100, (week.value.completionRate ?? 0) * 100)}%`)
 
-function choose(id: Mode) {
+function request(id: Mode) {
   menuOpen.value = false
-  if (id !== store.currentMode) store.switchMode(id)
+  store.requestModeSwitch(id)
+}
+
+function confirm() {
+  store.confirmModeSwitch()
+}
+
+function cancel() {
+  store.cancelModeSwitch()
 }
 </script>
 
 <style scoped>
-.sidebar{position:fixed;left:0;top:var(--topbar-height);bottom:0;width:var(--sidebar-width);background:rgba(255,255,255,.72);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);border-right:1px solid rgba(220,229,237,.7);box-shadow:10px 0 30px -22px rgba(21,24,27,.3);padding:var(--space-6) var(--space-4);display:flex;flex-direction:column;z-index:var(--z-sticky)}
+.sidebar{position:fixed;left:0;top:var(--topbar-height);bottom:0;width:var(--sidebar-width);background:var(--surface-glass);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);border-right:1px solid var(--color-border);box-shadow:10px 0 30px -22px rgba(21,24,27,.3);padding:var(--space-6) var(--space-4);display:flex;flex-direction:column;z-index:var(--z-sticky)}
 .mode-block{margin-bottom:24px;position:relative}
-.mode-card{width:100%;display:flex;align-items:center;gap:10px;padding:12px;border-radius:14px;background:linear-gradient(135deg,var(--color-accent-soft),var(--color-neutral-soft));box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgba(15,118,110,.1);color:var(--color-ink);transition:box-shadow var(--motion-fast),transform var(--motion-fast) var(--easing-ease-out)}
-.mode-card:hover{box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgba(15,118,110,.24),var(--shadow-sm);transform:translateY(-1px)}
+.mode-card{width:100%;display:flex;align-items:center;gap:10px;padding:12px;border-radius:14px;background:linear-gradient(135deg,var(--color-accent-soft),var(--color-neutral-soft));box-shadow:inset 0 1px 0 var(--hairline),0 0 0 1px rgba(15,118,110,.1);color:var(--color-ink);transition:box-shadow var(--motion-fast),transform var(--motion-fast) var(--easing-ease-out)}
+.mode-card:hover{box-shadow:inset 0 1px 0 var(--hairline),0 0 0 1px rgba(15,118,110,.24),var(--shadow-sm);transform:translateY(-1px)}
 .mode-text{flex:1;text-align:left}
 .mode-card small,.mode-card strong{display:block}
 .mode-card small{font-size:11px;color:var(--color-text-muted)}
@@ -93,13 +121,24 @@ function choose(id: Mode) {
 .mode-option.current{background:var(--color-accent)}
 .mode-option.current strong,.mode-option.current small{color:white}
 .mode-hint{font-size:11px;color:var(--color-text-muted);line-height:1.6;padding:4px 6px;margin:0}
+.switch-confirm{margin-top:10px;padding:12px;border-radius:14px;background:white;border:1px solid var(--color-accent-line);box-shadow:var(--shadow-lg);display:grid;gap:10px}
+.switch-confirm>strong{font-size:13px;color:var(--color-ink)}
+.sc-lead{font-size:11.5px;color:var(--color-caution);line-height:1.6;margin:0;background:var(--color-caution-soft);border-radius:10px;padding:8px 10px}
+.sc-cols{display:grid;gap:10px;font-size:11.5px}
+.sc-cols span{display:block;font-weight:700;color:var(--color-text-muted);margin-bottom:4px}
+.sc-cols ul{margin:0;padding-left:16px;line-height:1.65;color:var(--color-text-secondary)}
+.sc-actions{display:flex;gap:8px}
+.sc-go,.sc-cancel{flex:1;min-height:44px;border-radius:11px;font-size:12px;font-weight:700;transition:all var(--motion-fast)}
+.sc-go{background:var(--color-accent);color:#fff}
+.sc-go:hover{filter:brightness(1.06)}
+.sc-cancel{background:var(--color-neutral-soft);color:var(--color-text-secondary)}
 nav{display:grid;gap:7px}
 .nav-item,.settings{position:relative;display:flex;align-items:center;gap:12px;color:var(--color-text-secondary);padding:13px 14px;border-radius:13px;font-size:14px;transition:all var(--motion-base) var(--easing-ease-out)}
 /* 左侧渐变指示条：高度由 0 弹起，激活项一眼可辨且不带重量感边框 */
 .nav-item::before{content:'';position:absolute;left:4px;top:50%;width:3px;height:0;border-radius:3px;background:linear-gradient(180deg,var(--color-accent),var(--color-accent-strong));transform:translateY(-50%);transition:height var(--motion-base) var(--easing-spring)}
 .nav-item:hover::before{height:12px}
 .nav-item.router-link-active::before{height:22px}
-.nav-item:hover,.nav-item.router-link-active{color:var(--color-accent);background:var(--color-accent-soft);transform:translateX(3px);box-shadow:inset 0 1px 0 #fff}
+.nav-item:hover,.nav-item.router-link-active{color:var(--color-accent);background:var(--color-accent-soft);transform:translateX(3px);box-shadow:inset 0 1px 0 var(--hairline)}
 .nav-item.router-link-active{font-weight:600}
 .sidebar-foot{margin-top:auto}
 .mini-progress{position:relative;overflow:hidden;padding:14px;border-radius:14px;background:var(--gradient-brand);color:white;margin-bottom:14px;box-shadow:var(--shadow-card),var(--inner-light)}
@@ -108,5 +147,9 @@ nav{display:grid;gap:7px}
 .mini-progress div{height:5px;background:#ffffff38;border-radius:10px;clear:both;margin-top:12px;overflow:hidden}
 .mini-progress i{display:block;height:100%;background:var(--color-accent);border-radius:10px;transition:width var(--motion-slow) var(--easing-ease-out)}
 .settings{font-size:13px}
-@media(max-width:1099px){.sidebar{transform:translateX(-100%);transition:transform var(--motion-base) var(--easing-ease-out);box-shadow:var(--shadow-lg);z-index:calc(var(--z-sticky) + 2);background:rgba(255,255,255,.97)}.sidebar.open{transform:translateX(0)}}
+@media(max-width:1099px){.sidebar{transform:translateX(-100%);transition:transform var(--motion-base) var(--easing-ease-out);box-shadow:var(--shadow-lg);z-index:calc(var(--z-sticky) + 2);background:var(--surface-glass-strong)}.sidebar.open{transform:translateX(0)}}
+/* 降低透明度偏好：玻璃面退成实底，去掉模糊 */
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar{background:var(--color-card);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
 </style>

@@ -51,6 +51,17 @@
   --gradient-hero: linear-gradient(115deg, #0b5b56 0%, #0f766e 54%, #1f4b64 100%);
   --shadow-accent: 0 8px 20px -10px rgba(15, 118, 110, 0.55);
 
+  /* === 表面与效果：这组是深/浅两主题唯一需要整组覆盖的东西 === */
+  --surface-glass: rgba(255, 255, 255, 0.78);         /* 侧栏 */
+  --surface-glass-strong: rgba(255, 255, 255, 0.93);  /* 移动底栏、Toast */
+  --surface-field: #ffffff;                           /* 输入控件底 */
+  --overlay: rgba(21, 24, 27, 0.45);                  /* 抽屉遮罩 */
+  --hairline: #ffffff;                                /* 表面顶部 1px 高光线 */
+  --scroll-thumb: rgba(15, 118, 110, 0.35);
+  --scroll-thumb-hover: rgba(15, 118, 110, 0.6);
+  --scrollbar-color: rgba(21, 24, 27, 0.24);
+  color-scheme: light;
+
   /* === Spacing === */
   --space-1: 4px;
   --space-2: 8px;
@@ -154,4 +165,65 @@
     --motion-slow: 0ms;
     --motion-slower: 0ms;
   }
+}
+
+/* ===== 深色主题 ===== */
+/* 只覆盖令牌，组件零感知；取值按调研"纯深灰阶 #17191C 底 / #F2F4F7 字，避免纯白 on 纯黑" */
+/* 强调色保持同一色相、提亮一档：#0f766e 在深底上做文字会掉到 AA 以下 */
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-accent: #3ec9b6;
+  --color-accent-strong: #2ba89a;
+  --color-accent-soft: #16302d;
+  --color-accent-line: #24504a;
+  --color-on-accent: #08201d;        /* 亮青底必须配深字：白字 on #3ec9b6 只有 2.1:1 */
+
+  --color-ink: #f2f4f7;
+  --color-bg: #17191c;
+  --color-bg-gradient:
+    radial-gradient(1000px 560px at 50% -20%, rgba(255, 255, 255, 0.05) 0%, transparent 62%),
+    linear-gradient(180deg, #1a1d21 0%, #141719 100%);
+  --color-card: #1f2328;
+  --color-border: #2a2f36;
+  --color-divider: #23272d;
+
+  --color-text-primary: #f2f4f7;
+  --color-text-secondary: #b6c0c9;
+  --color-text-muted: #93a0aa;
+  --color-text-inverse: #c8d3dc;
+
+  --color-caution: #e8b96b;
+  --color-caution-soft: #33280f;
+  --color-danger: #ff8a7a;
+  --color-danger-strong: #f8735f;
+  --color-danger-soft: #3a1a17;
+  --color-neutral: #93a0aa;
+  --color-neutral-soft: #262b31;
+
+  --surface-glass: rgba(31, 35, 40, 0.86);
+  --surface-glass-strong: rgba(31, 35, 40, 0.96);
+  --surface-field: #16191d;
+  --overlay: rgba(0, 0, 0, 0.62);
+  --hairline: rgba(255, 255, 255, 0.05);
+  --scroll-thumb: rgba(62, 201, 182, 0.3);
+  --scroll-thumb-hover: rgba(62, 201, 182, 0.55);
+  --scrollbar-color: rgba(242, 244, 247, 0.22);
+  --texture-grain-opacity: 0.05;
+
+  /* 深底上投影几乎不可见：降到近零，层次改由 1px 边框与更深的底色承担 */
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.45);
+  --shadow-card: none;
+  --shadow-card-lg: 0 16px 32px -12px rgba(0, 0, 0, 0.55);
+  --shadow-hero: 0 18px 44px -18px rgba(0, 0, 0, 0.6);
+  --inner-light: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+  --ring-accent: 0 0 0 1px rgba(62, 201, 182, 0.38);
+  --shadow-accent: 0 8px 20px -10px rgba(62, 201, 182, 0.35);
+
+  --brand-pole-a: #3ec9b6;
+  --brand-pole-a-light: #7fe3d4;
+  --brand-pole-b: #2b6486;
+  --brand-pole-b-light: #9cc6e2;
 }
