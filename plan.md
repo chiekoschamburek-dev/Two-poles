@@ -17,7 +17,8 @@
 
 ### 1.2 恢复实施时的第一档设计（端侧、不承诺营养）
 
-> **状态更新（2026-10-16）：本档已实施。** 落地为 `composables/useFoodPhoto.ts`（EfficientDet-Lite0 / float16 6.9 MB，端侧 CPU）+ `services/foodComposition.ts`（36 条参考值，全部标注"未与权威成分表核对"）+ MealsView 的"拍照 / 选图识别"面板 + 设置里的"显示热量粗估"（默认关）。实测：一张苹果+香蕉的照片被正确识别为香蕉 78% / 苹果 71%，加入后落库带 `source: 'photo'`，粗估显示为区间。**第二档（云端）仍未开始。**
+> **状态更新（2026-10-17）：本档已实施并补了口径漏洞。** 落地为 `composables/useFoodPhoto.ts`（EfficientDet-Lite0 / float16 6.9 MB，端侧 CPU）+ `services/foodComposition.ts`（57 条参考值，全部 `verified: false` 并标注"未与权威成分表逐项核对"；另含 22 种混合菜名单）+ MealsView 的"拍照 / 选图识别"面板 + 设置里的"显示热量粗估"（默认关）。实测：一张苹果+香蕉的照片被正确识别为香蕉 78% / 苹果 71%，加入后落库带 `source: 'photo'`，粗估显示为区间。
+> 口径修正：`mealRules.buildLimitations(hasEstimate)` 改为按本次是否真出数生成免责清单——原来无论开没开都写"没有热量估算（hasNutritionEstimate = false）"，和 `store` 把它置 `true` 自相矛盾；混合菜一律不参与估算、类别标"待确认"。MealsView 顶部说明与"是否含营养估算：否"的固定文案同步改为随实际状态。**第二档（云端）仍未开始。**
 
 前提：只做"拍照辅助录入"，不做"热量计算"的宣传。
 
@@ -42,10 +43,11 @@
 ### 2.1 五条原则
 
 1. **本地优先（local-first）**。前端继续把 localStorage 当缓存与离线兜底；网络不可用时整套界面照常可用（这是现在的能力，不能退化）。
+   - 容量边界：单个 `twopoles_state` key 装的是整个状态，浏览器配额约 5 MB。按现有记录体积估算，1 万条训练/餐食会顶到上限，所以接后端前必须先把状态**按类别拆 key**（`sessions`、`meals`、`plans`、`profile`…），并在写入捕获 `QuotaExceededError`：提示"导出后再清理"，绝不静默丢数据。设计文档 §2.4(2) 的 1 万条/P95 指标只适用于服务端接口。
 2. **契约先行**。先用 mock 适配器把接口形状钉死，再写真服务端；前端不允许直接读 `fetch` 散落在组件里。
 3. **服务端是最终事实源**。`id` 由服务端生成；本地 `newId()` 只作为离线临时 id（`clientId`）。
 4. **摄像头画面不出设备**。姿态识别继续留在端侧（MediaPipe），服务端只接收结构化结果（关键点序列默认**不**上报）。
-5. **口径统一**。规则版本（`diet-rules-v1`、`report-rules-v1`）由服务端下发并落库，历史记录带当时的版本号，前端不再各自算。
+5. **口径统一**。规则版本由服务端下发并落库，历史记录带当时的版本号，前端不再各自算。当前前端在用的版本号：`diet-rules-v2`、`report-rules-v2`、`plan-rules-v3`、`food-catalog-v2`、`exercise-catalog-v1`（文档 §5.1"分析与规则"落到这些 key 上）。
 
 ### 2.2 API 面（v1）
 
@@ -80,6 +82,7 @@ Base：`/api/v1`，全部 JSON。除 `auth/*` 外都要 `Authorization: Bearer <
 | 完全依赖 cookie 会话 | 可选简化版，但 `SameSite` 要为 `Lax`，且要额外 CSRF token |
 
 未登录（匿名设备账号）也允许写数据，`userType: 'anonymous'`；绑定时服务端做账号合并，前端只需在 `auth/login` 成功后重新拉一次快照。
+匿名账号的边界要写进文档口径，否则"所有个人数据接口校验记录归属"（设计文档 §2.4(4)）说不通：匿名数据只归属该设备标识，服务端按 `user_id` 隔离，不跨设备可读；账号合并是**单向、用户主动触发**的一次性操作，合并前必须在界面上说明"本机匿名期间的 N 条记录将并入该账号"；被合并的匿名标识随即失效，不可再写。注册/登录仍是 F01 的必须项，匿名只是降低首次演示门槛，不能替代它。
 
 ### 2.4 ID 与幂等
 
@@ -91,7 +94,7 @@ Base：`/api/v1`，全部 JSON。除 `auth/*` 外都要 `Authorization: Bearer <
 
 1. 启动：`init()` → 读 localStorage 立即渲染（现有行为）→ 后台 `GET /sync?since=<lastSyncAt>` 增量拉取 → 覆盖同 id、保留 `pending` 的本地项 → 写回缓存。
 2. 提交：`addSession/addMeal/applyFeedback/removeMeal/updateProfile/updatePrivacy` 先写本地，再入队 `outbox`（localStorage 里的一个数组），后台串行 POST/PATCH；成功回填服务端 id。
-3. 冲突：默认 **last-write-wins by `updatedAt`**，例外是 `sessions` 与 `meals`（只增改不覆盖删除，冲突记为 `conflict` 并在设置页给一条可见提示）。不引 CRDT，课程规模不值当。
+3. 冲突：**业务档案与偏好**用 last-write-wins by `updatedAt`；**计划是例外**——写请求带 `If-Match: <baseVersion>`，服务端比对当前版本，不一致返回 `409 conflict` 并附最新版本，前端刷新后重新比较变更再让用户决定（与设计文档 §3.4.2"同一事务中校验旧版本"、§7"版本不一致则拒绝覆盖"一致；不接受静默覆盖）。`sessions` 与 `meals` 只增改不覆盖删除，冲突记为 `conflict` 并在设置页给一条可见提示。不引 CRDT，课程规模不值当。
 4. 失败：区分可重试（网络/5xx，指数退避最多 5 次）与不可重试（4xx，标记 `failed` 并在 UI 里说明）；离线横幅复用现有 `notice` 样式，别只写 console。
 
 ### 2.6 前端改造落点
@@ -136,30 +139,93 @@ Mock 与开关：
 - `VITE_API_BASE_URL` 未配置 → `services/api/*` 走 `localOnly` 分支（直接返回本地 store 结果）。**今天的纯本地形态是默认形态，不能被后端上线弄坏。**
 - 联调阶段用 MSW（`src/mocks/handlers.ts`）在浏览器里假服务端，先钉契约再等服务端；MSW 只进 devDependencies，产物零影响。
 
-### 2.7 服务端数据模型（与前端类型一一对应）
+### 2.7 服务端数据模型（SQLite 方言，与前端类型一一对应）
+
+设计文档 §1.5/§3.4.2 定的是 SQLite + SQLAlchemy，所以这里**不能用 `jsonb`、`enum`、数组列**：SQLite 只有 `TEXT`/`INTEGER`/`REAL`/`NUMERIC`/`BLOB`。约定如下，列类型一律按此写迁移：
+
+- 多值与结构字段存 `TEXT` + JSON 文本（读用 JSON1 `json_each`/`->>`），列名以 `_json` 结尾；建表时用 `CHECK (json_valid(col))` 兜格式。
+- 枚举存 `TEXT` + `CHECK (col IN (...))`。
+- 布尔存 `INTEGER NOT NULL DEFAULT 0` + `CHECK (col IN (0,1))`。
+- 时间：UTC ISO 8601 文本（`...Z`）存 `TEXT`；业务日期 `YYYY-MM-DD` 存 `TEXT`。
 
 ```
-users(id, type enum{anonymous,registered}, identifier_hash, created_at)
-profiles(user_id, nickname, age, goal, experience, available_times[], equipment[], restrictions[],
-         discipline, cycle_phase, cycle_start, cycle_end, target_event, weight_kg, updated_at)
-plans(id, user_id, version, mode, week_start, created_at)
-plan_items(id, plan_id, date, exercise_name, type, note, planned_duration, planned_sets, planned_reps, locked)
-plan_adjustments(id, plan_id, created_at, reason, status enum{pending,accepted,rejected}, changes jsonb)
-training_sessions(id, client_id, user_id, date, exercise_name, type, actual_duration, actual_distance,
-                  actual_sets, actual_reps, completion_status, completion_reason,
-                  rpe smallint null, discomfort bool, notes, camera_used bool,
-                  manual_corrections int, avg_confidence numeric(4,3) null,
-                  created_at, updated_at, deleted_at)
-meal_records(id, client_id, user_id, date, meal_type, time, completeness enum, analyzed bool, created_at, updated_at, deleted_at)
-meal_items(id, meal_record_id, food_name, category, portion_size numeric null, portion_unit,
-           confirmed bool, source enum{manual,photo} default manual, photo_confidence numeric null)
-meal_analyses(id, meal_record_id, category_coverage jsonb, missing_categories jsonb, unknown_items jsonb,
-              has_nutrition_estimate bool, estimate_refs jsonb null, rule_version, limitations jsonb, created_at)
-privacy_settings(user_id, camera_enabled, save_video_locally, retention_days, export_format, updated_at)
-sync_state(user_id, last_sync_at)
+users(id TEXT PK, type TEXT NOT NULL CHECK(type IN ('anonymous','registered')),
+      identifier_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)
+profiles(user_id INTEGER PK REFERENCES users, nickname TEXT, age INTEGER NOT NULL CHECK(age >= 12 AND age <= 90),
+      auto_recommend INTEGER NOT NULL DEFAULT 1,           -- 服务端按年龄与限制复算，不只信前端
+      goal TEXT, experience TEXT, available_times_json TEXT, equipment_json TEXT,
+      available_venues_json TEXT, restrictions_json TEXT,   -- 含 GATE_RESTRICTIONS：孕期或产后、伤病或遵医嘱限制
+      discipline TEXT, cycle_phase TEXT, cycle_start TEXT, cycle_end TEXT, target_event TEXT,
+      weight_kg REAL, updated_at TEXT NOT NULL)
+mode_changes(id INTEGER PK, user_id INTEGER REFERENCES users, from_mode TEXT CHECK(from_mode IN ('public','athlete')),
+      to_mode TEXT CHECK(to_mode IN ('public','athlete')), at TEXT NOT NULL, open_plan_count INTEGER)
+                                             -- F02"保留历史模式快照"落在这里；本机对应 store.modeLog
+
+exercises(id TEXT PK, name TEXT NOT NULL, type TEXT NOT NULL, equipment_json TEXT, venues_json TEXT,
+      minutes INTEGER NOT NULL, sets INTEGER, reps INTEGER, intensity TEXT CHECK(intensity IN ('低','中','高')),
+      jump_free INTEGER, knee_friendly INTEGER, spine_friendly INTEGER,
+      howto TEXT, reason TEXT, camera_json TEXT,        -- 关节、起始位、行程末端、最短阶段时长
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','retired')),
+      source TEXT NOT NULL, catalog_version TEXT NOT NULL)
+templates(id TEXT PK, mode TEXT, name TEXT, note TEXT, created_at TEXT)
+template_items(template_id TEXT REFERENCES templates, exercise_id TEXT REFERENCES exercises,
+      day_offset INTEGER, order_index INTEGER, planned_minutes INTEGER,
+      PRIMARY KEY (template_id, exercise_id, order_index))      -- 文档 §5.2 "模板可引用多个动作"
+
+plans(id TEXT PK, user_id INTEGER REFERENCES users, version INTEGER NOT NULL, mode TEXT,
+      week_start TEXT NOT NULL, week_end TEXT, reason TEXT NOT NULL,
+      rules_version TEXT NOT NULL, created_at TEXT NOT NULL,
+      UNIQUE (user_id, week_start, mode, version))   -- 版本号唯一，接受调整即写新版本；旧行不改写
+plan_items(id TEXT PK, plan_id TEXT REFERENCES plans, date TEXT, exercise_id TEXT NULL REFERENCES exercises,
+      exercise_name TEXT NOT NULL, type TEXT, note TEXT,
+      planned_duration INTEGER, planned_distance INTEGER,   -- 分钟 / 米，与前端一致
+      planned_sets INTEGER, planned_reps INTEGER, locked INTEGER, completed INTEGER,
+      alternatives_json TEXT)                                -- 跑步项允许 exercise_id 为空
+plan_adjustments(id TEXT PK, plan_id TEXT REFERENCES plans, base_version INTEGER NOT NULL,
+      created_at TEXT, reason TEXT, status TEXT CHECK(status IN ('pending','accepted','rejected')),
+      changes_json TEXT)      -- base_version 就是 If-Match 的落点：接受时服务端比对，不一致拒绝
+
+training_sessions(id TEXT PK, client_id TEXT NOT NULL, user_id INTEGER REFERENCES users, date TEXT,
+      exercise_name TEXT, type TEXT, actual_duration INTEGER, actual_distance INTEGER,
+      actual_sets INTEGER, actual_reps INTEGER, completion_status TEXT, completion_reason TEXT,
+      rpe INTEGER CHECK(rpe BETWEEN 0 AND 10 OR rpe IS NULL),   -- 0～10，缺就是 NULL，绝不默认 0
+      discomfort INTEGER, notes TEXT, camera_used INTEGER,
+      manual_corrections INTEGER, counted_reps INTEGER,        -- 模型计数与人工修正分别保留（文档 §5.2）
+      avg_confidence REAL, calibrated_neutral INTEGER,         -- 机位校准结果，便于复现阈值
+      created_at TEXT, updated_at TEXT, deleted_at TEXT,
+      UNIQUE (user_id, client_id))                             -- 幂等兜底
+meal_records(id TEXT PK, client_id TEXT, user_id INTEGER, date TEXT, meal_type TEXT
+      CHECK(meal_type IN ('breakfast','lunch','dinner','snack')), time TEXT,
+      completeness TEXT CHECK(completeness IN ('complete','partial','unknown')), analyzed INTEGER,
+      created_at TEXT, updated_at TEXT, deleted_at TEXT, UNIQUE (user_id, client_id))
+meal_items(id TEXT PK, meal_record_id TEXT REFERENCES meal_records, food_name TEXT, category TEXT,
+      portion_size REAL NULL, portion_unit TEXT, confirmed INTEGER,
+      source TEXT DEFAULT 'manual' CHECK(source IN ('manual','photo')), photo_confidence REAL NULL)
+foods(id TEXT PK, name TEXT NOT NULL, category TEXT NOT NULL, energy_kcal_per_100g REAL,
+      note TEXT,                  -- 口径：熟重 / 生重 / 可食部，界面必须同屏显示
+      verified INTEGER NOT NULL DEFAULT 0 CHECK(verified IN (0,1)),
+      revised_at TEXT)            -- verified=0 时前端只允许以区间粗估显示
+mixed_foods(name TEXT PK, note TEXT)     -- 混合菜名单：不参与营养估算，类别待确认
+
+rule_versions(id TEXT PK, kind TEXT CHECK(kind IN ('diet','report','plan','food','exercise')),
+      version TEXT NOT NULL, published_at TEXT, notes_json TEXT,
+      UNIQUE (kind, version))                      -- 文档 §5.2 RuleVersion；停用条目不可用于新推荐
+analysis_records(id TEXT PK, kind TEXT, input_hash TEXT, rule_version TEXT REFERENCES rule_versions,
+      result_json TEXT, created_at TEXT)          -- 输入变了 input_hash 就变，旧结论自动失效
+meal_analyses(id TEXT PK, meal_record_id TEXT, category_coverage_json TEXT, missing_categories_json TEXT,
+      unknown_items_json TEXT, has_nutrition_estimate INTEGER, estimate_refs_json TEXT NULL,
+      rule_version TEXT, limitations_json TEXT, created_at TEXT)
+
+privacy_settings(user_id INTEGER PK REFERENCES users, camera_enabled INTEGER, save_video_locally INTEGER,
+      retention_days INTEGER CHECK(retention_days BETWEEN 7 AND 3650), export_format TEXT,
+      show_energy_estimate INTEGER DEFAULT 0, updated_at TEXT)
+sync_state(user_id INTEGER PK REFERENCES users, last_sync_at TEXT)
+audit_events(id INTEGER PK, user_id INTEGER NULL, actor_role TEXT CHECK(actor_role IN ('user','admin','system')),
+      action TEXT NOT NULL, target_type TEXT, target_id TEXT, event_code TEXT, created_at TEXT)
+      -- 文档 §5.2/§7：记录操作者与动作，不存密码、令牌和敏感正文
 ```
 
-要点：`rpe` 必须 nullable 且无默认 0（这是前端已经守住的数据语义，服务端不能破坏）；`(user_id, client_id)` 唯一索引兜住幂等；`deleted_at` 软删。
+要点：`rpe` 必须 nullable 且无默认 0（0 是合法量表值，缺才是 NULL——前端已按 0～10 出量表，服务端不能把两者混起来）；`(user_id, client_id)` 唯一索引兜住幂等；`deleted_at` 软删；`exercises`/`foods` 的 `source` 必填但允许如实标注"未与权威成分表逐项核对"，`verified` 决定前端能不能出数。
 
 ### 2.8 错误与状态约定
 
@@ -171,10 +237,10 @@ sync_state(user_id, last_sync_at)
 
 - [ ] key、密钥、内部 URL 只存在于服务端配置；CI 加 secret 扫描
 - [ ] CORS 精确白名单，带 `credentials` 时禁止 `*`
-- [ ] 所有输入服务端复校（年龄范围、时间格式 HH:MM、类别枚举、字符串长度）
+- [ ] 所有输入服务端复校（年龄范围 12–90、`auto_recommend` 只允许 18 岁以上且未命中 `GATE_RESTRICTIONS` 时为 1、时间格式 HH:MM、类别枚举、份量单位在 `UNIT_GRAMS` 内、字符串长度）
 - [ ] 限流：登录/注册/导出/清除重点设；`/data/wipe` 需 `confirmToken`（先申请、再执行）
 - [ ] CSP 基线 + 关掉不需要的 `connect-src`；MediaPipe 的 wasm 走同源
-- [ ] 账号删除与保留期落到实际作业（现在 `retentionDays` 只是偏好，无自动清理，接了后端必须补齐）
+- [ ] 账号删除与保留期落到实际作业。当前界面已如实标注 `retentionDays` 与 `saveVideoLocally` 只是偏好、不触发删除或录制；接后端后要么实现该作业，要么删掉这两个开关别给用户提供它没有的控制权（设计文档 §2.4(4) 的"离线备份最长 30 天轮换"说的是服务端备份保留期，与用户数据保留天数是两件事，界面和文档都要分开表述）
 - [ ] 不存摄像头帧、不存生物特征；关键点上报默认关闭且可关
 - [ ] 热量/负荷等显示位一律带来源与"参考值"标注
 
@@ -193,15 +259,16 @@ sync_state(user_id, last_sync_at)
 
 ## 3. 其余已知缺口（与上面无关，按影响排序）
 
-1. 姿态识别 → 计数未联动：`usePoseCamera` 已给关节角，缺一个带迟滞的 `ready→down→up→count++` 状态机与遮挡门控。
-2. 计划调整只在界面层生效（B3 解决）。
-3. 推荐口径未按档案计算：`planRules` 是固定周一/三/五，未用 `availableTimes/equipment/restrictions` 过滤。
-4. 无障碍未做 WCAG AA 逐项核对；部分自绘控件低于 44px（日历格子、chip、tab）。
-5. 没有任何自动化测试：优先补 `mealRules` / `weekRules` / 演示时钟这三个纯逻辑单元 + 一条"建档→跟练→反馈→周报"e2e。
-6. 真摄像头下的骨架对齐与关节角数值未经实测（开发环境无可用设备）。
+1. ~~姿态识别 → 计数未联动~~ **已完成（2026-10-17）**：`composables/useRepCounter.ts` 落地带迟滞与最短阶段时长的 `起始→运动→返回→count++` 状态机，含 3 帧平滑、可见度遮挡门控、停滞重置、抖动不计入，以及机位校准（阈值随用户起始姿势偏移）。跟练页实时摄像头分支已改由状态机驱动计数，演示回放保留预设时间线；手工修正后状态机不再回写本组次数，`manualCorrections` 与模型计数分别落库。**未做**：真机验证与 §3.4.3 的隔离测试集实测。
+2. 计划调整的版本落地：本机已实现（`store.acceptAdjustment` 写新版本、旧版本进 `planHistory`、锁定项保持不变，B3 的前端可验收标准已在 localStorage 上达成）；服务端侧仍需 B3 的 `If-Match` 版本校验与 409 处理。
+3. ~~推荐口径未按档案计算~~ **已完成（2026-10-17）**：`services/exercises.ts`（27 条动作，含 1 条停用）+ `planRules.buildDayPlan` 按器材、场地、时长与"需要避开的"过滤；约束无解时返回逐条冲突原因；未满 18 岁或勾选孕期/伤病限制时 `auto=false`，只留记录与手工录入。
+4. 无障碍未做 WCAG AA 逐项核对；部分自绘控件低于 44px（日历格子、chip、tab）。本轮新增控件已按 44px 写（锁定/完成、校准、替换候选、切换确认按钮），但整体仍未逐项核对。
+5. 自动化测试：新增 `npm run selfcheck`（esbuild 打包 + Node 断言，66 项，覆盖 F04 过滤、负荷缺失口径、类别推断与混合菜、计数状态机、计划版本与模式切换确认）。**仍缺**：Playwright e2e（"建档→跟练→反馈→周报"）与服务端 pytest。
+6. 真摄像头下的骨架对齐、关节角数值与计数准确率未经实测（开发环境无可用设备）；状态机阈值目前是动作库默认值 + 机位校准偏移，未按标注样本调参。
 7. 记录摩擦（第一因子）：饮食侧基线已改造并复测（2026-10-16 第十轮）——表单改为就地展开在触发它的卡片内、拍照面板默认折叠、名称框 autofocus、回车即存。实测位移 +568px→−26px，从触发点到"保存"的整屏滚动 1 次→0 次，表单顶到第一个输入框 266px→91px，可交互控件 11→10。
-   - 待做（用户口径未定）：一行速记（名称即落库 + 类别推断标"待确认"）、份量/单位降级为可选展开、"最近吃过"芯片（本机历史，重复记录可压到 1 tap）。
-   - 已知数据缺陷：手输"苹果"会以 `苹果/谷薯类` 入库（类别默认值所致，改造前即存在），由上面第一条的类别推断解决。
+   - ~~待做：一行速记（名称即落库 + 类别推断标"待确认"）~~ **已完成**：`suggestCategory()` 命中目录即改写类别（用户手动改过就不再动），未命中或混合菜落"其他"并进 `unknownItems`。
+   - 待做：份量/单位降级为可选展开、"最近吃过"芯片（本机历史，重复记录可压到 1 tap）。
+   - ~~已知数据缺陷：手输"苹果"会以 `苹果/谷薯类` 入库~~ **已修**：新行默认类别改为"其他（待确认）"，由名称推断赋值；自检查 `suggestCategory('苹果') === '水果类'`。
    - 训练侧与建档侧的同类基线尚未测量。
 8. 视觉三档已完成两档半：
    - ② 单一强调色 + 语义色重标（第十一轮，取值依据 `UI/research/界面偏好调研.md` P0-1/P0-2 与 `ui-directions.html`）：强调色收敛为 `#0f766e` 一种，指标卡去渐变改白卡 + 1px 描边 + 单层阴影且只在真达成时着色，语义色只留 success(=强调色)/caution/danger/neutral 并用点形/条形做非颜色冗余，装饰渐变只保留品牌位。实测 7 条路由 281 个文本节点 0 项 AA 失败，并修掉 `--color-on-accent` 拼错名与 muted 3.75:1 不达 AA 两个真 bug。

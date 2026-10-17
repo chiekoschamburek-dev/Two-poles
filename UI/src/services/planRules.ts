@@ -134,12 +134,15 @@ export function buildDayPlan(d: Date, profile: UserProfile | null = null, mode: 
     : ['坐站训练', '站姿弯举', '其他']
 
   if (mode === 'athlete') {
-    const run = pick('跑步', profile, venues, used, Math.max(5, remaining - 6))
+    // 有氧主项按整段可用时间安排，不能被"留 6 分钟给别的"挤掉
+    const run = pick('跑步', profile, venues, used, remaining)
     if (run.ex) { items.push(toPlanItem(run.ex, date, version)); used.add(run.ex.id); remaining -= run.ex.minutes }
     else conflicts.push(...(run.blocked.length ? run.blocked : ['动作库里没有符合条件的跑步或快走条目']))
-    const helper = pick('其他', profile, venues, used, Math.max(3, remaining - 4))
-    if (helper.ex) { items.unshift(toPlanItem(helper.ex, date, version)); used.add(helper.ex.id); remaining -= helper.ex.minutes }
-    else conflicts.push(...helper.blocked)
+    if (remaining >= 4) {
+      const helper = pick('其他', profile, venues, used, remaining - 2)
+      if (helper.ex) { items.unshift(toPlanItem(helper.ex, date, version)); used.add(helper.ex.id); remaining -= helper.ex.minutes }
+      else conflicts.push(...helper.blocked)
+    }
   } else {
     const warm = pick('动态热身', profile, venues, used, Math.min(4, budget))
     if (warm.ex) { items.push(toPlanItem(warm.ex, date, version)); used.add(warm.ex.id); remaining -= warm.ex.minutes }

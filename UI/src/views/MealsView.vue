@@ -100,6 +100,25 @@
       <p v-else class="muted">今天没有记录加餐。不记录也是合法状态。</p>
     </BaseCard>
 
+    <BaseCard v-if="store.isAthleteMode" class="timeline animate-slide-in-up">
+      <div class="slot-head">
+        <div><span class="eyebrow">TRAINING DAY TIMELINE</span><h3>训练日用餐时间线</h3></div>
+        <StatusBadge :variant="timeline.length ? 'info' : 'neutral'">{{ timeline.length ? `${timeline.length} 个事件` : '今天没有记录' }}</StatusBadge>
+      </div>
+      <p class="tl-note">把已记录的餐次与训练按时间排在一起，只作个人复盘；不判断进食时机是否合适，也不给竞技营养结论。</p>
+      <ul v-if="timeline.length" class="tl">
+        <li v-for="e in timeline" :key="e.key" :class="e.kind">
+          <span class="tl-time">{{ e.time }}</span>
+          <span class="tl-dot" aria-hidden="true"></span>
+          <span class="tl-body">
+            <strong>{{ e.title }}</strong>
+            <small>{{ e.detail }}</small>
+          </span>
+        </li>
+      </ul>
+      <p v-else class="muted">今天还没有训练或餐食记录。空着是合法状态，不代表没吃没练。</p>
+    </BaseCard>
+
     <InsightCard class="rules animate-slide-in-up" card-id="meal-rules" eyebrow="HOW THIS WORKS" title="这些结论是怎么来的">
       <template #icon><Sparkles :size="20" /></template>
       <ul class="lims">
@@ -134,6 +153,34 @@ const showEstimate = computed(() => store.privacy.showEnergyEstimate)
 /** 免责清单要跟今天实际出的数一致，不能无论有没有估算都写"没有热量估算" */
 const hasEstimateToday = computed(() => store.meals.some(m => m.date === date && (m.analysis?.estimateRefs?.length ?? 0) > 0))
 const limitations = computed(() => buildLimitations(hasEstimateToday.value))
+
+/** 训练日时间线：把已记录的餐次与训练按时间排在一起（距离按文档口径存米、显示可转换） */
+const timeline = computed(() => {
+  const slotLabel = (t: Meal['mealType']) => MEAL_SLOTS.find(s => s.id === t)?.label ?? '加餐'
+  const completenessText = (c: Meal['completeness']) => (c === 'complete' ? '完整记录' : c === 'partial' ? '部分记录' : '未记完整')
+  const rows = [
+    ...store.meals.filter(m => m.date === date).map(m => ({
+      key: `meal-${m.id}`,
+      kind: 'meal' as const,
+      time: m.time,
+      title: slotLabel(m.mealType),
+      detail: `${m.items.map(i => i.foodName).join('、') || '没有条目'} · ${completenessText(m.completeness)}`
+    })),
+    ...store.sessions.filter(s => s.date === date).map(s => ({
+      key: `train-${s.id}`,
+      kind: 'train' as const,
+      time: s.createdAt.slice(11, 16),
+      title: `${s.exerciseName}（训练记录）`,
+      detail: [
+        `${s.actualDuration ?? '—'} min`,
+        s.actualDistance ? `${(s.actualDistance / 1000).toFixed(1)} km` : '',
+        s.rpe === null ? 'RPE 未记录' : `RPE ${s.rpe}`,
+        s.cameraUsed ? '摄像头计数' : '手工记录'
+      ].filter(Boolean).join(' · ')
+    }))
+  ]
+  return rows.sort((a, b) => a.time.localeCompare(b.time))
+})
 
 /** 表单就地展开在 draft.slot 那张卡里；同一时刻最多一个 */
 const draft = ref<{ slot: Meal['mealType']; time: string; items: MealDraft[]; replacesId: string | null } | null>(null)
@@ -217,6 +264,19 @@ function mealEnergy(meal: Meal) {
 .strip-bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--color-divider)}
 .strip-bar i{display:block;height:100%;background:var(--color-accent);transition:width var(--motion-slower) var(--easing-ease-out)}
 .slots{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:start}
+.timeline{margin-bottom:20px;padding:20px}
+.tl{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:2px}
+.tl li{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px dashed var(--color-divider)}
+.tl li:last-child{border-bottom:0}
+.tl-time{font-size:12px;color:var(--color-text-muted);font-variant-numeric:tabular-nums;min-width:46px}
+.tl-dot{width:9px;height:9px;border-radius:50%;margin-top:5px;flex:none}
+.tl li.meal .tl-dot{background:var(--color-accent)}
+.tl li.train .tl-dot{background:transparent;box-shadow:inset 0 0 0 2px var(--color-accent-strong)}
+.tl-body{flex:1}
+.tl-body strong,.tl-body small{display:block}
+.tl-body strong{font-size:13.5px;color:var(--color-ink)}
+.tl-body small{font-size:11.5px;color:var(--color-text-muted);margin-top:3px;line-height:1.6}
+.tl-note{font-size:12px;color:var(--color-text-muted);margin:6px 0 0;line-height:1.65}
 .slot{padding:20px;display:flex;flex-direction:column}
 /* 展开的那张卡占满整行：手指点在哪表单就在哪，同时给一行四列控件留出宽度 */
 .slot.opening{grid-column:1/-1}

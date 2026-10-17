@@ -102,7 +102,7 @@
           </div>
           <div v-if="live && counter" class="calib">
             <button class="calib-btn" :disabled="calibrating" @click="runCalibrate">{{ calibrating ? '校准中…' : '校准机位' }}</button>
-            <small>{{ counter.calibratedNeutral.value !== null ? `起始位 ${counter.calibratedNeutral.value}°` : '未校准：用动作库默认阈值' }}</small>
+            <small>{{ counter.calibratedNeutral !== null ? `起始位 ${counter.calibratedNeutral}°` : '未校准：用动作库默认阈值' }}</small>
           </div>
           <div class="status-item">
             <Timer :size="18" class="status-icon teal" />
@@ -240,7 +240,7 @@ function buildCounter() {
     return null
   }
   camJoint.value = cam.joint
-  counter.value = useRepCounter({
+  const c = useRepCounter({
     neutral: cam.neutral,
     bottom: cam.bottom,
     hysteresis: 8,
@@ -249,8 +249,9 @@ function buildCounter() {
     maxStageMs: 6000,
     minVisibility: 0.5
   })
-  counter.value.reset('已就绪：先校准机位，或直接在起始姿势下开始')
-  return counter.value
+  counter.value = c
+  c.reset('已就绪：先校准机位，或直接在起始姿势下开始')
+  return c
 }
 
 async function runCalibrate() {
@@ -273,7 +274,7 @@ async function calibratePose() {
     type: ok ? 'success' : 'warning',
     title: ok ? '机位已校准' : '校准未完成',
     message: ok
-      ? `阈值按你的起始姿势（${c.calibratedNeutral.value}°）设定，不是通用标准姿势判定`
+      ? `阈值按你的起始姿势（${c.calibratedNeutral}°）设定，不是通用标准姿势判定`
       : '请让侧面全身完整入镜、光线稳定后重试',
     duration: 3500
   })
@@ -302,13 +303,12 @@ const sourceNote = computed(() => {
   if (!store.privacy.cameraEnabled) return '摄像头已在设置中关闭，当前只有演示回放'
   return '按预设时间线回放，不需要摄像头'
 })
-const stageHint = computed(() =>
-  live.value
-    ? counter.value
-      ? `识别：端侧关键点实时驱动计数（${camJoint.value === 'knee' ? '膝角' : '肘角'}）· 阈值 ${Math.round(counter.value.lowThreshold.value)}° · ${counter.value.calibratedNeutral.value ? '已按你的机位校准' : '未校准，用规则默认阈值'}`
-      : '识别：端侧关键点 · 该动作暂无计数规则，可用手工修正'
-    : '关键点示意图 · 实际使用时在本地处理'
-)
+const stageHint = computed(() => {
+  if (!live.value) return '关键点示意图 · 实际使用时在本地处理'
+  const c = counter.value
+  if (!c) return '识别：端侧关键点 · 该动作暂无计数规则，可用手工修正'
+  return `识别：端侧关键点实时驱动计数（${camJoint.value === 'knee' ? '膝角' : '肘角'}）· 阈值 ${Math.round(c.lowThreshold)}° · ${c.calibratedNeutral !== null ? '已按你的机位校准' : '未校准，用规则默认阈值'}`
+})
 
 async function switchMode(next: 'demo' | 'camera') {
   if (next === mode.value) return
@@ -386,15 +386,15 @@ function tick(ts: number) {
       const angle = camJoint.value === 'knee' ? pose.kneeAngle.value : pose.elbowAngle.value
       const res = c.feed(angle, pose.visibility.value, ts)
       if (res.counted) {
-        store.showToast({ type: 'success', title: `第 ${c.count.value} 次`, message: '关键点回到起始位，计为一次', duration: 1200 })
+        store.showToast({ type: 'success', title: `第 ${c.count} 次`, message: '关键点回到起始位，计为一次', duration: 1200 })
       }
       confidence.value = pose.visibility.value
       confidenceSum += pose.visibility.value
       confidenceCount++
       phase.value = res.phase
       if (res.gate) message.value = res.gate
-      if (!corrected) reps.value = Math.min(c.count.value, exercise.value.repsPerSet)
-      if (c.count.value >= exercise.value.repsPerSet && !corrected) {
+      if (!corrected) reps.value = Math.min(c.count, exercise.value.repsPerSet)
+      if (c.count >= exercise.value.repsPerSet && !corrected) {
         message.value = '本组次数已达标'
         finishSet()
       }
@@ -591,7 +591,7 @@ onUnmounted(() => {
 .cam-feed{background:#0d1f2c}
 .cam-overlay{pointer-events:none}
 .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);transition:all var(--motion-fast)}
-.chip.active{background:var(--color-accent);color:white}
+.chip.active{background:var(--color-accent);color:var(--color-on-accent)}
 .chip:hover:enabled{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
 .chip:disabled{opacity:.45;cursor:not-allowed}
 .execution-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
@@ -612,13 +612,13 @@ onUnmounted(() => {
 .confidence-badge.low{color:var(--color-danger);border-left:3px solid var(--color-danger)}
 .phase-badge{color:var(--color-accent);border-left:3px solid var(--color-accent)}
 .stage-live{position:absolute;left:16px;right:16px;bottom:16px;margin:0;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);font-size:13px;font-weight:600;color:var(--color-ink);text-align:center;box-shadow:var(--shadow-sm)}
-.stage-hint{padding:12px 24px;font-size:11px;color:var(--color-text-muted);text-align:center;background:linear-gradient(180deg,#fff,var(--color-neutral-soft));border-top:1px solid var(--color-divider)}
+.stage-hint{padding:12px 24px;font-size:11px;color:var(--color-text-muted);text-align:center;background:var(--color-card);border-top:1px solid var(--color-divider)}
 .stage-controls{display:flex;justify-content:center;gap:12px;padding:20px;background:var(--color-neutral-soft)}
 .ctrl-btn{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;transition:all var(--motion-fast)}
 .ctrl-btn.secondary{background:var(--color-accent-soft);color:var(--color-accent)}
-.ctrl-btn.secondary:hover:enabled{background:var(--color-accent);color:white;transform:scale(1.08)}
+.ctrl-btn.secondary:hover:enabled{background:var(--color-accent);color:var(--color-on-accent);transform:scale(1.08)}
 .ctrl-btn.danger{background:var(--color-danger-soft);color:var(--color-danger)}
-.ctrl-btn.danger:hover:enabled{background:var(--color-danger);color:white}
+.ctrl-btn.danger:hover:enabled{background:var(--color-danger);color:var(--color-on-danger)}
 .ctrl-btn:disabled{opacity:.4;cursor:not-allowed}
 .info-cards{display:grid;gap:18px}
 .count-card{text-align:center;padding:22px!important}
@@ -660,7 +660,7 @@ onUnmounted(() => {
 .rpe-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 .feedback .rpe-chip{width:auto;min-width:34px;height:34px;padding:0 8px;border-radius:10px;margin-bottom:0;background:var(--color-neutral-soft);color:var(--color-text-secondary);font-size:13px;font-weight:700;transition:all var(--motion-fast)}
 .feedback .rpe-chip:hover{background:var(--color-accent-soft);color:var(--color-accent);transform:translateY(-1px)}
-.feedback .rpe-chip.active{background:var(--color-accent);color:white}
+.feedback .rpe-chip.active{background:var(--color-accent);color:var(--color-on-accent)}
 .field small{display:block;font-size:11px;color:var(--color-text-muted);line-height:1.6}
 .check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);margin-bottom:12px;cursor:pointer}
 .check input{width:16px;height:16px;accent-color:var(--color-accent)}

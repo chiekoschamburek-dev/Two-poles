@@ -8,7 +8,8 @@
     "camera:assets": "node scripts/fetch-camera-assets.mjs",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "selfcheck": "esbuild scripts/selfcheck.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.selfcheck.mjs && node .selfcheck.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.1.1",
