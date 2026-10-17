@@ -16,6 +16,17 @@ if not REF_ENV: raise SystemExit('请设置 TWOPOLES_TEMPLATE_DOCX 指向课程�
 REF=Path(REF_ENV)
 ASSET=ROOT/'assets'; ASSET.mkdir(exist_ok=True)
 OUT=ROOT/'两仪·TwoPoles_项目需求分析与概要设计文档.docx'
+# 姓名与学号不进仓库：脚本只留占位，真名放同目录 members.json（已 gitignore），仅写进生成的 docx
+MEMBERS=ROOT/'members.json'
+def cover_lines():
+ slots=['组员1：________（学号：________）','组员2：________（学号：________）','组员3：________（学号：________）']
+ if MEMBERS.exists():
+  try:
+   people=json.loads(MEMBERS.read_text('utf-8'))
+   if len(people)==3: slots=[f"组员{i+1}：{p['name']}（学号：{p['studentId']}）" for i,p in enumerate(people)]
+   else: print('members.json 组员数不是 3，封面沿用占位符')
+  except Exception as e: print(f'members.json 没读成，封面沿用占位符：{e}')
+ return ['项目名称：两仪·TwoPoles','（个性化运动与饮食协同助手）',*slots,'完成日期：2026年10月17日']
 FONT=r'C:\Windows\Fonts\msyh.ttc'; BOLD=r'C:\Windows\Fonts\msyhbd.ttc'
 NAVY='#16334b'; TEAL='#087e80'; BLUE='#2468a0'; MUTED='#627585'; BG='#f2f6f9'; LINE='#dce5ed'
 def font(n=26,b=False): return ImageFont.truetype(BOLD if b else FONT,n)
@@ -200,7 +211,7 @@ for i,p in enumerate(cover):
   if ind is not None: ind.set(qn('w:left'),'1200'); ind.set(qn('w:right'),'650')
   setp(p,'')
   rr=p.find(qn('w:r')); p.remove(rr)
-  for j,line in enumerate(['项目名称：两仪·TwoPoles','（个性化运动与饮食协同助手）','组员1：彭鑫阳（学号：2025211924）','组员2：杨竞航（学号：2025211988）','组员3：黎一辉（学号：2025211962）','完成日期：2026年10月17日']):
+  for j,line in enumerate(cover_lines()):
    r=OxmlElement('w:r'); rp=OxmlElement('w:rPr'); sz=OxmlElement('w:sz');sz.set(qn('w:val'),'22');rp.append(sz);r.append(rp);t=OxmlElement('w:t');t.text=line;r.append(t)
    if j<5: r.append(OxmlElement('w:br'))
    p.append(r)

@@ -28,6 +28,9 @@ artifacts/**/qa/v3-review-*.png
 artifacts/**/qa/template-contact.png
 artifacts/**/qa/working.docx
 
+# 本机私有资料：封面姓名与学号只用于生成交付 docx，不进仓库
+artifacts/**/members.json
+
 # Editors
 .vscode/*
 !.vscode/extensions.json
