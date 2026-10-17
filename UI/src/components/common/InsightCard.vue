@@ -39,9 +39,9 @@ const collapsed = computed(() => store.isCardCollapsed(props.cardId))
 
 <style scoped>
 .insight-row{display:flex;align-items:flex-start;gap:16px}
-.insight-icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:13px;color:white}
+.insight-icon{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:13px;color:var(--color-on-accent)}
 .insight-icon.accent{background:var(--color-accent);box-shadow:var(--shadow-accent),inset 0 1px 0 rgba(255,255,255,.42)}
-.insight-icon.ink{background:var(--color-ink);box-shadow:0 10px 22px -12px rgba(21,24,27,.6),inset 0 1px 0 rgba(255,255,255,.22)}
+.insight-icon.ink{background:var(--color-ink);color:var(--color-bg);box-shadow:0 10px 22px -12px rgba(21,24,27,.6),inset 0 1px 0 rgba(255,255,255,.22)}
 .insight-body{flex:1;min-width:0}
 .insight-body h3{font-size:17px;margin:6px 0 8px}
 .eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-accent);font-weight:700}

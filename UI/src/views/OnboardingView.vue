@@ -322,8 +322,8 @@ function finish() {
 .chip{padding:9px 14px;border-radius:999px;font-size:13px;font-weight:600;color:var(--color-text-secondary);background:var(--color-neutral-soft);transition:all var(--motion-fast)}
 .chip.warn{background:var(--color-caution-soft);color:var(--color-caution)}
 .chip:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
-.chip.active{background:var(--color-accent);color:white}
-.chip.warn.active{background:var(--color-caution);color:white}
+.chip.active{background:var(--color-accent);color:var(--color-on-accent)}
+.chip.warn.active{background:var(--color-caution);color:var(--color-on-caution)}
 .note{font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:14px 0 0}
 .fine{font-size:11.5px;color:var(--color-text-muted);line-height:1.6;margin:7px 0 0}
 .gate{font-size:12.5px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:11px;padding:10px 12px;margin:10px 0 0;line-height:1.65}

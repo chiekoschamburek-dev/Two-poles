@@ -9,6 +9,8 @@
   --color-accent-soft: #e7f1ef;     /* 选中态浅底 */
   --color-accent-line: #cbe0dc;
   --color-on-accent: #ffffff;         /* 强调色/品牌底上的前景 */
+  --color-on-caution: #ffffff;
+  --color-on-danger: #ffffff;
 
   /* === 墨色与冷灰阶 === */
   --color-ink: #15181b;
@@ -178,6 +180,8 @@ html[data-theme="dark"] {
   --color-accent-soft: #16302d;
   --color-accent-line: #24504a;
   --color-on-accent: #08201d;        /* 亮青底必须配深字：白字 on #3ec9b6 只有 2.1:1 */
+  --color-on-caution: #241a03;
+  --color-on-danger: #2b0f0c;
 
   --color-ink: #f2f4f7;
   --color-bg: #17191c;

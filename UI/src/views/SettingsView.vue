@@ -304,7 +304,7 @@ function wipe() {
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{padding:9px 14px;border-radius:999px;font-size:12px;font-weight:600;color:var(--color-text-secondary);background:var(--color-neutral-soft);transition:all var(--motion-fast)}
 .chip:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
-.chip.active{background:var(--color-accent);color:white}
+.chip.active{background:var(--color-accent);color:var(--color-on-accent)}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
 .stat{padding:14px;border-radius:14px;background:var(--color-neutral-soft)}
 .stat span{display:block;font-size:11px;color:var(--color-text-muted)}
