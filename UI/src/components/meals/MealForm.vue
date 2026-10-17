@@ -247,7 +247,7 @@ function submit() {
 .kc-sum.off{font-size:12px;color:var(--color-text-secondary)}
 .tip{font-size:12px;color:var(--color-text-muted);margin:0;line-height:1.6}
 .error{font-size:13px;color:var(--color-danger);background:var(--color-danger-soft);border-radius:11px;padding:10px 13px;margin:0}
-.form-actions{display:flex;gap:10px;justify-content:flex-end}
+.form-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .form-actions :deep(button){width:auto;padding:0 20px}
 @media(max-width:520px){.form-actions{flex-direction:column}.form-actions :deep(button){width:100%}}
 </style>

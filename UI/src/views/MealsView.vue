@@ -229,7 +229,7 @@ function mealEnergy(meal: Meal) {
 .analysis p{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--color-text-secondary);margin:0}
 .analysis strong{color:var(--color-ink);flex:none}
 .analysis .warn{color:var(--color-caution)}
-.slot-actions{display:flex;gap:8px;margin-top:auto}
+.slot-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
 .slot-actions :deep(button){width:auto;flex:1;padding:0 12px;font-size:13px}
 .empty{margin-top:auto}
 .empty p{font-size:13px;color:var(--color-text-secondary);line-height:1.7;margin:6px 0 12px}

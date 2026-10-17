@@ -299,7 +299,7 @@ const cyclePhases = computed(() => {
 .item-info em{font-style:normal;color:var(--color-accent)}
 .plan-item>span{font-size:12px;color:var(--color-text-secondary)}
 .rest-note{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);padding:14px 0}
-.detail-actions{display:flex;gap:10px;margin-top:20px}
+.detail-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
 .cycle{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .phase{padding:20px;position:relative}
 .phase.current{border-color:transparent;box-shadow:var(--shadow-card),inset 0 1px 0 #fff,0 0 0 1px rgba(15,118,110,.3)}
@@ -319,7 +319,7 @@ const cyclePhases = computed(() => {
 .adjust-row small{display:block;font-size:12px;color:var(--color-text-secondary);margin-top:3px}
 .adjust-arrow{color:var(--color-accent)}
 .adjust-note{font-size:12px;color:var(--color-text-secondary);margin:14px 0}
-.adjust-actions{display:flex;gap:10px}
+.adjust-actions{display:flex;gap:10px;flex-wrap:wrap}
 .adjust-actions :deep(button){width:auto;padding:0 20px}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:767px){.page-head h1{font-size:26px}.page-head :deep(button){display:none}.toolbar{align-items:flex-start;gap:12px;flex-wrap:wrap}.version{margin-left:auto}.calendar-grid button,.calendar-grid .blank{height:46px}.legend{gap:8px;font-size:10px}.version-card{align-items:flex-start;gap:15px;flex-direction:column}.version-card :deep(button){width:100%}.cycle{grid-template-columns:1fr}}

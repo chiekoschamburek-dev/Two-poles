@@ -228,6 +228,7 @@ function goToday() {
 .sw.solid{background:var(--color-accent)}
 .sw.hatch{background:repeating-linear-gradient(45deg,var(--color-neutral-soft),var(--color-neutral-soft) 2px,var(--color-neutral) 2px,var(--color-neutral) 4px)}
 .sw.none{background:var(--color-neutral-soft);border:1px solid var(--color-border)}
+.sessions{overflow-x:auto}
 .sessions table{width:100%;border-collapse:collapse}
 .sessions th{text-align:left;font-size:11px;color:var(--color-text-muted);font-weight:600;padding:0 8px 8px;border-bottom:1px solid var(--color-divider)}
 .sessions td{font-size:13px;color:var(--color-text-secondary);padding:10px 8px;border-bottom:1px solid var(--color-divider);font-variant-numeric:tabular-nums}
@@ -239,7 +240,7 @@ function goToday() {
 .miss{color:var(--color-caution);background:var(--color-caution-soft);padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;box-shadow:inset 0 0 0 1px rgba(215,165,75,.3)}
 .empty{padding:18px 0 6px}
 .empty p{font-size:13px;color:var(--color-text-secondary);margin:0 0 14px}
-.empty-actions{display:flex;gap:10px}
+.empty-actions{display:flex;gap:10px;flex-wrap:wrap}
 .empty-actions :deep(button){width:auto;padding:0 20px}
 .lims{list-style:none;padding:0;margin:0;display:grid;gap:6px}
 .lims li{position:relative;padding-left:16px;font-size:12px;color:var(--color-text-secondary);line-height:1.7}

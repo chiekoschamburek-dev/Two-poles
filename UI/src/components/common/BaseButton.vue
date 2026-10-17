@@ -1,7 +1,7 @@
 <template><button class="base-button" :class="[variant, size]" :disabled="disabled" @click="$emit('click', $event)"><component v-if="icon" :is="icon" :size="size==='sm'?15:17"/><span><slot/></span></button></template>
 <script setup lang="ts">import type { Component } from 'vue'; withDefaults(defineProps<{variant?:'primary'|'secondary'|'ghost'|'danger';size?:'sm'|'md'|'lg';disabled?:boolean;icon?:Component}>(),{variant:'primary',size:'md',disabled:false}); defineEmits<{(e:'click',event:MouseEvent):void}>()
 </script>
-<style scoped>.base-button{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;font-weight:600;letter-spacing:.01em;transition:transform var(--motion-fast) var(--easing-ease-out),box-shadow var(--motion-fast),background var(--motion-fast),border-color var(--motion-fast);min-height:44px;padding:0 18px}
+<style scoped>.base-button{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;border-radius:12px;font-weight:600;letter-spacing:.01em;transition:transform var(--motion-fast) var(--easing-ease-out),box-shadow var(--motion-fast),background var(--motion-fast),border-color var(--motion-fast);min-height:44px;padding:0 18px}
 .base-button>span,.base-button>:first-child{position:relative;z-index:1}
 .base-button:hover:not(:disabled){transform:translateY(-1px)}
 .base-button:active:not(:disabled){transform:translateY(0);filter:brightness(.96)}
