@@ -413,7 +413,7 @@ watch(
 .tabs{padding:4px;background:var(--color-neutral-soft);border-radius:13px;display:flex;box-shadow:inset 0 1px 3px rgba(21,24,27,.09)}
 .tabs button{padding:9px 20px;border-radius:9px;color:var(--color-text-secondary);font-size:13px;transition:all var(--motion-base) var(--easing-spring)}
 .tabs button.active{background:var(--color-card);color:var(--color-accent);font-weight:700;box-shadow:0 1px 2px rgba(21,24,27,.08),0 4px 10px -4px rgba(15,118,110,.16)}
-.version{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--color-text-secondary);padding:9px 13px;background:rgba(255,255,255,.86);border:1px solid rgba(220,229,237,.85);border-radius:11px;box-shadow:var(--inner-light)}
+.version{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--color-text-secondary);padding:9px 13px;background:var(--color-card);border:1px solid var(--color-border);border-radius:11px;box-shadow:var(--inner-light)}
 .version strong{color:var(--color-accent)}
 .ver-mode{font-size:11px;color:var(--color-text-muted)}
 .regen{font-size:11.5px;font-weight:700;color:var(--color-accent);background:var(--color-accent-soft);padding:7px 11px;border-radius:9px;min-height:32px;transition:all var(--motion-fast)}
@@ -423,7 +423,7 @@ watch(
 .ver-reason em{font-style:normal;margin-left:6px}
 .conflicts{margin:0 0 14px;padding:12px 14px 12px 30px;border-radius:12px;background:var(--color-neutral-soft);font-size:12.5px;color:var(--color-text-secondary);line-height:1.7}
 .conflicts li{margin:2px 0}
-.manual{display:grid;gap:12px;padding:16px;border-radius:16px;background:rgba(255,255,255,.9);border:1px solid var(--color-accent-line);margin-bottom:18px}
+.manual{display:grid;gap:12px;padding:16px;border-radius:16px;background:var(--color-card);border:1px solid var(--color-accent-line);margin-bottom:18px}
 .manual label{display:grid;gap:5px;font-size:12px;color:var(--color-text-muted)}
 .manual input{padding:10px 12px;border:1px solid var(--color-border);border-radius:11px;font-size:13px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
 .manual-tip{font-size:11.5px;color:var(--color-text-muted);line-height:1.6}
