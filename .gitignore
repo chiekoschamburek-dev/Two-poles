@@ -56,3 +56,8 @@ pnpm-debug.log*
 # Test output
 coverage/
 .nyc_output/
+
+meida/
+artifacts/
+brand/
+redesign-shots/

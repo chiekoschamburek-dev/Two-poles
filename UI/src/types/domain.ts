@@ -196,9 +196,13 @@ export interface EnergyEstimateRef {
   low: number
   high: number
   grams: number
-  /** 数值口径，例："熟重 · 116 kcal/100 g" */
+  /** 数值口径，例："熟重 · 116 kcal/100 g · 1 碗=250 g（本机口径）" */
   basis: string
   source: string
+  /** 记录当时的"1 单位=几克"；改造前的历史记录没有这几个字段 */
+  gramsPerUnit?: number
+  unitOwn?: boolean
+  unit?: string
 }
 
 export interface MealAnalysis {

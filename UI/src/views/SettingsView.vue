@@ -189,7 +189,8 @@ const payload = computed(() => ({
   sessions: store.sessions,
   meals: store.meals,
   plans: store.plans,
-  planHistory: store.planHistory
+  planHistory: store.planHistory,
+  unitGrams: store.unitGrams
 }))
 const sizeKb = computed(() => Math.max(1, Math.round(new Blob([JSON.stringify(payload.value)]).size / 1024)))
 

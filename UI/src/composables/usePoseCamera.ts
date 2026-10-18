@@ -1,28 +1,23 @@
 import { ref, onUnmounted } from 'vue'
-import { DrawingUtils, FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision'
+import { DrawingUtils, PoseLandmarker } from '@mediapipe/tasks-vision'
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision'
+import { createPoseEngine, createMainThreadPoseEngine } from './poseEngine'
+import type { PoseEngine } from './poseEngine'
+import { nextTimestamp } from './poseMath'
+import type { PoseMetrics } from './poseMath'
 
 export type PoseCameraStatus = 'idle' | 'starting' | 'live' | 'unsupported' | 'denied' | 'error'
 
 const WASM_PATH = '/mediapipe/wasm'
 const MODEL_PATH = '/mediapipe/models/pose_landmarker_lite.task'
+const MODEL_PATHS = { wasmPath: WASM_PATH, modelPath: MODEL_PATH }
 
-const LEFT = { shoulder: 11, elbow: 13, wrist: 15, hip: 23, knee: 25, ankle: 27 }
-
-function angleAt(a: NormalizedLandmark, vertex: NormalizedLandmark, b: NormalizedLandmark): number | null {
-  const v1x = a.x - vertex.x
-  const v1y = a.y - vertex.y
-  const v2x = b.x - vertex.x
-  const v2y = b.y - vertex.y
-  const magnitude = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)
-  if (!magnitude) return null
-  const cos = Math.min(1, Math.max(-1, (v1x * v2x + v1y * v2y) / magnitude))
-  return Math.round((Math.acos(cos) * 180) / Math.PI)
-}
+const EMPTY_METRICS: PoseMetrics = { kneeAngle: null, hipAngle: null, elbowAngle: null, visibility: 0 }
 
 /**
  * 只负责"看见"：拉摄像头、跑端侧姿态推理、输出关键点与关节角。
- * 不判定动作是否标准，也不产生计数——计数仍由页面的演示时钟驱动。
+ * 推理在工作线程里跑（不支持时回落主线程），骨架绘制仍留在主线程。
+ * 不判定动作是否标准——计数由 useRepCounter 拿这里的关节角自己做。
  */
 export function usePoseCamera() {
   const status = ref<PoseCameraStatus>('idle')
@@ -32,26 +27,21 @@ export function usePoseCamera() {
   const hipAngle = ref<number | null>(null)
   const elbowAngle = ref<number | null>(null)
   const visibility = ref(0)
+  /** 实际生效的后端与推理落点，供界面如实显示，不猜 */
+  const delegate = ref<'GPU' | 'CPU' | null>(null)
+  const runsIn = ref<'worker' | 'main' | null>(null)
 
-  let landmarker: PoseLandmarker | null = null
+  let engine: PoseEngine | null = null
   let stream: MediaStream | null = null
   let video: HTMLVideoElement | null = null
   let canvas: HTMLCanvasElement | null = null
-  let raf = 0
+  let rvfcHandle = 0
+  let rafHandle = 0
+  let lastTs = 0
+  let busy = false
   let frames = 0
   let fpsClock = 0
-  let lastTs = -1
-
-  async function ensureLandmarker(): Promise<PoseLandmarker> {
-    if (landmarker) return landmarker
-    const vision = await FilesetResolver.forVisionTasks(WASM_PATH)
-    landmarker = await PoseLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: MODEL_PATH, delegate: 'CPU' },
-      runningMode: 'VIDEO',
-      numPoses: 1
-    })
-    return landmarker
-  }
+  let downgraded = false
 
   function draw(landmarks: NormalizedLandmark[]) {
     if (!canvas) return
@@ -73,54 +63,122 @@ export function usePoseCamera() {
     })
   }
 
-  function readPose(landmarks: NormalizedLandmark[]) {
-    if (landmarks.length < 28) {
-      visibility.value = 0
-      return
-    }
-    const knee = landmarks[LEFT.knee]
-    const score = landmarks.slice(LEFT.shoulder, LEFT.ankle + 1)
-      .reduce((sum, p) => sum + (p.visibility ?? 1), 0) / 6
-    visibility.value = score
-    kneeAngle.value = angleAt(landmarks[LEFT.hip], knee, landmarks[LEFT.ankle])
-    hipAngle.value = angleAt(landmarks[LEFT.shoulder], landmarks[LEFT.hip], knee)
-    elbowAngle.value = angleAt(landmarks[LEFT.shoulder], landmarks[LEFT.elbow], landmarks[LEFT.wrist])
+  function applyMetrics(metrics: PoseMetrics) {
+    visibility.value = metrics.visibility
+    kneeAngle.value = metrics.kneeAngle
+    hipAngle.value = metrics.hipAngle
+    elbowAngle.value = metrics.elbowAngle
   }
 
-  function loop(now: number) {
-    if (!landmarker || !video || status.value !== 'live') return
-    if (video.readyState >= 2 && now !== lastTs) {
-      lastTs = now
-      const result = landmarker.detectForVideo(video, now)
-      const landmarks = result.landmarks[0] ?? []
+  function usesFrameCallbacks() {
+    return !!video && typeof video.requestVideoFrameCallback === 'function'
+  }
+
+  function schedule() {
+    if (!video || status.value !== 'live') return
+    if (usesFrameCallbacks()) {
+      rvfcHandle = video.requestVideoFrameCallback((now, metadata) => void onFrame(now, metadata))
+    } else {
+      rafHandle = requestAnimationFrame(now => void onFrame(now))
+    }
+  }
+
+  /** 帧自己的媒体时间（秒）——RVFC 给的是这一帧真正被呈现的时刻，rAF 只能退回 currentTime */
+  function mediaTimeSeconds(metadata?: VideoFrameCallbackMetadata) {
+    return metadata?.mediaTime ?? video?.currentTime ?? 0
+  }
+
+  async function onFrame(now: number, metadata?: VideoFrameCallbackMetadata) {
+    schedule()
+    if (!engine || !video || busy || status.value !== 'live' || video.readyState < 2) return
+    const ts = nextTimestamp(mediaTimeSeconds(metadata) * 1000, lastTs)
+    if (ts === null) return
+    lastTs = ts
+    busy = true
+    try {
+      const { landmarks, metrics } = await engine.detect(await createImageBitmap(video), ts)
+      applyMetrics(metrics)
       draw(landmarks)
-      readPose(landmarks)
+      delegate.value = engine.state.delegate
+      runsIn.value = engine.state.runsIn
       frames++
       if (now - fpsClock >= 1000) {
         fps.value = frames
         frames = 0
         fpsClock = now
       }
+    } catch (err) {
+      await recover((err as Error)?.message || '未知错误')
+    } finally {
+      busy = false
     }
-    raf = requestAnimationFrame(loop)
+  }
+
+  /** 线程活着但推理出错时，先退回主线程继续跑，而不是整条链路退回演示回放 */
+  async function recover(reason: string) {
+    if (!downgraded) {
+      downgraded = true
+      engine?.close()
+      engine = null
+      try {
+        engine = await createMainThreadPoseEngine(MODEL_PATHS)
+        delegate.value = engine.state.delegate
+        runsIn.value = engine.state.runsIn
+        return
+      } catch {
+        // 主线程也起不来，走下面的错误分支
+      }
+    }
+    errorMessage.value = `端侧推理失败：${reason}，已退回演示模式`
+    stop()
+    status.value = 'error'
+  }
+
+  function stopStream() {
+    stream?.getTracks().forEach(t => t.stop())
+    stream = null
+    if (video) video.srcObject = null
+  }
+
+  function stop() {
+    if (video && rvfcHandle && typeof video.cancelVideoFrameCallback === 'function') {
+      video.cancelVideoFrameCallback(rvfcHandle)
+    }
+    rvfcHandle = 0
+    if (rafHandle) cancelAnimationFrame(rafHandle)
+    rafHandle = 0
+    engine?.close()
+    engine = null
+    stopStream()
+    applyMetrics(EMPTY_METRICS)
+    fps.value = 0
+    delegate.value = null
+    runsIn.value = null
+    lastTs = 0
+    busy = false
+    frames = 0
+    if (status.value === 'live') status.value = 'idle'
   }
 
   async function start(videoEl: HTMLVideoElement, canvasEl: HTMLCanvasElement) {
     stop()
     status.value = 'starting'
     errorMessage.value = ''
-    try {
-      landmarker = await ensureLandmarker()
-    } catch (err) {
-      status.value = 'error'
-      errorMessage.value = `端侧模型加载失败：${(err as Error)?.message || '请确认已运行 npm run camera:assets'}`
-      return
-    }
+    downgraded = false
     if (!navigator.mediaDevices?.getUserMedia) {
       status.value = 'unsupported'
       errorMessage.value = '当前浏览器或访问方式不支持摄像头（需要 https 或 localhost）'
       return
     }
+    try {
+      engine = await createPoseEngine(MODEL_PATHS)
+    } catch (err) {
+      status.value = 'error'
+      errorMessage.value = `端侧模型加载失败：${(err as Error)?.message || '请确认已运行 npm run camera:assets'}`
+      return
+    }
+    delegate.value = engine.state.delegate
+    runsIn.value = engine.state.runsIn
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
@@ -133,8 +191,10 @@ export function usePoseCamera() {
       canvas.width = videoEl.videoWidth || 640
       canvas.height = videoEl.videoHeight || 480
       status.value = 'live'
+      lastTs = 0
+      frames = 0
       fpsClock = performance.now()
-      raf = requestAnimationFrame(loop)
+      schedule()
     } catch (err) {
       const name = (err as DOMException)?.name
       if (name === 'NotAllowedError' || name === 'SecurityError') {
@@ -147,32 +207,12 @@ export function usePoseCamera() {
         status.value = 'error'
         errorMessage.value = `摄像头启动失败：${(err as Error)?.message || name || '未知错误'}`
       }
-      stopStream()
+      stop()
     }
-  }
-
-  function stopStream() {
-    stream?.getTracks().forEach(t => t.stop())
-    stream = null
-    if (video) video.srcObject = null
-  }
-
-  function stop() {
-    cancelAnimationFrame(raf)
-    raf = 0
-    stopStream()
-    kneeAngle.value = null
-    hipAngle.value = null
-    elbowAngle.value = null
-    visibility.value = 0
-    fps.value = 0
-    if (status.value === 'live') status.value = 'idle'
   }
 
   onUnmounted(() => {
     stop()
-    landmarker?.close()
-    landmarker = null
   })
 
   return {
@@ -183,6 +223,8 @@ export function usePoseCamera() {
     hipAngle,
     elbowAngle,
     visibility,
+    delegate,
+    runsIn,
     start,
     stop
   }

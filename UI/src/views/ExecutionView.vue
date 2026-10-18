@@ -2,7 +2,7 @@
   <div class="execution-page">
     <div class="page-header">
       <div>
-        <span class="eyebrow">CAMERA GUIDED TRAINING</span>
+        <span class="micro kick"><i></i>Camera guided training</span>
         <h1>{{ exercise.name }} · 第 {{ displaySet }} 组</h1>
         <p>演示模式 · 摄像头原始画面默认不上传</p>
         <div class="exercise-switch">
@@ -32,19 +32,124 @@
               <canvas ref="canvasRef" class="cam-overlay"></canvas>
             </template>
             <div v-else class="skeleton-overlay">
-              <svg viewBox="0 0 400 600" class="skeleton" :class="stageClass">
-                <circle cx="200" cy="120" r="25" fill="var(--color-accent)" />
-                <circle cx="200" cy="170" r="8" fill="var(--color-accent)" />
-                <circle cx="200" cy="280" r="10" fill="var(--color-accent)" />
-                <circle cx="200" cy="410" r="10" fill="var(--color-accent)" />
-                <circle cx="200" cy="540" r="10" fill="var(--color-accent)" />
-                <circle cx="260" cy="210" r="8" fill="var(--color-accent)" />
-                <circle cx="280" cy="260" r="8" fill="var(--color-accent)" />
-                <line x1="200" y1="145" x2="200" y2="270" stroke="var(--color-accent)" stroke-width="6" />
-                <line x1="200" y1="280" x2="200" y2="400" stroke="var(--color-accent)" stroke-width="6" />
-                <line x1="200" y1="410" x2="200" y2="530" stroke="var(--color-accent)" stroke-width="6" />
-                <line x1="200" y1="180" x2="260" y2="210" stroke="var(--color-accent)" stroke-width="5" />
-                <line x1="260" y1="210" x2="280" y2="260" stroke="var(--color-accent)" stroke-width="5" />
+              <!-- 3/4 视角的人体。三个要点：
+                   1) 远侧四肢压暗、近侧提亮，躯干与头用渐变做出体积，不再是平涂剪影；
+                   2) 每个关节都是一个 <g>（髋/膝/踝、肩/肘），下蹲是腿真的折起来，不是整张图压扁；
+                   3) 骨线、关节点、哑铃跟四肢同组，所以会跟着关节一起动。 -->
+              <svg class="figure" :class="[stageClass, figureJoint]" viewBox="0 0 560 760" aria-hidden="true">
+                <defs>
+                  <linearGradient id="fxNear" gradientUnits="userSpaceOnUse" x1="150" y1="0" x2="430" y2="0">
+                    <stop offset="0" stop-color="#626e79" />
+                    <stop offset=".5" stop-color="#4b565f" />
+                    <stop offset="1" stop-color="#333b43" />
+                  </linearGradient>
+                  <linearGradient id="fxFar" gradientUnits="userSpaceOnUse" x1="150" y1="0" x2="430" y2="0">
+                    <stop offset="0" stop-color="#454f58" />
+                    <stop offset=".55" stop-color="#39424a" />
+                    <stop offset="1" stop-color="#262d33" />
+                  </linearGradient>
+                  <linearGradient id="fxTorso" gradientUnits="userSpaceOnUse" x1="240" y1="200" x2="330" y2="430">
+                    <stop offset="0" stop-color="#5d6873" />
+                    <stop offset=".45" stop-color="#48535d" />
+                    <stop offset="1" stop-color="#2c343b" />
+                  </linearGradient>
+                  <radialGradient id="fxHead" cx=".34" cy=".28" r=".85">
+                    <stop offset="0" stop-color="#727e89" />
+                    <stop offset=".55" stop-color="#4f5a64" />
+                    <stop offset="1" stop-color="#2c343b" />
+                  </radialGradient>
+                </defs>
+
+                <ellipse class="shadow" cx="288" cy="714" rx="122" ry="11" />
+
+                <g class="pelvis">
+                  <!-- ——— 远侧腿 ——— -->
+                  <g class="leg leg-far">
+                    <g class="thigh">
+                      <path class="limb" d="M306 414 L314 558" stroke="url(#fxFar)" stroke-width="46" />
+                      <g class="shin">
+                        <path class="limb" d="M314 558 L326 668" stroke="url(#fxFar)" stroke-width="34" />
+                        <g class="foot">
+                          <path class="limb" d="M326 668 L360 680" stroke="url(#fxFar)" stroke-width="22" />
+                        </g>
+                        <path class="bone" d="M314 558 L326 668" />
+                        <circle class="joint" cx="326" cy="668" r="3.6" />
+                      </g>
+                      <path class="bone" d="M306 414 L314 558" />
+                    </g>
+                  </g>
+
+                  <!-- ——— 躯干（含两只手臂与头） ——— -->
+                  <g class="torso-g">
+                    <!-- 远侧手臂 -->
+                    <g class="arm arm-far">
+                      <g class="upper">
+                        <path class="limb" d="M330 204 L352 314" stroke="url(#fxFar)" stroke-width="38" />
+                        <path class="bone" d="M330 204 L352 314" />
+                      </g>
+                      <g class="fore">
+                        <path class="limb" d="M352 314 L360 426" stroke="url(#fxFar)" stroke-width="32" />
+                        <path class="bone" d="M352 314 L360 426" />
+                        <rect class="db" x="340" y="420" width="40" height="13" rx="6" />
+                        <circle class="joint" cx="360" cy="426" r="4.2" />
+                      </g>
+                      <circle class="joint" cx="352" cy="314" r="4.4" />
+                    </g>
+
+                    <!-- 躯干本体：上宽下窄，左侧受光 -->
+                    <path class="torso" d="M222 208 C242 194 312 192 334 204 C342 262 330 340 320 414
+                                            C300 426 260 428 242 414 C230 340 216 266 222 208 Z" />
+
+                    <!-- 脖子 + 头 -->
+                    <path class="limb" d="M276 154 L280 206" stroke="url(#fxNear)" stroke-width="30" />
+                    <ellipse class="head" cx="276" cy="118" rx="30" ry="34" />
+                    <circle class="headring" cx="276" cy="118" r="42" />
+                    <circle class="joint" cx="276" cy="118" r="4" />
+
+                    <!-- 近侧手臂（最后画，压在最上面） -->
+                    <g class="arm arm-near">
+                      <g class="upper">
+                        <path class="limb" d="M226 212 L200 322" stroke="url(#fxNear)" stroke-width="40" />
+                        <path class="bone" d="M226 212 L200 322" />
+                      </g>
+                      <g class="fore">
+                        <path class="limb" d="M200 322 L190 436" stroke="url(#fxNear)" stroke-width="34" />
+                        <path class="bone" d="M200 322 L190 436" />
+                        <rect class="db" x="170" y="430" width="40" height="13" rx="6" />
+                        <circle class="joint" cx="190" cy="436" r="4.4" />
+                      </g>
+                      <circle class="joint" cx="200" cy="322" r="4.6" />
+                    </g>
+                  </g>
+
+                  <!-- ——— 近侧腿（压在躯干下缘前面） ——— -->
+                  <g class="leg leg-near">
+                    <g class="thigh">
+                      <path class="limb" d="M250 420 L236 566" stroke="url(#fxNear)" stroke-width="50" />
+                      <g class="shin">
+                        <path class="limb" d="M236 566 L226 678" stroke="url(#fxNear)" stroke-width="38" />
+                        <g class="foot">
+                          <path class="limb" d="M226 678 L192 690" stroke="url(#fxNear)" stroke-width="24" />
+                        </g>
+                        <path class="bone" d="M236 566 L226 678" />
+                        <circle class="joint" cx="226" cy="678" r="3.8" />
+                      </g>
+                      <path class="bone" d="M250 420 L236 566" />
+                    </g>
+                  </g>
+
+                  <!-- 骨架主干（画在最上层，和实时模式的骨架同色） -->
+                  <g class="spine-g">
+                    <path class="bone" d="M276 206 L280 418" />
+                    <path class="bone soft" d="M226 212 L330 204" />
+                    <path class="bone soft" d="M250 420 L306 414" />
+                    <circle class="joint" cx="276" cy="206" r="4" />
+                    <circle class="joint" cx="226" cy="212" r="4.6" />
+                    <circle class="joint" cx="330" cy="204" r="4.6" />
+                    <circle class="joint" cx="250" cy="420" r="4.8" />
+                    <circle class="joint" cx="306" cy="414" r="4.8" />
+                  </g>
+                </g>
               </svg>
             </div>
             <div class="stage-overlay">
@@ -299,7 +404,10 @@ const confidenceText = computed(() => confidenceLevel.value.text)
 const sourceNote = computed(() => {
   if (pose.errorMessage.value) return pose.errorMessage.value
   if (mode.value === 'camera' && pose.status.value === 'starting') return '正在加载端侧模型（首次约 5.5 MB，请稍候）…'
-  if (live.value) return `${pose.fps.value} FPS · 画面只在本机推理，不上传`
+  if (live.value) {
+    const where = pose.runsIn.value === 'main' ? ' · 推理回落主线程' : ''
+    return `${pose.fps.value} FPS · ${pose.delegate.value === 'GPU' ? 'GPU' : 'CPU'} 推理${where} · 画面只在本机，不上传`
+  }
   if (!store.privacy.cameraEnabled) return '摄像头已在设置中关闭，当前只有演示回放'
   return '按预设时间线回放，不需要摄像头'
 })
@@ -365,6 +473,8 @@ const phaseLabel = computed(() => {
 const stageClass = computed(() =>
   paused.value || status.value === 'resting' ? 'held' : phase.value
 )
+/** 演示剪影按动作切姿态：弯举看肘、坐站看膝。和计数用的 camJoint 分开——演示模式下也要对 */
+const figureJoint = computed(() => findExercise(exercise.value.name)?.camera?.joint ?? 'knee')
 const totalReps = computed(() => repsBySet.value.reduce((sum, n) => sum + n, 0))
 const averageConfidence = computed(() => (confidenceCount ? confidenceSum / confidenceCount : 0))
 const completionLabel = computed(() => {
@@ -580,8 +690,8 @@ onUnmounted(() => {
 
 <style scoped>
 .execution-page{max-width:1400px;margin:auto}
-.page-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px}
-.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-accent);font-weight:700}.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--color-accent);transform:rotate(45deg);margin-right:8px}
+.page-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;gap:16px}
+.kick{display:inline-flex;align-items:center;gap:8px}.kick i{width:14px;height:1px;background:var(--color-accent);display:block}
 .page-header h1{font-size:28px;margin:7px 0 5px}
 .page-header p{color:var(--color-text-muted);font-size:13px;margin:0}
 .exercise-switch{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
@@ -597,13 +707,69 @@ onUnmounted(() => {
 .execution-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
 .stage-card{padding:0!important;overflow:hidden}
 .stage-container{padding:24px;background:var(--color-neutral-soft)}
-.demo-frame{aspect-ratio:4/5;background:linear-gradient(135deg,var(--color-neutral-soft),var(--color-accent-soft));border-radius:16px;position:relative;overflow:hidden;display:grid;place-items:center}
-.skeleton-overlay{width:100%;height:100%;display:grid;place-items:center}
-.skeleton{width:60%;height:90%;opacity:.85;filter:drop-shadow(0 2px 8px rgba(15,118,110,.25));transition:transform var(--motion-base) var(--easing-ease-out)}
-.skeleton.down{transform:translateY(14px) scaleY(.94)}
-.skeleton.up{transform:translateY(-6px)}
-.skeleton.held{opacity:.5}
-.skeleton.occluded{opacity:.28}
+/* 取景框：镜头画面本来就是暗的，用深底比浅灰底更像"正在看摄像头"；
+   高度跟视口走，别让 4:5 把整页拉到两千像素高 */
+.demo-frame{height:min(64vh,580px);background:radial-gradient(120% 100% at 50% 0%,#263038 0%,#14191d 55%,#0c1013 100%);border-radius:var(--radius-md);position:relative;overflow:hidden;display:grid;place-items:center}
+/* 骨架配色见下方 .figure 段（3/4 视角 + 关节层级） */
+/* 人物：远侧压暗、近侧提亮，躯干与头用渐变做体积；关节各是一个 <g>，动作靠转关节而不是压扁整张图 */
+.skeleton-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:14px 0 74px}
+.figure{height:100%;width:auto;max-width:100%;overflow:visible;transition:opacity var(--motion-base) var(--easing-ease-out)}
+.figure.held{opacity:.55}
+.figure.occluded{opacity:.3}
+
+.figure .limb{fill:none;stroke-linecap:round}
+.figure .torso{fill:url(#fxTorso)}
+.figure .head{fill:url(#fxHead)}
+/* 近侧肢体压一层投影，把它从躯干上"抬"起来，否则前臂贴在胸口会糊成一块 */
+.figure .arm-near,.figure .leg-near{filter:drop-shadow(0 1px 3px rgba(0,0,0,.45))}
+.figure .shadow{fill:rgba(0,0,0,.42);transform-box:view-box;transform-origin:288px 714px;transition:transform 460ms var(--easing-ease-out)}
+
+/* 姿态叠加 */
+.figure .bone{fill:none;stroke:var(--brand-pole-a-dark);stroke-width:2.2;stroke-linecap:round;opacity:.92}
+.figure .bone.soft{opacity:.32}
+.figure .joint{fill:var(--brand-pole-a-dark)}
+.figure .headring{fill:none;stroke:rgba(62,201,182,.4);stroke-width:1.6;stroke-dasharray:3 8}
+.figure .db{fill:#2c363e;stroke:var(--brand-pole-a-dark);stroke-width:1.4}
+/* 坐站训练不握器械：只在弯举这类肘主导的动作里画哑铃 */
+.figure.knee .db{display:none}
+
+/* ——— 关节：每个 <g> 一个转轴（transform-box:view-box 让坐标就是画布坐标） ——— */
+.figure .pelvis,
+.figure .thigh,
+.figure .shin,
+.figure .foot,
+.figure .torso-g,
+.figure .upper,
+.figure .fore{transform-box:view-box;transition:transform 460ms cubic-bezier(.34,1.2,.64,1)}
+.figure .pelvis{transform-origin:280px 714px}
+.figure .torso-g{transform-origin:280px 418px}
+.figure .leg-far .thigh{transform-origin:306px 414px}
+.figure .leg-near .thigh{transform-origin:250px 420px}
+.figure .leg-far .shin{transform-origin:314px 558px}
+.figure .leg-near .shin{transform-origin:236px 566px}
+.figure .leg-far .foot{transform-origin:326px 668px}
+.figure .leg-near .foot{transform-origin:226px 678px}
+.figure .arm-far .upper{transform-origin:330px 204px}
+.figure .arm-far .fore{transform-origin:352px 314px}
+.figure .arm-near .upper{transform-origin:226px 212px}
+.figure .arm-near .fore{transform-origin:200px 322px}
+
+/* 弯举：前臂绕肘转、肩略抬；远侧滞后一点，两根手臂不再是同步的杆 */
+.figure.up.elbow .arm-near .fore{transform:rotate(-168deg)}
+.figure.up.elbow .arm-far .fore{transform:rotate(-152deg)}
+.figure.up.elbow .arm-near .upper{transform:rotate(-7deg)}
+.figure.up.elbow .arm-far .upper{transform:rotate(-4deg)}
+
+/* 坐站：骨盆沉降 + 大腿前折并缩短（透视）+ 小腿回收 + 脚掌压平 */
+.figure.knee.down .pelvis{transform:translate(-8px,46px)}
+.figure.knee.down .thigh{transform:rotate(15deg) scaleY(.73)}
+.figure.knee.down .shin{transform:rotate(-32deg)}
+.figure.knee.down .foot{transform:rotate(30deg)}
+.figure.knee.down .torso-g{transform:rotate(5deg)}
+/* 下蹲时手臂前摆作配重，静止垂着会显得像木偶 */
+.figure.knee.down .arm-near .upper{transform:rotate(14deg)}
+.figure.knee.down .arm-far .upper{transform:rotate(9deg)}
+.figure.knee.down .shadow{transform:scale(1.06)}
 .frame-sheen{position:absolute;inset:0;border-radius:16px;opacity:.45;pointer-events:none}
 .stage-overlay{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;gap:10px}
 .confidence-badge,.phase-badge{padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);box-shadow:var(--shadow-sm)}
@@ -623,9 +789,9 @@ onUnmounted(() => {
 .info-cards{display:grid;gap:18px}
 .count-card{text-align:center;padding:22px!important}
 .count-label{font-size:12px;color:var(--color-text-muted);margin-bottom:8px}
-.count-big{font-family:var(--font-display);font-size:46px;font-weight:700;letter-spacing:-.04em;line-height:1.2;margin-bottom:14px;font-variant-numeric:tabular-nums;color:var(--color-ink)}
+.count-big{font-family:var(--font-num);font-size:64px;font-weight:600;letter-spacing:-.045em;line-height:1;margin-bottom:14px;font-variant-numeric:tabular-nums;color:var(--color-ink)}
 .count-big span{font-size:18px;color:var(--color-text-muted);-webkit-text-fill-color:currentColor;letter-spacing:0}
-.count-card.primary .count-big{background:var(--color-accent);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.count-card.primary .count-big{color:var(--color-accent)}
 .count-progress{height:6px;background:var(--color-divider);border-radius:10px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(21,24,27,.1)}
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--color-accent),var(--color-accent-strong));border-radius:10px;box-shadow:0 0 10px rgba(45,123,184,.5);transition:width var(--motion-slow) var(--easing-ease-out)}
 .reps-grid{display:grid;gap:6px;margin-top:4px}

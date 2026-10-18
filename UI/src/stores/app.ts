@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import type { FoodCategory, Meal, MealItem, Mode, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, PlanItem, ThemePreference } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
-import { estimateEnergy } from '@/services/foodComposition'
+import { estimateEnergy, unitKey } from '@/services/foodComposition'
 import type { EnergyEstimate } from '@/services/foodComposition'
 import { buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
 import { weekStart } from '@/services/weekRules'
@@ -45,6 +45,8 @@ export const useAppStore = defineStore('app', () => {
   /** 每周一份当前计划（含版本）；被替换掉的旧版本进 planHistory，永不静默覆盖 */
   const plans = ref<Plan[]>([])
   const planHistory = ref<Plan[]>([])
+  /** 本机自定的"1 单位 = 几克"，key 见 unitKey()；没填的单位退回演示假设 */
+  const unitGrams = ref<Record<string, number>>({})
 
   // === Computed ===
   const isPublicMode = computed(() => currentMode.value === 'public')
@@ -85,6 +87,13 @@ export const useAppStore = defineStore('app', () => {
         applyTheme()
         if (Array.isArray(data.plans)) plans.value = data.plans
         if (Array.isArray(data.planHistory)) planHistory.value = data.planHistory
+        if (Array.isArray(data.modeLog)) modeLog.value = data.modeLog
+        if (data.unitGrams && typeof data.unitGrams === 'object') {
+          const clean: Record<string, number> = {}
+          // 上限只防手滑（1 碗 = 5 kg），不是营养判断
+          for (const [k, v] of Object.entries(data.unitGrams)) if (typeof v === 'number' && v > 0 && v <= 5000) clean[k] = v
+          unitGrams.value = clean
+        }
       } catch (error) {
         console.error('Failed to load state from localStorage:', error)
       }
@@ -105,7 +114,9 @@ export const useAppStore = defineStore('app', () => {
       collapsed: collapsedCards.value,
       theme: themePref.value,
       plans: plans.value,
-      planHistory: planHistory.value
+      planHistory: planHistory.value,
+      modeLog: modeLog.value,
+      unitGrams: unitGrams.value
     }
     localStorage.setItem('twopoles_state', JSON.stringify(state))
   }
@@ -459,7 +470,7 @@ export const useAppStore = defineStore('app', () => {
     )]
     const estimates = privacy.value.showEnergyEstimate
       ? items
-        .map(i => estimateEnergy({ foodName: i.foodName, portionSize: i.portionSize, portionUnit: i.portionUnit }))
+        .map(i => estimateEnergy({ foodName: i.foodName, portionSize: i.portionSize, portionUnit: i.portionUnit, unitGrams: unitGrams.value }))
         .filter((e): e is EnergyEstimate => e !== null)
       : []
     const base = completeness === 'unknown' ? null : analyzeMeal(items, dayCategories, estimates.length > 0)
@@ -506,6 +517,25 @@ export const useAppStore = defineStore('app', () => {
     persistState()
   }
 
+  /** 记下"这个食物的这个单位等于几克"，只影响本机的后续估算 */
+  function rememberUnitGrams(foodName: string, unit: string, grams: number) {
+    if (!foodName || !unit || !Number.isFinite(grams) || grams <= 0) return false
+    unitGrams.value = { ...unitGrams.value, [unitKey(foodName, unit)]: Math.round(grams) }
+    persistState()
+    return true
+  }
+
+  /** 撤销本机口径，该单位退回演示假设 */
+  function forgetUnitGrams(foodName: string, unit: string) {
+    const key = unitKey(foodName, unit)
+    if (!(key in unitGrams.value)) return false
+    const next = { ...unitGrams.value }
+    delete next[key]
+    unitGrams.value = next
+    persistState()
+    return true
+  }
+
   /** 收起/展开一张解释类卡片 */
   function toggleCard(id: string) {
     const i = collapsedCards.value.indexOf(id)
@@ -533,12 +563,13 @@ export const useAppStore = defineStore('app', () => {
     privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json', showEnergyEstimate: false }
     collapsedCards.value = []
     themePref.value = 'system'
+    unitGrams.value = {}
     applyTheme()
     localStorage.removeItem('twopoles_state')
     showToast({
       type: 'success',
       title: '数据已清除',
-      message: '档案、训练、餐食、计划版本与切换记录都已从本机删除',
+      message: '档案、训练、餐食、计划版本、切换记录与本机换算口径都已从本机删除',
       duration: 3000
     })
   }
@@ -558,6 +589,7 @@ export const useAppStore = defineStore('app', () => {
     planHistory,
     modeLog,
     pendingSwitch,
+    unitGrams,
 
     // Computed
     isPublicMode,
@@ -582,6 +614,8 @@ export const useAppStore = defineStore('app', () => {
     addMeal,
     removeMeal,
     updatePrivacy,
+    rememberUnitGrams,
+    forgetUnitGrams,
     toggleCard,
     isCardCollapsed,
     setTheme,

@@ -23,6 +23,27 @@ export const UNIT_GRAMS: Record<string, number> = {
 
 export const ESTIMATE_BAND = 0.25
 
+/** 本机口径的 key 用目录里的规范名，避免"苹果（半个）"和"苹果"各存一份换算 */
+export function unitKey(foodName: string, unit: string): string {
+  return `${foodName}|${unit}`
+}
+
+/**
+ * 1 个单位等于几克：优先用户在本机记下的口径，其次退回 UNIT_GRAMS 的演示假设。
+ * own=true 表示这个数字来自用户自己填的换算，不是我们的假设；无法换算时返回 null。
+ */
+export function resolveUnitGrams(
+  foodName: string,
+  unit: string,
+  overrides: Record<string, number> = {}
+): { grams: number; own: boolean } | null {
+  if (!unit) return null
+  const own = overrides[unitKey(foodName, unit)]
+  if (typeof own === 'number' && own > 0) return { grams: own, own: true }
+  const demo = UNIT_GRAMS[unit]
+  return typeof demo === 'number' ? { grams: demo, own: false } : null
+}
+
 export interface FoodRef {
   name: string
   category: FoodCategory
@@ -132,6 +153,13 @@ export function findFood(name: string): FoodRef | undefined {
   return foodTable.find(f => f.name === key) ?? foodTable.find(f => key.includes(f.name) || f.name.includes(key))
 }
 
+/** 目录搜索：按名称或类别子串匹配；关键字为空时返回空列表，不预置一屏候选 */
+export function searchFoods(query: string, limit = 8): FoodRef[] {
+  const key = normalize(query)
+  if (!key) return []
+  return foodTable.filter(f => f.name.includes(key) || f.category.includes(key) || key.includes(f.name)).slice(0, limit)
+}
+
 /**
  * 类别推断：命中目录用目录类别；混合菜或未命中返回 null（落"其他"并进 unknownItems）。
  * 手输"苹果"不再固定落谷薯类——这是改造前就存在的数据缺陷。
@@ -149,17 +177,25 @@ export interface EnergyEstimate {
   /** 条目口径 + 来源标签，渲染时必须一起显示 */
   basis: string
   source: string
+  /** 这次估算用的"1 单位 = 几克" */
+  gramsPerUnit: number
+  /** true = 用户本机记下的换算；false = UNIT_GRAMS 的演示假设 */
+  unitOwn: boolean
+  /** 记录时用的单位，'克' 时不存在换算假设 */
+  unit: string
 }
 
 /**
  * 份量缺失、单位无法换算、食物未收录、混合菜时返回 null —— 宁可不显示，也不编一个数。
  * 出数条目一律带 basis 与 source（`verified: false` 的演示参考值标签），
  * 所以界面必须同屏显示口径与"未与权威成分表核对"，并且只显示区间。
+ * `unitGrams` 是本机自定的"1 单位=几克"，没填的仍按演示假设并在 basis 里标明。
  */
 export function estimateEnergy(input: {
   foodName: string
   portionSize?: number
   portionUnit?: string
+  unitGrams?: Record<string, number>
 }): EnergyEstimate | null {
   const food = findFood(input.foodName)
   if (!food) return null
@@ -167,7 +203,9 @@ export function estimateEnergy(input: {
   if (!input.portionSize || input.portionSize <= 0) return null
   const unit = input.portionUnit && input.portionUnit in UNIT_GRAMS ? input.portionUnit : null
   if (!unit) return null
-  const grams = input.portionSize * UNIT_GRAMS[unit]
+  const per = resolveUnitGrams(food.name, unit, input.unitGrams)
+  if (!per) return null
+  const grams = input.portionSize * per.grams
   const base = (food.energyKcalPer100g * grams) / 100
   const round5 = (v: number) => Math.max(5, Math.round(v / 5) * 5)
   return {
@@ -175,13 +213,18 @@ export function estimateEnergy(input: {
     high: round5(base * (1 + ESTIMATE_BAND)),
     grams: Math.round(grams),
     foodName: food.name,
-    basis: `${food.note || '按常见口径'} · ${food.energyKcalPer100g} kcal/100 g`,
-    source: FOOD_SOURCE_LABEL
+    basis: `${food.note || '按常见口径'} · ${food.energyKcalPer100g} kcal/100 g · ${
+      unit === '克' ? '按克记录' : `1 ${unit}=${per.grams} g（${per.own ? '本机口径' : '演示假设'}）`
+    }`,
+    source: FOOD_SOURCE_LABEL,
+    gramsPerUnit: per.grams,
+    unitOwn: per.own,
+    unit
   }
 }
 
-export function summarizeEnergy(items: { foodName: string; category: FoodCategory; portionSize?: number; portionUnit?: string }[]) {
-  const estimates = items.map(i => estimateEnergy(i)).filter((e): e is EnergyEstimate => e !== null)
+export function summarizeEnergy(items: { foodName: string; category: FoodCategory; portionSize?: number; portionUnit?: string }[], unitGrams?: Record<string, number>) {
+  const estimates = items.map(i => estimateEnergy({ ...i, unitGrams })).filter((e): e is EnergyEstimate => e !== null)
   if (!estimates.length) return null
   const counted = estimates.length
   return {

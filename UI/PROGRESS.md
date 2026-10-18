@@ -1,343 +1,69 @@
-# 两仪·TwoPoles 前端UI实现进展报告
+# 两仪·TwoPoles 前端 UI 实现进展
 
-> **📌 这是一份"基础设施完成后、开始写界面前"的历史快照，已被实际代码超越。**
-> 下文"已创建的文件结构"不含 views/components（当时确实还没写），"预期完成度 组件库 0% / 视图页面 0%"也已过时：现在已有 9 个组件与 **7 个都有界面的页面**（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）。其中列为 ✅ 的 `src/utils/animations.ts`（动画工具函数）因始终无人调用，已在后续清理中删除。
-> 未实现的规划（`journey|training|meals|reports` 组件目录、LoadingSpinner / ConfirmDialog / EmptyState / IncompleteState、ModeSwitcher / ModeComparison、周报图表等）**至今一个都没有创建**，请勿据此判断交付状态。（模式切换与调整预览后来以内联方式做进了 SidebarNav / PlanView，但没有拆成独立组件。）
-> 当前真实状态请看 `README.md` 首节"当前实现状态"与 `交付说明.md` 的修订记录。
-> 另注：下文"核心服务"里列为 ✅ 的**错位延迟计算**与"动效时序"里的 **Slower (600ms) 错位入场**，已在 2026-10-16 第十三轮按调研结论取消（常驻循环动画与入场错位全部删除）；`animations.css` 现只保留 7 个仍有人用的关键帧。
+> **本文件于 2026-10-18 整体重写。**
+> 原版本是开工前的规划清单（"优先级 1：布局组件"、"Glassmorphism / 渐变色方案"、"组件库 0%"），
+> 这些东西既已全部实现，也已经被推翻——玻璃态与多色渐变在第十一轮就被移除了。
+> 需要看每一轮为什么改、怎么改，见 `交付说明.md` 的修订记录；本文件只回答"现在是什么状态"。
 
-## 📊 项目状态
+## 一句话状态
 
-### ✅ 已完成的核心基础设施
+7 个页面全部有实际界面，并已完成 UI 3.0「编辑式仪表盘」的整体重排：令牌 → 导航壳 → 组件层 → 六个页面版式 → 计划页收尾。
+`npm run typecheck`、`npm run build`、`npm run selfcheck`（92 项）当前全部通过；生产产物已重建在 `UI/dist`。
 
-1. **项目配置** (100%)
-   - ✅ Vite + Vue 3 + TypeScript 配置
-   - ✅ 路由系统 (Vue Router)
-   - ✅ 状态管理 (Pinia)
-   - ✅ 构建和类型检查脚本
+## 页面
 
-2. **设计系统** (100%)
-   - ✅ 完整的设计令牌系统 (`tokens.css`)
-   - ✅ 现代渐变样式和玻璃态效果 (`gradients.css`)
-   - ✅ 丰富的动画库 (`animations.css`)
-   - ✅ 全局样式和工具类 (`globals.css`)
-   - ✅ 响应式断点定义
+| 路由 | 页面 | 状态 |
+|---|---|---|
+| `/onboarding` | 个人档案 | 完成（三步建档，写回 profile） |
+| `/dashboard` | 今日概览 | 完成，3.0 重排：标题即动作 + 纵向时间轴 + 双极仪表 + 底部账本 |
+| `/plan` | 训练计划 | 完成，3.0 收尾：日历 + 当日详情两栏、账本行、`align-items:start` |
+| `/execution` | 摄像头跟练 | 完成（演示回放 + 实时摄像头）；取景框里是**人体剪影 + 姿态骨线**：弯举时前臂绕肘旋转、坐站时以脚为支点整体下蹲 |
+| `/meals` | 饮食记录 | 完成，3.0 重排：指标条 + 三张记录单 + 常吃一键填表 |
+| `/report` | 我的周报 | 完成，3.0 重排：指标条 + 每日负荷图 + 类别点阵 + 账本表 |
+| `/settings` | 个人设置 | 完成（模式 / 隐私 / 外观 / 导出 / 清除），仅随令牌换肤 |
 
-3. **TypeScript类型系统** (100%)
-   - ✅ 完整的领域模型 (`domain.ts`)
-   - ✅ 用户档案和模式类型
-   - ✅ 计划和版本管理类型
-   - ✅ 训练会话和反馈类型
-   - ✅ 餐食和营养分析类型
-   - ✅ 摄像头演示事件类型
-   - ✅ Toast通知类型
+## 设计系统（UI 3.0）
 
-4. **核心服务** (100%)
-   - ✅ 演示摄像头服务 (坐站训练和站姿弯举完整时间线)
-   - ✅ 状态持久化 (localStorage)
-   - ✅ 动画工具函数
-   - ✅ 数字滚动动画
-   - ✅ 错位延迟计算
-   - ✅ 减弱动效检测
+- **令牌**：`src/styles/tokens.css`。纸面 `#f2f1ec`、墨 `#11161a`、单一强调色 `#0f766e`、第二极 `#24586f`；
+  圆角 6/8/10/12/16；三档发丝线；`--font-num`（Bahnschrift）；`--card-pad` 内距变量；
+  `--sidebar-width: 86px`、`--topbar-height: 58px`；深色主题整组覆盖同名令牌，组件零感知。
+- **原子**：`.micro`（10px + `.17em` 大写小标签）、`.num`（等宽数字）、`.hairline`。
+- **表面只有两种**：纸面（`BaseCard default/flush`）与仪表面（`BaseCard variant="ink"`）。
+- **组件**：`BaseButton`（主按钮深墨）、`BaseCard`（三表面）、`StatusBadge`（形状 + 文字双编码）、
+  `InsightCard`（可收起）、`ToastRegion`、`TwoPoleDial`（双极环）、`StatStrip`（指标条）、`ShapeState`（三态形状）。
+- **外壳**：86px 图标脊（窄屏变抽屉）+ 58px 纸面页头 + 浮动胶囊底栏。
 
-5. **路由配置** (100%)
-   - ✅ 7个主要路由定义
-   - ✅ 页面标题自动更新
-   - ✅ 滚动行为配置
-   - ✅ 懒加载视图组件
+## 服务层
 
-## 📁 已创建的文件结构
+`planRules`（按档案生成，条件无解时如实返回冲突）、`mealRules`（类别覆盖 / 完整度 / 常吃 / 免责清单）、
+`weekRules`（周报聚合，缺 RPE 不计入而不是补 0）、`foodComposition`（56 条目录 + 单位↔克数换算）、
+`exercises`（动作库 + 场地/器材/限制过滤）、`demoCameraService`（按组时间线 + `summarizeSession`）。
 
-```
-UI/
-├── package.json ✅
-├── vite.config.ts ✅
-├── tsconfig.json ✅
-├── tsconfig.node.json ✅
-├── index.html ✅
-├── README.md ✅
-├── .gitignore ✅
-└── src/
-    ├── main.ts ✅
-    ├── App.vue ✅
-    ├── router/
-    │   └── index.ts ✅
-    ├── stores/
-    │   └── app.ts ✅
-    ├── types/
-    │   └── domain.ts ✅
-    ├── services/
-    │   └── demoCameraService.ts ✅
-    ├── utils/
-    │   └── animations.ts ✅
-    └── styles/
-        ├── tokens.css ✅
-        ├── globals.css ✅
-        ├── animations.css ✅
-        └── gradients.css ✅
-```
+## 质量门
 
-## 🎯 下一步需要实现的组件
+| 检查 | 现状 |
+|---|---|
+| `npm run typecheck`（vue-tsc --noEmit） | 通过，零报错 |
+| `npm run selfcheck` | 92 项全过 / 0 失败 |
+| `npm run build` | exit 0；entry `62.4 kB` + `5.7 kB` gzip；`vite preview` 截图与 dev 逐像素一致 |
+| 静态外观 | `redesign-shots/ui/*.png`（1440 / 1024 / 390 / 深色），另有 `before/` 与 `ui-step01/` 做对比 |
+| 真机摄像头 | **未测**，只有演示回放 |
 
-### 优先级1: 布局组件 (必需)
-```
-components/layout/
-├── AppShell.vue - 响应式应用外壳
-├── TopBar.vue - 渐变导航栏和模式切换器
-├── SidebarNav.vue - 桌面侧边导航
-└── MobileNav.vue - 移动底部导航
-```
+## 已知欠账
 
-### 优先级2: 通用组件 (必需)
-```
-components/common/
-├── BaseButton.vue - 渐变按钮
-├── BaseCard.vue - 玻璃态卡片
-├── MetricCard.vue - 大数字指标卡
-├── StatusBadge.vue - 药丸形状徽章
-├── LoadingSpinner.vue - 旋转渐变加载器
-├── SkeletonCard.vue - 骨架屏
-├── ToastRegion.vue - 通知区域
-├── ConfirmDialog.vue - 确认对话框
-├── EmptyState.vue - 空状态
-└── IncompleteState.vue - 不完整数据状态
-```
+1. **跟练页识别-计数仍未联动**：实时模式能跑 MediaPipe、能画骨架与角度，但计数仍由预设时间线推进（界面已写明）。
+2. **`MetricCard.vue` 是待删空壳**：UI 3.0 后无调用方，构建产物里也不再有它的 chunk；本机删除受文件权限限制，`git rm` 一次即可。
+3. **`UI/README.md`、`UI/完成总结.md`、`UI/开始使用.md` 未逐句校对**，可能仍残留 2.x 的视觉描述。
+4. **没有 ESLint / Prettier 配置**（历史上被误写过"ESLint 就绪"）。
+5. **真机与键盘可达性未系统验证**：布局层有 ARIA，页面层的键盘路径没有逐个点过。
 
-### 优先级3: 页面视图 (必需)
-```
-views/
-├── DashboardView.vue - 双模式仪表板 ⭐
-├── OnboardingView.vue - 个人档案设置
-├── PlanView.vue - 训练计划日历
-├── ExecutionView.vue - 摄像头演示 ⭐
-├── MealsView.vue - 餐食记录
-├── ReportView.vue - 周报
-└── SettingsView.vue - 设置
-```
+## 怎么跑
 
-### 优先级4: 特定功能组件
-```
-components/journey/
-├── ModeSwitcher.vue - 模式切换下拉
-├── ModeComparison.vue - 模式对比对话框
-├── PlanVersionBadge.vue - 版本徽章
-└── AdjustmentPreview.vue - 调整预览
-
-components/training/
-├── CameraStage.vue - 演示摄像头舞台 ⭐
-├── PoseOverlay.vue - 骨架覆盖层
-├── CountDisplay.vue - 大数字计数器
-├── ConfidenceIndicator.vue - 置信度指示器
-├── ManualTrainingForm.vue - 手动记录表单
-├── TrainingSessionCard.vue - 训练会话卡片
-└── RpeField.vue - RPE滑块
-
-components/meals/
-├── MealTimeline.vue - 餐食时间线
-├── MealItemEditor.vue - 食物编辑器
-├── CategoryBadge.vue - 类别徽章
-├── MealCompleteness.vue - 完整度选择器
-└── AnalysisExplanation.vue - 分析解释
-
-components/reports/
-├── PlannedActualChart.vue - 计划实际对比图
-├── LoadTrend.vue - 负荷趋势线图
-├── CoverageSummary.vue - 覆盖率摘要
-└── WeekSummary.vue - 周摘要卡片
-```
-
-## 🎨 设计系统亮点
-
-### 渐变色方案
-- **Navy渐变**: `linear-gradient(135deg, #16334b 0%, #1e4159 100%)`
-- **Teal渐变**: `linear-gradient(135deg, #087e80 0%, #0a9b9d 100%)`
-- **Blue渐变**: `linear-gradient(135deg, #2468a0 0%, #2d7bb8 100%)`
-
-### 玻璃态效果
-- 半透明背景: `rgba(255, 255, 255, 0.9)`
-- 背景模糊: `backdrop-filter: blur(10px)`
-- 分层阴影实现深度感
-
-### 动画规范
-- **Instant (0ms)**: 减弱动效降级
-- **Fast (150ms)**: 悬停状态
-- **Base (250ms)**: 页面切换
-- **Slow (400ms)**: 数字滚动
-- **Slower (600ms)**: 错位入场
-
-### 缓动函数
-- `ease-out`: 快速启动，平滑结束
-- `ease-in-out`: 对称缓动
-- `spring`: 弹簧效果 (bounce-in)
-- `elastic`: 回弹效果 (badges)
-
-## 🚀 立即可执行的操作
-
-### 1. 安装依赖
 ```bash
-cd D:\桌面\project\project\UI
-npm install
+cd UI
+npm run dev             # http://127.0.0.1:5173
+npm run typecheck       # vue-tsc --noEmit
+npm run selfcheck       # 92 项领域逻辑断言
+npm run build           # 产物在 UI/dist
+npm run camera:assets   # 首次跑实时摄像头前需要，生成 mediapipe 端侧资产
 ```
-
-### 2. 启动开发服务器
-```bash
-npm run dev
-```
-
-### 3. 类型检查
-```bash
-npm run typecheck
-```
-
-## 📝 实现建议
-
-### Phase 1: 基础可视化 (1-2小时)
-1. 创建 `AppShell.vue` 和 `TopBar.vue`
-2. 创建 `BaseButton.vue` 和 `BaseCard.vue`
-3. 创建简单的 `DashboardView.vue` 使用硬编码数据
-4. 验证渐变和动画效果
-
-### Phase 2: 核心流程 (2-3小时)
-1. 实现 `CameraStage.vue` 连接演示服务
-2. 创建 `CountDisplay.vue` 带数字滚动
-3. 实现 `ModeComparison.vue` 对话框
-4. 完成双模式仪表板差异
-
-### Phase 3: 数据完整性 (1-2小时)
-1. 创建 RPE字段显示"未记录"状态
-2. 实现餐食完整度语义
-3. 添加空状态和不完整状态组件
-4. 确保图表显示数据质量注释
-
-### Phase 4: 响应式和无障碍 (1-2小时)
-1. 实现移动底部导航
-2. 测试所有断点
-3. 添加键盘导航支持
-4. 测试焦点指示器和ARIA标签
-
-## 💡 关键实现注意事项
-
-### 模式切换流程
-```typescript
-// 在ModeSwitcher中
-const switchMode = async () => {
-  // 1. 显示对比对话框
-  showComparisonDialog()
-  
-  // 2. 等待用户确认
-  const confirmed = await waitForConfirmation()
-  
-  if (confirmed) {
-    // 3. 更新存储
-    appStore.switchMode(newMode)
-    
-    // 4. 显示成功提示
-    appStore.showToast({
-      type: 'success',
-      title: '已切换模式'
-    })
-    
-    // 5. 导航到对应仪表板
-    router.push('/dashboard')
-  }
-}
-```
-
-### 缺失数据显示
-```typescript
-// RPE显示逻辑
-const rpeDisplay = computed(() => {
-  if (session.rpe === null) {
-    return { text: 'RPE 未记录', class: 'missing' }
-  }
-  return { text: session.rpe.toString(), class: 'recorded' }
-})
-
-// 负荷计算
-const load = computed(() => {
-  if (session.rpe === null || !session.actualDuration) {
-    return null // 不参与计算
-  }
-  return session.actualDuration * session.rpe
-})
-```
-
-### 演示摄像头连接
-```typescript
-import { getDemoEvents, getPhaseText } from '@/services/demoCameraService'
-
-const startDemo = () => {
-  const events = getDemoEvents('坐站训练')
-  let eventIndex = 0
-  const startTime = Date.now()
-  
-  const tick = () => {
-    const elapsed = Date.now() - startTime
-    
-    // 查找当前事件
-    while (eventIndex < events.length && 
-           events[eventIndex].time <= elapsed) {
-      const event = events[eventIndex]
-      currentCount.value = event.count || currentCount.value
-      currentPhase.value = event.state
-      currentConfidence.value = event.confidence
-      
-      eventIndex++
-    }
-    
-    if (eventIndex < events.length) {
-      requestAnimationFrame(tick)
-    }
-  }
-  
-  tick()
-}
-```
-
-## 📊 预期完成度
-
-**当前进度**: 约 30%
-- ✅ 项目配置和基础设施: 100%
-- ✅ 设计系统和样式: 100%
-- ✅ 类型系统: 100%
-- ✅ 核心服务和工具: 100%
-- ⏳ 组件库: 0%
-- ⏳ 视图页面: 0%
-
-**完整实现后**: 100%
-- 所有42+组件实现
-- 7个完整页面视图
-- 双模式完整流程演示
-- 响应式和无障碍测试通过
-
-## 🎯 最小可演示版本 (MVP)
-
-如果时间有限，优先实现以下内容以获得可演示的原型:
-
-1. **AppShell + TopBar + SidebarNav** - 基础框架
-2. **DashboardView (公共模式)** - 今日概览
-3. **DashboardView (运动员模式)** - 训练台
-4. **CameraStage + CountDisplay** - 摄像头演示
-5. **BaseButton + BaseCard + MetricCard** - 基础组件
-6. **ModeSwitcher + ModeComparison** - 模式切换
-
-这6个部分可以展示:
-- ✅ 现代渐变设计风格
-- ✅ 流畅的动画效果
-- ✅ 双模式差异
-- ✅ 摄像头演示功能
-- ✅ 响应式布局基础
-
-估计时间: **4-6小时**
-
-## 🔗 下一步行动
-
-1. **运行安装命令** 验证所有依赖正确
-2. **创建AppShell组件** 作为起点
-3. **实现一个Dashboard视图** 验证设计系统
-4. **测试动画和渐变** 确保视觉效果符合预期
-5. **迭代添加其他组件** 按优先级顺序
-
----
-
-**总结**: 项目基础架构已100%完成，包括完整的设计系统、类型定义、动画库和演示服务。现在可以开始实现UI组件和页面视图，所有设计令牌和工具函数已就绪。

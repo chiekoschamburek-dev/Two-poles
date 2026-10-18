@@ -1,38 +1,38 @@
 # 两仪·TwoPoles 后续规划
 
-> 记录时间 2026-10-16。基线：`UI/src` 34 文件 / 4,735 行，7 个页面全部有实际界面，`npm run build` 与 `typecheck` 通过，JS+CSS 产物 312.7 KB gzipped（另需 `npm run camera:assets` 生成的约 39 MB 端侧推理资产）。
-> 这份文件写的是"决定暂不做的事 + 恢复时怎么做"和"后端怎么和前端接上"，不是待办清单的替代品。
+> 记录时间 2026-10-16，2026-10-17 晚按当前代码重写过一次：已完成的设计稿全部删除，未开工的保留并补上本轮讨论出的拓展项。
+> 基线（2026-10-17 22:20 实测）：`UI/src` 39 文件 / 6,318 行，7 个页面全部有实际界面，`npm run build` / `typecheck` / `selfcheck`（92 项）全通过，产物 36 个文件 raw 792 kB / gzip 183.2 kB（其中 MediaPipe 运行时 `vision_bundle` 45.7 kB gzipped、姿态推理 worker 147 kB raw）；另需 `npm run camera:assets` 生成的 39 MB 端侧推理资产。
+> 这份文件写的是"下一步做什么、按什么顺序、怎么算做完"（§4）、"决定暂不做的事 + 恢复时怎么做"（§1）、"后端怎么和前端接上"（§2），以及"现在还欠着什么"（§5）。当前阶段只做前端，§2 整章是后端计划，不在本轮实施范围。
 
 ---
 
-## 1. 暂缓：拍照识别食物与卡路里
+## 1. 拍照识别食物：端侧第一档已落地，剩云端类别与份量
 
-### 1.1 决策
+### 1.1 仍然成立的三条边界
 
-**暂不做。** 三条理由，按分量排序：
+1. **单目照片给不出"有多少"**。同一盘饭 300 与 700 kcal 在一张 RGB 照片上信息量相同——这是缺信息，不是模型不够强。带参照物的体积估计文献误差约 20–30%，自由拍摄更差；再乘成分表本身的 ±25%，复合误差到 40–50%。所以热量永远只能是**区间 + 来源 + 默认关闭**，界面上不能出现一个大号单值。
+2. **没有后端就没有安全的云端识别**。任何云端视觉 API 的 key 打进前端 bundle 等于公开，谁都能抓走刷账单；而识别率与覆盖度真正好的只有云端。第一档选端侧就是这个原因。
+3. **端侧现成模型覆盖不了中餐**。COCO 类别里只有 9 种食物（苹果/香蕉/橙子/西兰花/胡萝卜/披萨/热狗/甜甜圈/蛋糕）。已落地的 `foodComposition.ts`（56 条目录 + 22 种混合菜，全部 `verified: false`）解决的是"认出名字之后有多少热量可查"，不解决"中餐认不出来"。
 
-1. **数字不可信且会被当成可信**。照片能给出"这是什么"，给不出"有多少"。同一盘饭 300 与 700 kcal 在单目照片上无法区分，文献里单图热量估计误差普遍 >30%。而本产品现有的整套口径是克制的：`hasNutritionEstimate = false`、"未记录 ≠ 未摄入"、"不输出姿势安全结论"。界面上出现一个大号热量数，等于把这条原则推平。
-2. **没有后端，就没有安全的云端识别**。任何云端视觉 API 的 key 打进前端 bundle 等于公开，谁都能抓走刷账单；而识别率与覆盖度真正好的只有云端。
-3. **端侧现成模型覆盖不了中餐**。COCO 类别里只有 9 种食物（苹果/香蕉/橙子/西兰花/胡萝卜/披萨/热狗/甜甜圈/蛋糕），自训菜品分类器需要采数据—标注—验证，是另一个量级的项目。
+### 1.2 第二档：云端开源 VLM 认类别（未开工）
 
-### 1.2 恢复实施时的第一档设计（端侧、不承诺营养）
-
-> **状态更新（2026-10-17）：本档已实施并补了口径漏洞。** 落地为 `composables/useFoodPhoto.ts`（EfficientDet-Lite0 / float16 6.9 MB，端侧 CPU）+ `services/foodComposition.ts`（57 条参考值，全部 `verified: false` 并标注"未与权威成分表逐项核对"；另含 22 种混合菜名单）+ MealsView 的"拍照 / 选图识别"面板 + 设置里的"显示热量粗估"（默认关）。实测：一张苹果+香蕉的照片被正确识别为香蕉 78% / 苹果 71%，加入后落库带 `source: 'photo'`，粗估显示为区间。
-> 口径修正：`mealRules.buildLimitations(hasEstimate)` 改为按本次是否真出数生成免责清单——原来无论开没开都写"没有热量估算（hasNutritionEstimate = false）"，和 `store` 把它置 `true` 自相矛盾；混合菜一律不参与估算、类别标"待确认"。MealsView 顶部说明与"是否含营养估算：否"的固定文案同步改为随实际状态。**第二档（云端）仍未开始。**
-
-前提：只做"拍照辅助录入"，不做"热量计算"的宣传。
+前提同样是 §2 的最小代理层先落地；端侧 COCO 那条路保留为离线兜底，不能被替换掉。
 
 | 环节 | 做法 | 边界 |
 |---|---|---|
-| 识别 | 复用 `usePoseCamera` 的模式，新增 `useFoodCamera`：MediaPipe `ObjectDetector`（EfficientDet-Lite0 / COCO，约 4 MB，端侧） | 只映射 9 个食物类；未命中即落 `其他` + `unknownItems`，绝不"猜" |
-| 候选条目 | 检测结果 → 生成 `MealItem` 草稿（`foodName` = 类别映射名、`category` 人工绑定、`confidence`、`source: 'photo'`） | 必须由用户确认后才写入，沿用现有 `confirmed` 字段 |
-| 份量 | 仍由用户填；不填 → `completeness: 'partial'` | 不做体积/深度估计 |
-| 热量 | 可选开关：`store.privacy.showEnergyEstimate`（默认 off）。开启后显示**区间 + 来源**，例：`约 80–120 kcal · 依据《中国食物成分表》第 6 版 苹果 可食部 100 g · 未计入烹调油` | `MealAnalysis.hasNutritionEstimate` 从恒 `false` 改为按次标记，并强制随结果渲染来源与免责文案 |
-| 参考表 | 自建 `src/services/foodComposition.ts`，字段：`name / ediblePortionPer100g / energyKcalPer100g / source / revisedAt`，**每条必须带出处**，条目数从 20 起步 | 未收录的食物不显示热量，只显示"待查" |
+| 模型 | 自托管或第三方 API 的开源视觉大模型（Qwen-VL / InternVL / MiniCPM-V 一档），prompt + JSON schema 约束输出 | key 只在服务端；上传的是**这一张照片**，与摄像头实时画面是两件事，文案要分开写 |
+| 输出 | `{ name, category, confidence, portions: [{ anchor, count }] }`，逐条映射到本机 `foodComposition` 目录 | 目录未命中 → 类别"其他（待确认）"并进 `unknownItems`，与现在 `suggestCategory()` 同一口径，绝不"猜" |
+| 确认 | 结果一律是候选，用户点"加入"才落库（沿用 `source: 'photo'` 与 `confirmed`） | 照片不留存、不进对象存储，除非另开同意开关并写清留存策略 |
+| 自训 | 泛化不足时：用 VLM 批量给自采图打标 → 人工抽检 → 微调一个**小分类器**，只解决"中餐类别"这一个问题 | 不自训重量回归；Food-101 对中餐覆盖差，别指望它 |
 
-数据结构改动（向后兼容）：`MealItem.source?: 'manual' | 'photo'`、`MealItem.photoConfidence?: number`、`MealAnalysis.estimateRefs?: { foodName: string; range: [number, number]; source: string }[]`。
+### 1.3 份量：先做"份数"，不做"克数"（未开工）
 
-### 1.3 第二档（云端识别）的前置条件
+- **锚定参照物**：拍摄引导里放手掌 / 拳头 / 标准盘 / 一枚硬币，或固定机位距离；输出"约 1.5 拳米饭"这类**可纠正的份数**，由用户点确认或改，而不是直接给克数。
+- **没有参照物就不估**：延续现在"份量没填 → 不显示，而不是给 0"的做法；`estimateRefs.basis` 里必须写明"图像估计，误差 ±X%"。
+- **份数↔克数交给本机口径**：复用已落地的单位↔克数换算（按 `食物|单位` 记忆、可撤销），VLM 只报份数，克数由本机算，误差来源可追溯、可被用户改。
+- **热量继续默认关闭** + 区间 + 来源，界面文案不得让它长得像计算结果。
+
+### 1.4 云端上传的前置条件
 
 只有在 §2 的最小代理层落地后才允许开始，且必须先补齐：图片上传的用户同意开关与留存策略、后端持有的 key、频率与体积限制、"画面/照片会上传"的界面文案与文档改写。**在这之前，"摄像头原始画面默认不上传"这句话不能被削弱。**
 
@@ -40,7 +40,7 @@
 
 ## 2. 后端与前端如何对接
 
-### 2.1 五条原则
+### 2.1 六条原则
 
 1. **本地优先（local-first）**。前端继续把 localStorage 当缓存与离线兜底；网络不可用时整套界面照常可用（这是现在的能力，不能退化）。
    - 容量边界：单个 `twopoles_state` key 装的是整个状态，浏览器配额约 5 MB。按现有记录体积估算，1 万条训练/餐食会顶到上限，所以接后端前必须先把状态**按类别拆 key**（`sessions`、`meals`、`plans`、`profile`…），并在写入捕获 `QuotaExceededError`：提示"导出后再清理"，绝不静默丢数据。设计文档 §2.4(2) 的 1 万条/P95 指标只适用于服务端接口。
@@ -48,6 +48,7 @@
 3. **服务端是最终事实源**。`id` 由服务端生成；本地 `newId()` 只作为离线临时 id（`clientId`）。
 4. **摄像头画面不出设备**。姿态识别继续留在端侧（MediaPipe），服务端只接收结构化结果（关键点序列默认**不**上报）。
 5. **口径统一**。规则版本由服务端下发并落库，历史记录带当时的版本号，前端不再各自算。当前前端在用的版本号：`diet-rules-v2`、`report-rules-v2`、`plan-rules-v3`、`food-catalog-v2`、`exercise-catalog-v1`（文档 §5.1"分析与规则"落到这些 key 上）。
+6. **模型只做选择题**。任何 LLM/VLM 端点都不允许自由生成处方内容：输入是已校验的结构化档案，输出必须逐条命中 `exercise-catalog-v1` / `food-catalog-v2` 的 id，服务端复校不过就整体拒绝，前端回落到本机 `planRules.buildDayPlan`。锁定项、`GATE_RESTRICTIONS`、12–17 岁不自动推荐这三条硬约束由规则引擎守住，不经模型。
 
 ### 2.2 API 面（v1）
 
@@ -60,13 +61,17 @@ Base：`/api/v1`，全部 JSON。除 `auth/*` 外都要 `Authorization: Bearer <
 | GET/PUT | `/profile` | 读写档案（对应 `UserProfile`） | PUT 为部分更新语义 |
 | GET | `/plans/current?week=2026-10-12` | 取某周计划（`planRules` 的服务端版本） | → `{ planId, version, items: PlanItem[] }` |
 | POST | `/plans/adjustments` | 提交调整建议 | → `{ adjustmentId, changes: PlanChange[] }` |
-| POST | `/plans/adjustments/:id/accept` | **接受调整并生成新版本**（当前前端只是界面态，这一步才落地） | → `{ newVersion, lockedPreserved: true }` |
+| POST | `/plans/adjustments/:id/accept` | **接受调整并生成新版本**（本机已由 `store.acceptAdjustment` 落地，这一步是把同一语义搬到服务端） | → `{ newVersion, lockedPreserved: true }` |
 | GET/POST | `/sessions`（`?from&to`） | 列 / 新建训练记录 | POST 带 `Idempotency-Key: <clientId>` |
 | PATCH | `/sessions/:id/feedback` | RPE / 不适 / 原因 / 备注（对应 `SessionFeedback`） | 缺 RPE 存 `null`，不接受 0 代替 |
 | DELETE | `/sessions/:id` | 软删（`deletedAt`） | |
 | GET/POST | `/meals`（`?date`） | 列 / 记一餐 | POST 幂等键同上 |
 | DELETE | `/meals/:id` | 软删 | |
 | GET | `/reports/weekly?start=2026-10-12` | 服务端算好的 `WeeklyReport` | 含 `dataQuality[]`、`ruleVersion` |
+| POST | `/assistant/explain` | 解释某版计划为什么这样排、回答追问（§4.9 的解释层） | 入参是**已生成的结构化计划**；返回只用于展示，不回写任何计划字段 |
+| POST | `/assistant/parse` | 自由文本主诉 → 结构化约束（`restrictions` / `availableTimes` / 器材） | 只返回现有枚举值，命中不了的项原样回`未识别`，不新造类别 |
+| POST | `/plans/generate` | LLM 在已校验动作库内选题（§4.9 的生成层，最后一档） | → `{ items: [{ exerciseId, sets, reps, date }], reason }`；任一 `exerciseId` 不在目录内 → `validation_failed`，前端回落本机规则 |
+| POST | `/meals/recognize` | 开源 VLM 认食物类别与份数（§1.2/§1.3） | multipart 或预签名 URL；→ `{ name, category, portions[], confidence }`，图片不落盘，单次体积与频率设上限 |
 | GET/PUT | `/settings/privacy` | `PrivacySettings` | 与服务端保留策略互相独立，二者取更严 |
 | GET/POST | `/export` `/export/:jobId` | 异步导出（数据量大时不占请求） | → `{ status, downloadUrl }` |
 | POST | `/auth/delete-account` `/data/wipe` | 清除全部数据（对应现在 `clearAllData()`） | 需要二次确认令牌 `confirmToken` |
@@ -243,6 +248,10 @@ audit_events(id INTEGER PK, user_id INTEGER NULL, actor_role TEXT CHECK(actor_ro
 - [ ] 账号删除与保留期落到实际作业。当前界面已如实标注 `retentionDays` 与 `saveVideoLocally` 只是偏好、不触发删除或录制；接后端后要么实现该作业，要么删掉这两个开关别给用户提供它没有的控制权（设计文档 §2.4(4) 的"离线备份最长 30 天轮换"说的是服务端备份保留期，与用户数据保留天数是两件事，界面和文档都要分开表述）
 - [ ] 不存摄像头帧、不存生物特征；关键点上报默认关闭且可关
 - [ ] 热量/负荷等显示位一律带来源与"参考值"标注
+- [ ] **健康类字段单独同意**：`restrictions`（膝/腰/心脏/孕期等）在个保法口径下属敏感个人信息，把它发给第三方大模型需要单独的明示同意与"不用于训练"的合同条款。对这类字段"脱敏"是无效的——"膝关节置换术后"这句话本身就是全部信息。可选做法：只发枚举码、或走自托管模型；两者都不成立就不发。
+- [ ] 模型请求与响应的日志不落敏感原文（只留 `clientId` + 命中/回落结果），并给留存上限
+- [ ] 模型输出必须过 schema + 目录双重校验，校验失败按 `validation_failed` 走，绝不"取最接近的一个"
+- [ ] `/assistant/*` 与 `/meals/recognize` 设频率、单次体积与每日配额上限；超配额返回 `rate_limited` 且前端有可见提示（不是转圈）
 
 ### 2.10 里程碑
 
@@ -253,28 +262,119 @@ audit_events(id INTEGER PK, user_id INTEGER NULL, actor_role TEXT CHECK(actor_ro
 | B2 | 写路径 + outbox + 幂等 | 离线录一餐→恢复网络自动补传且**只有一条**；重复提交被幂等吸收 |
 | B3 | 计划调整与版本落地（`accept` 真改计划） | 接受调整后刷新页面仍是新版本；锁定项未被改写 |
 | B4 | 导出作业 + 删除账号/清除数据 | 导出文件可被表格软件打开；清除后服务端与本机都无残留 |
-| B5 | （可选）拍照识别云端版，需 §1.3 前置全绿 | 文案与隐私说明同步改写，不保留"画面不上传"的误导 |
+| B5 | （可选）拍照识别云端版：开源 VLM 认类别与份数，需 §1.4 前置全绿 | 文案与隐私说明同步改写，不保留"画面不上传"的误导；认不出仍走手工录入，不猜 |
+| B6 | LLM 三档按 §4.9 的顺序（解释层 → 翻译层 → 生成层），全部走 §2.1 第 6 条的选择题约束 | 关掉模型服务时页面照常出计划与解释（回落本机规则）；生成结果任一 id 不在目录即整体拒绝 |
 
 ---
 
-## 3. 其余已知缺口（与上面无关，按影响排序）
+## 3. 跟练端侧改造（本轮）
 
-1. ~~姿态识别 → 计数未联动~~ **已完成（2026-10-17）**：`composables/useRepCounter.ts` 落地带迟滞与最短阶段时长的 `起始→运动→返回→count++` 状态机，含 3 帧平滑、可见度遮挡门控、停滞重置、抖动不计入，以及机位校准（阈值随用户起始姿势偏移）。跟练页实时摄像头分支已改由状态机驱动计数，演示回放保留预设时间线；手工修正后状态机不再回写本组次数，`manualCorrections` 与模型计数分别落库。**未做**：真机验证与 §3.4.3 的隔离测试集实测。
-2. 计划调整的版本落地：本机已实现（`store.acceptAdjustment` 写新版本、旧版本进 `planHistory`、锁定项保持不变，B3 的前端可验收标准已在 localStorage 上达成）；服务端侧仍需 B3 的 `If-Match` 版本校验与 409 处理。
-3. ~~推荐口径未按档案计算~~ **已完成（2026-10-17）**：`services/exercises.ts`（27 条动作，含 1 条停用）+ `planRules.buildDayPlan` 按器材、场地、时长与"需要避开的"过滤；约束无解时返回逐条冲突原因；未满 18 岁或勾选孕期/伤病限制时 `auto=false`，只留记录与手工录入。
-4. 无障碍未做 WCAG AA 逐项核对；部分自绘控件低于 44px（日历格子、chip、tab）。本轮新增控件已按 44px 写（锁定/完成、校准、替换候选、切换确认按钮），但整体仍未逐项核对。
-5. 自动化测试：新增 `npm run selfcheck`（esbuild 打包 + Node 断言，66 项，覆盖 F04 过滤、负荷缺失口径、类别推断与混合菜、计数状态机、计划版本与模式切换确认）。**仍缺**：Playwright e2e（"建档→跟练→反馈→周报"）与服务端 pytest。
-6. 真摄像头下的骨架对齐、关节角数值与计数准确率未经实测（开发环境无可用设备）；状态机阈值目前是动作库默认值 + 机位校准偏移，未按标注样本调参。
-7. 记录摩擦（第一因子）：饮食侧基线已改造并复测（2026-10-16 第十轮）——表单改为就地展开在触发它的卡片内、拍照面板默认折叠、名称框 autofocus、回车即存。实测位移 +568px→−26px，从触发点到"保存"的整屏滚动 1 次→0 次，表单顶到第一个输入框 266px→91px，可交互控件 11→10。
-   - ~~待做：一行速记（名称即落库 + 类别推断标"待确认"）~~ **已完成**：`suggestCategory()` 命中目录即改写类别（用户手动改过就不再动），未命中或混合菜落"其他"并进 `unknownItems`。
-   - 待做：份量/单位降级为可选展开、"最近吃过"芯片（本机历史，重复记录可压到 1 tap）。
-   - ~~已知数据缺陷：手输"苹果"会以 `苹果/谷薯类` 入库~~ **已修**：新行默认类别改为"其他（待确认）"，由名称推断赋值；自检查 `suggestCategory('苹果') === '水果类'`。
-   - 训练侧与建档侧的同类基线尚未测量。
-8. 视觉三档已完成两档半：
-   - ② 单一强调色 + 语义色重标（第十一轮，取值依据 `UI/research/界面偏好调研.md` P0-1/P0-2 与 `ui-directions.html`）：强调色收敛为 `#0f766e` 一种，指标卡去渐变改白卡 + 1px 描边 + 单层阴影且只在真达成时着色，语义色只留 success(=强调色)/caution/danger/neutral 并用点形/条形做非颜色冗余，装饰渐变只保留品牌位。实测 7 条路由 281 个文本节点 0 项 AA 失败，并修掉 `--color-on-accent` 拼错名与 muted 3.75:1 不达 AA 两个真 bug。
-   - ③ 环改条 + 洞察卡可收起（第十二轮）：概览餐次圆环删除，改三段条（实心=完整、半填+caution 描边=部分、空心=未记录），`aria-label` 逐条播报；三处解释卡统一为 `InsightCard`，收起状态写入 localStorage 并实测刷新后保持；新按钮触控目标从 68×32 提到 68×44。
-   - 第九轮的表面与排版档（`--font-display`、标题字距、分层阴影）保留，但当时加的 4 层环境光与 .035 颗粒已降为 1 层与 .018，页标题渐变裁切文字已改为纯墨色。
-   - ④ 常驻动画改按需已完成（第十二/十三轮）：概览基线 4 个常驻无限动画（`pulse@mode-dot`、`sheenSweep::after@mini-progress`、`gradientShift@hero`、`spin::before@hero-orb`）与跟练页 13 个全部删除，37 处行内 `animation-delay` 入场错位取消；仅保留两处"操作进行中"才存在的循环（演示回放扫光、休息徽标呼吸）。复测：6 页常驻无限动画 0、跟练页 1。`animations.css` 233→105 行，`index.css` 20.07→18.70 kB（gzip 4.97）。
-   - 仍未做：图表入场动画（本来就没有）、真实关键点驱动的骨架动画；调研 P1-7 双主题 + 跟随系统；侧栏/Toast/跟练舞台的 `backdrop-filter` 毛玻璃尚未逐处降级。
-   - 调研 P1-4 已完成（第十五轮）：移动端底栏由 5 项并为 4 项（今日 / 记录 / 图表 / 我的），计划与跟练归入"今日"名下（仍从首屏按钮与抽屉进入），档案升进"我的"（设置页本就有档案行）。实测 4 项触控目标 64×57px、`aria-current="page"` 在 `/plan` 上也落在"今日"、393px 无横向溢出。
-   - ②③④ 三步的做法与数字见 `UI/交付说明.md` 第十一至十三轮；其中记录了我自己造成的一次破坏与恢复（`sed /pattern/d` 删规则时删掉了 DashboardView 整行主样式，随后从 HEAD 取回该行、在该行内用 `s///` 完成原本要做的删除并复测选择器完整性）。
+> **状态更新（2026-10-17 晚）：三条已落地，`build` / `typecheck` / `selfcheck`（92 项）通过。** 新增 `composables/poseMath.ts`（几何与帧时间戳，纯函数）、`poseLandmarkerFactory.ts`（GPU 探测 + CPU 回落，worker 与主线程共用）、`poseInference.worker.ts`、`poseEngine.ts`（两种引擎与选择），`usePoseCamera.ts` 的公开返回值签名不变（新增 `delegate` / `runsIn`），`ExecutionView` 只改了状态文案。
+> 实测证据（`npm run build && npm run preview`，Chromium）：worker `ready{delegate:"GPU", gpuError:null}`，console 出现 `GL version: 3.0 (WebGL 2.0 …)` 与 `Graph successfully started running`，`createImageBitmap` → transfer → `detectForVideo` 往返正常（空白帧返回 0 个关键点，符合预期）；页面点"实时摄像头"在无摄像头环境下按设计退回演示回放。
+> **dev 的边界**：`npm run dev` 下 worker 里的 wasm glue 加载不了——module worker 没有 `importScripts`，而 Vite 不把 `public/` 的文件当模块解析（`/mediapipe/wasm/vision_wasm_internal.js?import` 返回 500），`createPoseEngine` 因此**自动回落主线程推理**（功能与改造前一致，只是不赚线程收益）。要验证 worker 与 GPU，必须走构建产物。
+> 顺手修掉的真 bug：可见度原来对 11–27 共 **17** 个关键点的 `visibility` 求和后除以 **6**，结果可达 2.8，使状态机的遮挡门控（`minVisibility: 0.5`）恒成立；改为参与算角的 6 点均值，`selfcheck` 第 8 节有断言。
+> 下表保留原设计口径，作为"为什么这么改"的记录。
+
+计数状态机已落地（`composables/useRepCounter.ts`），但取帧与推理这两层还是 2026-10-16 的写法。三条都不改交互，只为准确率与流畅度铺路。
+
+| # | 现状 | 改造 | 验收 |
+|---|---|---|---|
+| 3.1 | `usePoseCamera.ts` 用 rAF 轮询 + `now !== lastTs` 去重，喂给 `detectForVideo` 的时间戳取 rAF 的 `now` | 改 `video.requestVideoFrameCallback()`：一帧一次回调，用 `metadata.mediaTime` 作真实帧时间戳；RVFC 不可用时回落 rAF + `video.currentTime` 去重 | `stop()` 走 `cancelVideoFrameCallback`；同一帧不被推理两次；状态机的最短阶段时长不再被 rAF 抖动污染 |
+| 3.2 | `landmarker.detectForVideo()` 在 rAF 里同步跑，主线程每帧被占十几到几十毫秒 | 推理搬进 `composables/poseInference.worker.ts`：主线程每帧 `createImageBitmap(video)` → transfer 给 worker，worker 推理后回传关键点/关节角/可见度并 `close()` 掉 bitmap；**绘制仍留主线程**（`DrawingUtils` 要的是 DOM canvas 的 2D 上下文与现有 CSS 镜像） | 跟练时滚动与点击不卡；worker 或 `createImageBitmap` 不可用时自动回落主线程推理——实时骨架不能因为这次改造而消失 |
+| 3.3 | `baseOptions.delegate` 写死 `'CPU'` | 试 `delegate: 'GPU'`。`VisionTaskOptions.canvas` 注释写明"GPU 处理必须绑定该 canvas，WebGL 上下文初始化失败即抛错"（`node_modules/@mediapipe/tasks-vision/vision.d.ts:2900`），所以要给一块**专用** canvas（worker 内用 `OffscreenCanvas`），不能复用叠加层那块 | GPU 抛错就在 worker 内重建为 CPU；实际生效的 delegate 回传主线程并显示在状态文案（"已就绪 · GPU/CPU"），不谎报 |
+
+**本环境测不到的部分**：没有可用摄像头，`getUserMedia` 一律被拒，RVFC 的取帧分支只能靠代码走查；worker + GPU + `ImageBitmap` 往返已在构建产物里实测（见上面的状态更新），但真机 FPS、骨架对齐、关节角数值与计数准确率仍归 §5.1。
+
+**IMU 计数不在本节**：它需要"计时/计步型课次"这个前置类型，已单独立项为 §4.3。
+
+---
+
+## 4. 功能路线（按优先级；当前阶段只做前端）
+
+> 排序依据：能否在本机自证 × 对"协同助手"这个名字的贡献 × 出错时的伤害面。视觉类排最后不是因为它不重要，而是它在现环境里最贵且最不可验证（无摄像头、无后端、无标注样本）。
+
+### 4.1 反馈回头改计划（最高价值——闭环的最后一断口）
+
+实测现状（2026-10-17 复核，四条都带代码位置）：
+
+- `grep "sessions|rpe" services/planRules.ts` → **零命中**。排课只看档案，从不看训练结果。
+- `rpe` 的消费者全是展示与导出（`weekRules.loadOf`、`ReportView:94`、`SettingsView:216`、反馈 toast），没有一处回流到计划。
+- `completionReason` **只写不读**（唯一命中是 `stores/app.ts:440` 的赋值）。
+- 唯一的调整规则长在视图里：`PlanView:246-248`「当日计划总时长 > 档案最大可用时间块 → 建议搬一天」，它读档案、不读训练。`store.acceptAdjustment`（`app.ts:303`）是纯执行器，只应用外部传入的 `changes`。
+
+做法（纯函数 + 一条文案）：
+
+1. 把 `PlanView` 那条搬移规则挪进 `planRules`，与排课同源，视图只渲染。
+2. 新增 `progression(sessions, planItems)`：同一动作**连续两次** RPE ≥ 8 → 降一组/降次数；连续两次 ≤ 3 且 `completionStatus` 为全部完成 → 升一组；出现 `discomfort` 或非空 `completionReason` → 停止加量、只提事实。采用"两次才动"而不是单次降标。
+3. 产出仍是 `PlanChange[]`，走已有的 `acceptAdjustment` → 新版本 → `planHistory`；锁定项与已完成项不动。
+4. 界面写"按你最近两次反馈调整"，**不写 AI / 智能推荐**——它是规则。
+
+验收：selfcheck 覆盖"两次高 RPE 才降、单次不降、discomfort 只停不加、锁定项不被改写、降下去还能升回来"；界面上每条调整都能展开触发它的具体日期与 RPE。
+边界：`rpe === null` 的 session 不参与判断（不能当 0）；12–17 岁或命中 `GATE_RESTRICTIONS` 者 `auto=false`，只给建议不改计划。
+
+### 4.2 休息页 = 下一动作预显 + 跳过热区分层（成本最低）
+
+现状：`status:'resting'` 与 `restDuration` 已有，休息期只有一句倒计时与徽标，不预告下一动作。
+做法：休息卡显示下一组的动作名 / 组数 / 次数与站位提示；"跳过休息"的热区不与预显争点击——预显区域不吞点击，跳过用短按确认或 400ms 长按（沿用"清除数据"的两步确认先例）。
+验收：393px 宽下无误触跳过；`prefers-reduced-motion` 下不新增循环动画；读屏能播到"下一个：站姿弯举 2 组 × 10 次"。
+
+### 4.3 计时/计步型课次（IMU 与"计数降级"共同的地基）
+
+现状：跟练只有 reps 模型（`demoExercises` 就坐站与弯举两条），而库里 `ex-easy-run` / `ex-brisk-walk` 是 `minutes:20, sets:1` 无次数、`ex-plank` / `ex-breath` 是 `holdSeconds`——**这些动作根本没有跟练入口**。
+这一步开的是课次类型 `reps | time | steps`，落库用已有的 `actualDuration` / `actualDistance` 空位。它同时解锁两件事：
+
+- **IMU 免摄像头**：跑步/快走用 `DeviceMotion` 做垂直加速度过峰检测算步数与步频——这个信号比姿态计数干净得多；
+- **姿态计数的降级落点**：可见度低于阈值时"退回时钟推进"目前无处可退，因为计时分支只存在于演示回放里。
+
+配套的产品定位调整（与调研结论一致）：把 `useRepCounter` 从"记账"降级为"节奏提示"——只对大关节低频动作启用；计数始终可一键 ±1 覆盖并标来源（`manualCorrections` 已分别落库）；低可见度时**主动**降级为计时并明说，而不是静默出错。
+IMU 的三条硬约束：① 距离靠步幅估算误差 10–20%，按"不出不可信数字"的口径只给步数与时长，距离要么标"估算"要么不给；② iOS 锁屏/切后台会挂起 JS，Android 同理——要么 `navigator.wakeLock` + 明说"屏幕需保持常亮"，要么限定"手机在手/臂包"；③ `DeviceMotionEvent.requestPermission()` 在 iOS 必须用户手势触发且要 HTTPS，权限文案要写"只读运动传感器，不读位置"。
+验收：一条"手机放口袋走完 200 步"的手测记录（步数误差 ±5%）；无权限或无传感器时明确降级为手动计时并标注来源。
+
+### 4.4 语音节奏播报（本机音色自选；AI 音色进后端）
+
+现状：全库没有任何 `speechSynthesis` 或音频播放。
+第一档（本机、零上传）：只播节奏与计时——"下一组开始""组间剩 5 秒""本组完成"；音色选择器列设备自带中文音色，选择存进偏好并落盘，这已经给到"用户自选音色"的自由度。
+**明确不做**：语音纠错播报（误判 + 约 1.2s 延迟，播错了收不回，且与"不输出姿势安全结论"直接冲突）。
+第二档（云端 AI 音色）：需要服务端持 key、按字符计费、把动作名与进度文本发出去 → 归 §2，与摄像头同一套同意与留存约束。
+无障碍：`speechSynthesis` 与现有 `aria-live` 会双声道打架，需要"播报与读屏互斥"开关，默认关闭。
+验收：无中文音色/静音设备上不报错并回落 `aria-live`；开关与音色选择刷新后保持。
+
+### 4.5 运动×饮食交叉分析
+
+产品叫"协同助手"，但 `sessions` 与 `meals` 从不交叉：`weekRules.buildWeeklyReport` 只是把每日负荷与 8 类出现次数并排算完，中间没有任何一条关系。可做：训练日 vs 休息日的类别结构差、"某类出现的当天与次日完成率"、按当日计划强度提示"今晚这餐还缺豆类"。纯本机可算、零新依赖，且把已有的两套规则缝起来。边界：相关不等于因果，界面一律写"同期出现"而不是"有助于"。
+
+### 4.6 30 秒坐站测试（体测口径）
+
+`exercises.ts` 里的 `ex-chair-sitstand` 是 2×8 的日常训练，不是计时测试；而"30 秒内坐站次数"本身就是 SPPB 下肢功能项的原始值，人群也对得上（椅子、低冲击、膝友好）。可加：30 秒计时模式（依赖 4.3 的计时型课次）、历史趋势、与年龄参考区间并列。报的是次数不是医学判断，与"不输出姿势安全结论"不冲突。
+
+### 4.7 月报与长期趋势
+
+现在只有周（`weekStart`），跨月对比与"负荷是否持续走高"无处可看。按 4 周滚动复用 `buildWeeklyReport`，缺 RPE 的日子继续画斜纹而不是当 0。
+
+### 4.8 PWA + 本地提醒
+
+无 manifest、无 Service Worker，只能开着网页用；跟练与记录提醒才是"日常使用"的前提。要先定 39 MB 端侧资产的缓存策略（不能每次进跟练重下），并面对 iOS Safari 的通知与后台限制；提醒文案要尊重"未记录 ≠ 没发生"的口径，不能写成"你还没吃饭"。
+
+### 4.9 LLM 三档：解释 → 翻译 → 生成（依赖 §2 的代理层，本阶段不实现）
+
+- 信息量先看清：档案只有 6 个结构化字段，而"按档案排课"已由 `planRules.buildDayPlan` 用规则做完。LLM 的增量不在重新算一遍，而在**解释与追问**（为什么周三排两场、这周为什么减量）与**翻译**（把"最近爬楼膝盖发酸"翻成 `restrictions` 枚举再交给规则引擎）。生成放最后一档。
+- 三条硬约束：① 选择题而非填空题（§2.1 第 6 条）；② 同一档案两次生成不同计划会被用户当 bug——按 profile hash 缓存、低温度、只在实质变更时重生成，否则 `plan-rules-v3` 的版本语义会乱；③ 健康类字段的同意与合规见 §2.9。
+- 兜底路：Chrome 内置 AI（Gemini Nano / Prompt API）数据完全不出设备，与隐私叙事一致；限制是 Chrome 127+、需下载模型、能力偏弱、国内主流浏览器基本没有——只适合当离线兜底，不是主路。
+
+### 4.10 视觉识别（食物类别 / 份数）——见 §1，排最后
+
+理由不变：认类别必须后端（key 不能进 bundle），估份量受单目尺度限制，而这两件事在现环境里既跑不了也验不了。4.1–4.4 任何一条做完，都比在这里追平 Keep 更接近产品名。
+
+---
+
+## 5. 其余已知缺口（按影响排序）
+
+1. 真机验证：摄像头下的骨架对齐、关节角数值、计数准确率，以及 §3 三条改造后的实际 FPS 全部未实测（开发环境无可用设备）；计数误差指标未在隔离测试集上实测，不作为已达成结论（设计文档 §3.4.3）。状态机阈值目前是动作库默认值 + 机位校准偏移，未按标注样本调参。
+2. **文案承诺了不存在的机制**：`ReportView:30` 写"本周有训练报了不适：**自动加量建议已停止**"，但全库没有任何自动加量逻辑。要么按 4.1 把它做出来，要么把这句改成只陈述事实（"本周有不适记录，周报不再给出加量建议"）。按本项目"不写没有的控制权与没有的行为"的口径，这是 bug 不是润色。
+3. 规则长在视图里：`PlanView:246-248` 的搬移建议应挪进 `planRules`（见 4.1），否则同一条口径无法被 selfcheck 覆盖，也无法被周报与后端复用。
+4. 计划调整的服务端侧：本机 `store.acceptAdjustment` 已写新版本并把旧版本进 `planHistory`，服务端仍需 B3 的 `If-Match: <baseVersion>` 校验与 409 处理。
+5. 无障碍：WCAG AA 未逐项核对。本轮新增控件按 44px 写了（锁定/完成、校准、替换候选、切换确认），日历格子、chip、tab 等自绘控件仍可能低于 44px；读屏软件与真实设备未验证。
+6. 测试：`npm run selfcheck` 92 项覆盖纯逻辑（第 8 节为姿态几何与帧时间戳），仍缺 Playwright e2e（"建档→跟练→反馈→周报"）与服务端 pytest；`poseEngine` 的 worker/主线程回落本身要 DOM，node 自检覆盖不到，目前只有构建产物里的一次人工实测为证。
+7. 记录摩擦：饮食侧基线已改造并复测（第十轮），常吃 / 搜索 / 拍照三个入口与单位↔克数口径已落地（第十七轮）。**待做**：份量/单位仍是常驻一行四列，未降级为可选展开；训练侧与建档侧的同类基线尚未测量。
+8. 视觉：侧栏 / Toast / 跟练舞台的 `backdrop-filter` 毛玻璃尚未逐处降级；图表入场动画（本来就没有）与真实关键点驱动的骨架动画未做——演示回放里的骨架仍是按阶段位移的 SVG 示意。
+9. 两个诚实标注的"当前无实际效果"的偏好：`saveVideoLocally`（本版本没有录制功能）、`dataRetentionDays`（没有自动清理作业）。接后端后要么实现该作业（§2.9），要么把开关删掉，别给用户一个他没有的控制权。

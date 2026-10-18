@@ -9,27 +9,27 @@
 | 范围 | 状态 |
 |------|------|
 | 页面视图 | **7 / 7 都有实际界面**（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）。计数已与识别联动、计划版本与调整确认在本机落地；仍然没有后端 |
-| 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、隐私偏好都存在 localStorage；可从设置页导出 JSON/CSV（含计划）或一键清除 |
+| 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好都存在 localStorage；可从设置页导出 JSON/CSV（含计划与换算口径）或一键清除 |
 | 训练反馈 | ✅ 跟练结束可填 RPE（**0–10**，或留空=未记录）、不适、部分完成原因与备注，写回该条 session 并持久化 |
 | 建档 | ✅ 三步表单写入 `store.updateProfile()`，含场地多选；12–17 岁与勾选孕期/伤病限制者只保留记录与手工录入，不生成自动推荐 |
-| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 66 项纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、计数状态机、计划版本与切换确认） |
-| 摄像头 | **真联动 + 未实测**：实时摄像头分支由 MediaPipe 关键点角度驱动 `useRepCounter` 状态机计数（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），支持机位校准与手工修正，模型计数与修正值分别保留。**未在任何真机上验证过计数准确率**，90% 误差指标待隔离测试集实测；权限被拒、无设备或非安全上下文时自动退回"演示回放"，界面明确标注计数来源 |
-| 餐食拍照 | ✅ 端侧 EfficientDet-Lite0 识别 9 类常见食物作为**待确认候选**，照片不上传不落盘；热量粗估**默认关闭**，开启后只显示区间与来源；混合菜不出数 |
-| 内容库 | 动作库 `services/exercises.ts` 27 条（含 1 条停用）带器材/场地/时长/强度/限制门槛与来源标注；食物目录 `services/foodComposition.ts` 57 条 + 22 种混合菜，全部 `verified: false` |
+| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **92 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
+| 摄像头 | **真联动 + 未实测**：实时摄像头分支由 MediaPipe 关键点角度驱动 `useRepCounter` 状态机计数（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），支持机位校准与手工修正，模型计数与修正值分别保留。**未在任何真机上验证过计数准确率**，90% 误差指标待隔离测试集实测；权限被拒、无设备或非安全上下文时自动退回"演示回放"，界面明确标注计数来源。取帧用 `requestVideoFrameCallback` 的真实帧时间戳，推理默认在经典 worker 内跑 **GPU delegate**（构建后实测生效），两者任一不可用则自动回落主线程 / CPU，状态文案如实显示实际后端 |
+| 记录入口（调研 P1-6） | ✅ 三个入口都在表单里：**常吃**（`frequentFoods` 按目录规范名归并本机历史，"苹果（半个）"与"苹果"算同一条，点一下填一行，无历史时整节不渲染）、**搜索**（`searchFoods` 过 56 条内置目录，空关键字不预置候选，回车添加首个结果且不误提交表单）、**拍照**（端侧 EfficientDet-Lite0 识别 9 类常见食物作为待确认候选，照片不上传不落盘，默认折叠）。单位↔克数：行内可改"1 碗=几克"，改完**先只影响本行**，点"记住"才按 `食物|单位` 落本机、可"撤销"退回演示假设（没点记住时不允许保存，避免界面显示的数与存下的数分叉）；热量粗估**默认关闭**，开启后只显示区间与来源，口径写进 `basis`（如"1 碗=250 g（本机口径）"）；混合菜不出数 |
+| 内容库 | 动作库 `services/exercises.ts` 27 条（含 1 条停用）带器材/场地/时长/强度/限制门槛与来源标注；食物目录 `services/foodComposition.ts` 56 条 + 22 种混合菜，全部 `verified: false` |
 | 摄像头资产 | 需先执行 `cd UI && npm run camera:assets`（拉取 5.5 MB 模型 + 27 MB wasm，已被 .gitignore 排除）；且页面必须走 **https 或 localhost**（`vite --host` 的局域网 http 地址无法调用摄像头） |
-| 模式切换 | ✅ 侧边栏与设置页切换都**先展示差异与未完成计划、确认后才生效**，取消则不改动任何数据；切换历史与当时未完成计划数落本机，旧模式计划仍可见（需明确复制才形成新模式计划） |
+| 模式切换 | ✅ **页头右侧的模式芯片**（UI 3.0 从侧栏迁来）与设置页切换都**先展示差异与未完成计划、确认后才生效**，取消则不改动任何数据；切换历史与当时未完成计划数落本机，旧模式计划仍可见（需明确复制才形成新模式计划） |
 | 后端 | 无 |
 
 下方"核心功能"章节描述的是**设计目标**，剩余未实现项已逐项标注。**后续怎么做（拍照识别热量的取舍、后端与前端如何对接、里程碑顺序）见仓库根 [`../plan.md`](../plan.md)。**
 
 ## 🎨 设计特性
 
-- **现代渐变风格**: 使用精美的CSS渐变和玻璃态效果
+- **纸面 + 单一强调色**（UI 3.0）：底 `#f2f1ec` 中性纸面 + 白卡 + 1px 发丝线，圆角收到 6–16px；强调色只有 `#0f766e` 一种，第二极 `#24586f` 只给"饮食"这条数据线。状态一律**形状 + 文字双编码**（实心＝完整 / 半填＝部分 / 空心＝未记录），不靠颜色单独传达。7 条路由实测 0 项 WCAG AA 失败
+- **数字是第一主角**：数字单独一套 `--font-num`（Bahnschrift → DIN 骨架），44–64px 等宽字；小标签统一 `.micro`（10px + `.17em` 大写）。指标从"四张等宽卡"改成一条 `StatStrip` 指标条，数字竖着能比
+- **克制的表面**：全站只有两种表面——纸面（`BaseCard` 的 `default` / `flush`）与仪表面（`variant="ink"`，只给首页的双极环）。`body` 一层颗粒纹理（opacity .018，深色 .05）；悬停只交换边框色，不做位移、不做图标旋转
 - **克制的动效**（按调研 P0-3 收敛）：无常驻循环动画、无入场错位延时；动效只在一次性入场与操作之后出现。仅两处循环且都在"操作进行中"才存在——演示回放边框扫光、休息阶段徽标呼吸。`prefers-reduced-motion` 全量降级（实测：概览等 6 页常驻无限动画 0，跟练页 1）
-- **单一强调色 + 语义色**：界面一律冷灰底 `#f6f7f8` + 白卡 + 1px 描边 + 单层浅影，强调色只有一种 `#0f766e`；颜色只在"达成 / 需注意 / 错误 / 未记录"四种状态出现，并用实心与空心、实心条与半填条做**非颜色冗余**。餐次进度用三段条（不用圆环），解释/洞察类卡片一律**可收起**且状态存本机。双色只保留在品牌位（两仪标志的两极、顶栏与英雄区渐变）。7 条路由 281 个文本节点实测 0 项 WCAG AA 失败
-- **克制的表面与排版**：`body` 一层固定顶光 + `feTurbulence` 颗粒（opacity .018），标题走 `--font-display` 光学字体栈与负字距，大号数字统一 `tabular-nums`（零依赖，纯 CSS 令牌驱动）
 - **响应式设计**: 断点已定义（移动/平板/桌面），未在真实设备上逐一验证
-- **双模式支持**: ✅ 侧边栏与设置页切换都先展示差异与未完成计划、确认后才生效；运动员模式已接入距离/时长与 session-RPE 负荷、四周周期视图与训练日用餐时间线（周期计划的跨端录入仍待后端）
+- **双模式支持**: ✅ **页头模式芯片**与设置页切换都先展示差异与未完成计划、确认后才生效；运动员模式已接入距离/时长与 session-RPE 负荷、四周周期视图与训练日用餐时间线（周期计划的跨端录入仍待后端）
 - **无障碍**: ⚠️ 布局与关键控件带 ARIA（抽屉 `aria-expanded`、模式菜单 `role=menu`、演示播报 `aria-live`），但"完整键盘导航"未整体核对
 - **跟练计数**: 实时摄像头分支由端侧关键点状态机驱动计数（含机位校准、遮挡冻结与手工修正）；另有预设时间线的"演示回放"供无设备时讲解，界面标注当前计数来源
 
@@ -73,15 +73,16 @@ UI/
 │   └── fetch-camera-assets.mjs  # 拉取端侧推理资产
 ├── src/
 │   ├── components/
-│   │   ├── common/          # BaseButton / BaseCard / MetricCard / StatusBadge / ToastRegion
-│   │   └── layout/          # AppShell / TopBar / SidebarNav / MobileNav
-│   ├── composables/         # usePoseCamera.ts（MediaPipe 端侧姿态识别：骨架、可见度、关节角）
+│   │   ├── common/          # BaseButton / BaseCard / StatusBadge / InsightCard / ToastRegion
+│   │   │                    # + TwoPoleDial（双极环）/ StatStrip（指标条）/ ShapeState（三态形状）
+│   │   └── layout/          # AppShell / TopBar（58px 纸面页头，含模式芯片）/ SidebarNav（86px 图标脊）/ MobileNav
+│   ├── composables/         # usePoseCamera.ts + poseEngine.ts + poseInference.worker.ts（端侧姿态识别：worker/GPU 推理、骨架、可见度、关节角）· useRepCounter.ts（计数状态机）· useFoodPhoto.ts
 │   ├── views/               # 7 个页面均有实际界面（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）
 │   ├── stores/              # app.ts（mode、profile、sessions、meals、privacy、toast）
 │   ├── services/            # demoCameraService（演示时间线）· mealRules（餐食结构规则）· planRules（计划单一来源）· weekRules（周报聚合与负荷）
 │   ├── types/               # domain.ts
 │   ├── utils/               # id.ts（非安全上下文 ID 兜底）、time.ts（日期/问候/日历偏移）
-│   ├── styles/              # tokens.css / globals.css / animations.css / gradients.css
+│   ├── styles/              # tokens.css（UI 3.0 令牌）/ globals.css（.micro .num .hairline）/ animations.css / gradients.css（只剩回放扫光）
 │   ├── router/              # index.ts（7 条路由，全部懒加载）
 │   ├── App.vue
 │   └── main.ts
@@ -91,16 +92,16 @@ UI/
 └── tsconfig.json
 ```
 
-> 仓库根另有 `brand/`（品牌标记的浅底/深底 SVG）。`components/journey|training|meals|reports/` 仍不存在——那是早期交付文档设想的规划结构，未落地。
+> 仓库根另有 `brand/`（品牌标记的浅底/深底 SVG）与 `redesign-shots/`（改版前后的真机截图）。`components/journey|training|meals|reports/` 仍不存在——那是早期交付文档设想的规划结构，未落地。
 
 ## 🎯 核心功能
 
 以下逐项标注真实状态。✅ 已实现 · ⚠️ 部分实现 · ❌ 未实现（仅设计目标）
 
 ### 1. 双模式系统
-- ✅ 侧边栏"当前模式"下拉可切换，切换即写入 localStorage 并弹出 Toast
-- ⚠️ **大众模式**: Dashboard / Plan 有两种模式的展示分支，但展示数据仍为硬编码
-- ⚠️ **运动员模式**: 仅 Hero 区文案与指标数字不同；周期计划、负荷追踪、RPE 记录未实现
+- ✅ **页头右侧的模式芯片**可切换（UI 3.0 从侧栏迁来），切换前先列差异与未完成计划，确认后写入 localStorage 并弹 Toast
+- ✅ **大众模式**: 概览、计划、周报、饮食四处的取数与文案都按模式分支，数据来自本机 store
+- ✅ **运动员模式**: 除了文案与指标，还接了周期阶段、四周周期视图、session-RPE 负荷、距离/时长与训练日用餐时间线
 - ❌ 差异对比对话框、切换前的历史数据保留说明
 
 ### 2. 训练计划
@@ -114,7 +115,7 @@ UI/
 
 ### 3. 摄像头跟练
 - ✅ **实时摄像头（半真）**: "实时摄像头"chip 走 MediaPipe 端侧推理，把真实骨架、关键点可见度与膝/髋/肘角度叠在画面上；权限被拒或无设备时自动退回"演示回放"
-- ❌ **识别与计数尚未联动**: 实时模式下计数仍由下面的演示时钟推进，舞台下方提示语已明确写出这一点
+- ✅ **识别与计数已联动**: 实时模式下计数由 `useRepCounter` 的关节角状态机驱动（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），并支持机位校准；界面明确标注当前计数来源
 - ✅ **演示模式**: `requestAnimationFrame` 增量回放预设计数事件
 - ✅ 两个动作都有入口（页内 chip 与 `?exercise=` 查询参数）：坐站 2×8、弯举 2×10
 - ✅ 组数会推进，组间 6 秒休息倒计时，进度条按 组数 + 本组次数 计算
@@ -134,7 +135,11 @@ UI/
 - ✅ 热量只在设置里打开"显示热量粗估"时出现（**默认关闭**），且一律是区间 + 来源：`≈80–135 kcal`，并标注"内置演示参考值（未与权威成分表核对）· 单位→克数为演示假设 · ±25% · 未计入烹调油"。份量没填或食物不在参考表内 → 不显示，而不是给个 0
 - ✅ `hasNutritionEstimate` 改为按次标记（打开且至少一项可估才为 `true`），`estimateRefs` 随记录持久化
 - ✅ 没记录的餐次显示"未记录"，概览与周报同一口径
-- ❌ 没有食物库/模糊搜索；识别覆盖仅 9 类（中餐大多认不出）；没有运动员模式的训练日营养时间线
+- ✅ **食物库与搜索**：`foodComposition.searchFoods()` 过 56 条内置目录（名称/类别命中，空关键字不预置候选），混合菜另有 22 条；目录没收录的词直接提示"回上面填名字也能记，只是不出热量粗估"
+- ✅ **常吃**：`frequentFoods()` 按目录规范名归并本机历史，点一下就把名称/类别/份量填进表单
+- ✅ **单位↔克数**：行内可把"1 碗"改成 280 g，先只影响本行，点"记住"才按 `食物|单位` 落本机、可撤销
+- ✅ **运动员模式的训练日用餐时间线**：把当天餐次与训练按时间排在一起（`MealsView` 的 timeline 卡）
+- ⚠️ 识别覆盖仅 9 类（中餐大多认不出）——这是模型能力边界，不是坏了
 
 ### 5. 数据完整性
 - ✅ `Meal` / `MealItem` / `MealAnalysis` / `WeeklyReport` / `PrivacySettings` / `SessionFeedback` / `TrainingSession` / `PlanItem` / `AlternativeExercise` 都由真实数据流消费；只剩 `CameraSession`、`PoseFrame`、`PlanAdjustment`、`PlanChange` 停留在定义层
@@ -151,7 +156,7 @@ UI/
 
 ### 7. 周报（Report）
 - ✅ 按周（周一起算）聚合本机记录：计划场次 / 有记录场次 / 总时长 / 负荷合计 / 餐食记录数，可翻上一周与下一周
-- ✅ 内联 SVG 图表，零图表库依赖：每日负荷条形图（已计算=渐变实心、缺 RPE=斜纹、未记录=浅灰）+ 8 类食物出现次数横条
+- ✅ 内联 SVG / 纯 CSS 图表，零图表库依赖：每日负荷条形图（已计算＝实心、缺 RPE＝斜纹、**未记录＝只描边而不画 0**）+ 8 类食物出现次数点阵
 - ✅ 训练明细表含时长、次数/组数、RPE、负荷与完成状态；无记录时是空白状态而不是 0
 - ✅ "这份报告没说的三件事"：列出缺 RPE 的条目、计划与实际的差距、餐食未记录的天数与规则版本
 
@@ -162,21 +167,23 @@ UI/
 - ✅ 清除全部数据：两步确认（不用 `window.confirm`），清空档案/模式/训练/餐食/偏好，完成后按钮回到禁用态
 - ⚠️ 诚实标注的两个"当前无实际效果"的偏好：`saveVideoLocally`（本版本没有录制功能）、`dataRetentionDays`（没有自动清理逻辑）
 
-## 🎨 设计系统
+## 🎨 设计系统（UI 3.0「编辑式仪表盘」）
+
+> 这一节此前写的是 Navy / Teal / Blue 三色与"渐变增强"。那套在第十一轮就废弃了，第十八轮又把纸面、圆角、字体整体换掉。以下为当前值，令牌以 `src/styles/tokens.css` 为准。
 
 ### 颜色
-- Navy: `#16334b` - 主导航和标题
-- Teal: `#087e80` - 主操作和积极进度
-- Blue: `#2468a0` - 计划对比和次要强调
-- Background: `#f2f6f9` - 页面背景
+- 纸面 `--color-bg: #f2f1ec` · 卡 `--color-card: #ffffff` · 墨 `--color-ink: #11161a`
+- 强调色 `--color-accent: #0f766e`（全站唯一）；第二极 `--color-brand-pole-b: #24586f` 只给"饮食"这条数据线
+- 发丝线三档 `--hair / --hair-soft / --hair-strong`（rgba(17,22,26,.10 / .06 / .18)）
+- 深色主题整组覆盖同名令牌：底 `#14171a`、卡 `#1c2126`、强调 `#3ec9b6`（前景翻深字 `#08201d`）
 
-### 渐变增强
-- 导航栏: Navy渐变背景
-- 按钮: Teal渐变填充，hover时位移和缩放
-- 卡片: 悬停时渐变边框发光
-- 图表: 渐变填充条形图
+### 表面与排版
+- 表面只有两种：纸面（`BaseCard` 的 `default` / `flush`）与仪表面（`variant="ink"`）；面板内距走 `--card-pad`，父子组件不再抢 `padding`
+- 字体：正文系统字族；数字与小标签走 `--font-num`（Bahnschrift → DIN 骨架）
+- 圆角 6 / 8 / 10 / 12 / 16；投影只留给弹层、Toast 这类真的浮起来的东西
+- 布局：`--sidebar-width: 86px` 图标脊 + `--topbar-height: 58px` 纸面页头 + ≤767px 浮动胶囊底栏
 
-### 动画时序
+### 动效时序
 - Fast (150ms): Hover状态、焦点环
 - Base (250ms): 页面切换、模态框
 - Slow (400ms): 进度与位移过渡
@@ -195,8 +202,8 @@ UI/
 ## 📱 响应式断点
 
 - **Mobile**: < 768px - 底部 4 Tab（今日 / 记录 / 图表 / 我的，选中项带 `aria-current`，触控目标实测 64×57px）+ 汉堡抽屉（计划、跟练等完整导航仍在抽屉里；遮罩可关闭，选中导航项自动收起），垂直堆叠卡片
-- **Tablet**: 768px - 1099px - 侧边栏收起为抽屉，双列卡片
-- **Desktop**: ≥ 1100px - 固定侧边栏，多列布局
+- **Tablet**: 768–1099px - 图标脊收起为 **244px 抽屉**；汉堡按钮与抽屉**同档出现**（这是第十八轮修掉的旧 bug：此前 768–1099 之间没有任何导航入口）
+- **Desktop**: ≥ 1100px - 固定 **86px 图标脊**（文字标签 10px，`title` 给全称），内容区多列布局
 
 ## ♿ 无障碍现状
 
@@ -217,8 +224,22 @@ UI/
 
 ## 🔄 摄像头识别现状与剩余工作
 
-### 已接入：端侧姿态识别（显示层）
-`src/composables/usePoseCamera.ts` 已把 MediaPipe Tasks Vision 跑通：`FilesetResolver.forVisionTasks('/mediapipe/wasm')` + `PoseLandmarker`（`pose_landmarker_lite.task`，CPU delegate，VIDEO 模式，numPoses=1），用 `detectForVideo(video, performance.now())` 逐帧取 33 个关键点，`DrawingUtils` 把骨架与连线画到与视频同尺寸的 canvas 上（画面与叠加层都 `scaleX(-1)` 镜像），并算出膝/髋/肘三个关节角与关键点平均可见度。**画面不出本机，无上传。**
+### 已接入：端侧姿态识别 → 计数联动
+
+`useRepCounter` 以关节角序列驱动计数（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），支持机位校准；`demoCameraService` 的预设时间线只在演示回放分支上用，界面标明计数来源。
+
+推理管线（本轮改造，`npm run build` 后实测）：
+
+- **取帧**：`video.requestVideoFrameCallback()` 一帧一次回调，喂给 `detectForVideo` 的时间戳用**帧自己的媒体时间**（`metadata.mediaTime`），RVFC 不可用时回落 rAF + `video.currentTime` 去重；重复帧直接跳过，不再靠墙钟猜。
+- **推理落点**：优先经典 worker（`composables/poseInference.worker.ts`），每帧 `createImageBitmap(video)` transfer 过去、推理完 `bitmap.close()`；worker 起不来或单次推理超 2 秒时，**自动回落主线程推理**，不退回演示回放。
+- **后端**：`delegate: 'GPU'` 绑一块专用 `OffscreenCanvas`（`VisionTaskOptions.canvas`），初始化或推理抛错就重建为 CPU。实测 worker 内 GPU 生效（console：`GL version: 3.0 (WebGL 2.0 …)` + `Graph successfully started running`）。实际生效的后端与推理落点如实显示在跟练页状态文案里。
+- **绘制仍留主线程**：`DrawingUtils` 要的是 DOM canvas 的 2D 上下文与现有 CSS 镜像（画面与叠加层都 `scaleX(-1)`）。**画面不出本机，无上传。**
+
+两条已知边界：
+
+- ⚠️ **`npm run dev` 下走的是主线程回落**：module worker 里 `importScripts` 不可用，而 Vite 不把 `public/` 里的 wasm glue 当模块解析（对 `/mediapipe/wasm/vision_wasm_internal.js?import` 返回 500）。功能不减，但线程收益只有 `npm run build && npm run preview` 才拿得到。
+- ⚠️ 本环境无摄像头，RVFC 的取帧分支与真机 FPS、计数准确率**均未实测**（`plan.md` §5.1）。
+- ✅ 修掉一个真 bug：可见度原来把 11–27 共 17 个关键点的 `visibility` 求和后除以 6，能到 2.8，使状态机的遮挡门控恒成立；现改为参与算角的 6 点均值，`npm run selfcheck` 第 8 节有断言。
 
 准备资产（一次性，产物不入库）：
 ```bash
@@ -227,14 +248,6 @@ npm run camera:assets
 ```
 
 运行前提：`https` 或 `localhost`。用 `vite --host` 得到的局域网 http 地址里 `navigator.mediaDevices` 不存在，会走 "unsupported" 分支并退回演示模式。
-
-### 尚未接入：识别 → 计数联动
-现在计数仍由 `demoCameraService.ts` 的预设时间线推进，页面提示语已明说"两者尚未联动"。要做真计数还需要：
-
-1. 以关节角序列写状态机（如坐站：膝角 >160° 视为站立、<100° 视为坐下，一次 down→up 记 1 次；需带迟滞与最短间隔，避免抖动重复计数）
-2. 用 `visibility` 做门控：关键点不可见或人半身出镜时暂停计数（对应产品要求"不输出姿势安全结论"）
-3. 用真实的开始/结束时间替换 `tick()` 里的事件回放，保留已经测过的暂停补偿与组数逻辑
-4. 在真机上按人群调阈值（小幅动作最容易误计数）
 
 ### 后端API集成
 `src/services/` 现在是四个纯本机模块（`demoCameraService`、`mealRules`、`planRules`、`weekRules`），**没有 API 层、没有请求客户端、没有错误与加载态处理**，所有数据只进 localStorage。
@@ -262,17 +275,18 @@ npm run camera:assets
 - 展示用的训练/饮食数字仍是视图内的硬编码常量，只有跟练结果进入 store
 
 ### 样式约定
-- 优先使用CSS变量（`var(--color-teal)`）
-- 组件内使用scoped样式
-- 复用tokens.css中的设计令牌
-- 渐变效果使用gradients.css中的类
-- ⚠️ 同一个元素别既挂全局动画工具类（`.animate-*`、`.gradient-animated`）又在 scoped 里写 `animation`/`background` 简写：两者都是简写属性，`gradients.css` 在 `animations.css` 之后加载会整条覆盖，`background` 简写还会把 `background-size` 重置回 `auto`。要多段动画就在同一处用逗号并列（见 `DashboardView` 的 `.hero`）
+- 优先使用 CSS 变量（如 `var(--color-ink)`、`var(--hair)`、`var(--radius-md)`）
+- 组件内使用 scoped 样式
+- 复用 `tokens.css` 中的设计令牌；面板内距用 `--card-pad`，不要和 `BaseCard` 抢 `padding`
+- 需要深色仪表面板时用 `BaseCard variant="ink"`，不要自己再写一套网格与渐变
+- `gradients.css` 现在只剩跟练回放边框那一条 `.gradient-shimmer`，没有背景类可"顺手加个渐变"
+- ⚠️ 同一个元素别既挂全局动画工具类（`.animate-*`）又在 scoped 里写 `animation` 简写：两者都是简写属性，会被整条覆盖。要多段动画就在同一处用逗号并列
 
 ## 🧪 测试建议
 
 ### 手动测试清单
 
-> 本轮（2026-10-16）在浏览器里逐项目测过的标 ✅；未跑过的保持 [ ]，其中"深色模式"根本没有这个功能。
+> 2026-10-16 那轮在浏览器里逐项目测过的标 ✅；未跑过的保持 [ ]。**深色模式已经实现（第十六轮，三态：跟随系统/浅色/深色）**，第十八轮又跟着新令牌重新取值。
 
 - [x] 建档三步流程（校验、回顾、写入 localStorage）
 - [x] 模式切换生效并落盘（含运动员模式展示分支）
@@ -281,8 +295,9 @@ npm run camera:assets
 - [x] 餐食：录入、部分记录判定、类别与缺失类别、删除
 - [x] 周报：计划 vs 实际、负荷条与"缺 RPE"斜纹、翻页、数据质量说明
 - [x] 设置：隐私开关（含跟练页置灰联动）、CSV 导出、两步确认清除
-- [ ] 响应式在 375px / 真实移动设备上（仅测过 723px 与隐藏页）
-- [ ] 键盘导航完整、WCAG AA 对比度
+- [ ] 响应式在 375px / 真实移动设备上（仅测过 723px 与隐藏页；第十八轮补了 1440 / 1024 / 390 三个断点的无头截图，但不是真机）
+- [x] 深色主题（第十六轮：7 页 388 个文本节点 0 项 AA 失败；浅色同样 0 项）
+- [ ] 键盘导航完整（对比度已由深色审计覆盖，键盘路径未逐项点过）
 - [ ] 真实摄像头下的骨架对齐与关节角数值（本环境无设备）
 
 ### 浏览器测试
@@ -303,4 +318,10 @@ npm run camera:assets
 
 ---
 
-**注意**: 这是一个无后端的本机演示前端。7 个页面都有实际界面；档案、模式、训练与反馈、餐食记录、隐私偏好都存在 localStorage。主要缺口：①姿态识别与计数尚未联动；②计划调整只在界面层生效；③推荐口径未按档案真正计算。
+**注意**: 这是一个无后端的本机演示前端。7 个页面都有实际界面；档案、模式、训练与反馈、餐食记录、隐私偏好都存在 localStorage。
+视觉为 UI 3.0（纸面 + 单一强调色 + 双极仪表），静态外观以 `../redesign-shots/` 的真机截图为唯一事实来源。
+主要缺口：
+
+1. **真机摄像头未验证**——姿态识别与计数**已经联动**（`useRepCounter` 由关节角驱动），但没有在任何真机上量过计数准确率。
+2. **计划调整只在界面层生效**，且旧版本只在 `planHistory` 里可看、没有回滚入口。
+3. **推荐口径未按档案真正计算**：`planRules` 会按器材/场地/时长/禁忌过滤动作库，但"为什么给你这份计划"的那段文字仍是规则拼出来的，不是模型推的。

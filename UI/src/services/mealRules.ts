@@ -1,6 +1,6 @@
 // 餐食记录的结构规则：只判断"类别是否出现"，不推断摄入量、不评价健康程度。
 import type { FoodCategory, Meal, MealAnalysis, MealCompleteness, MealItem } from '@/types/domain'
-import { ESTIMATE_BAND, FOOD_CATALOG_VERSION, inferCategory, isMixedFood } from './foodComposition'
+import { ESTIMATE_BAND, findFood, FOOD_CATALOG_VERSION, inferCategory, isMixedFood } from './foodComposition'
 
 export const RULE_VERSION = 'diet-rules-v2'
 
@@ -137,4 +137,48 @@ export function summarizeDay(meals: Meal[], date: string): DaySummary {
     missing: EXPECTED_CATEGORIES.filter(c => !present.has(c)),
     snackCount: ofDay.filter(m => m.mealType === 'snack').length
   }
+}
+
+export interface FrequentFood {
+  /** 目录里的规范名；目录没收录的就用用户当时写的名字 */
+  name: string
+  category: FoodCategory
+  portionSize?: number
+  portionUnit: string
+  count: number
+  lastDate: string
+}
+
+/**
+ * 常吃：把本机历史条目按目录规范名归并（"苹果（半个）"与"苹果"算同一条），
+ * 出现次数多的排前面，份量沿用最近一次那条记录。混合菜不进常吃——它们的类别与热量本就待确认。
+ */
+export function frequentFoods(meals: Meal[], limit = 8): FrequentFood[] {
+  const map = new Map<string, FrequentFood>()
+  for (const meal of meals) {
+    for (const item of meal.items) {
+      const std = findFood(item.foodName)?.name ?? item.foodName.trim()
+      if (!std || isMixedFood(std)) continue
+      const hit = map.get(std)
+      if (hit) {
+        hit.count += 1
+        if (meal.date > hit.lastDate) {
+          hit.lastDate = meal.date
+          hit.category = item.category
+          hit.portionSize = item.portionSize
+          hit.portionUnit = item.portionUnit ?? '份'
+        }
+      } else {
+        map.set(std, {
+          name: std,
+          category: item.category,
+          portionSize: item.portionSize,
+          portionUnit: item.portionUnit ?? '份',
+          count: 1,
+          lastDate: meal.date
+        })
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count || b.lastDate.localeCompare(a.lastDate)).slice(0, limit)
 }

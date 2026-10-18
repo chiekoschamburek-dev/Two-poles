@@ -148,6 +148,26 @@ ul, ol {
   padding-right: var(--space-6);
 }
 
+/* 小标签：10px + 大字距，是这套版面的节奏来源；Latin/数字走 Bahnschrift，中文自动回退 */
+.micro {
+  font-family: var(--font-num);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 等宽数字：所有"量"都用它，比较两组数字时字宽不跳 */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.hairline { height: 1px; background: var(--color-divider); border: 0; }
+
 .visually-hidden {
   position: absolute;
   width: 1px;

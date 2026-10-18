@@ -3,10 +3,11 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { buildDayPlan, alternativesFor, isPlanDay, AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
 import { buildWeeklyReport, loadOf, weekStart } from '@/services/weekRules'
-import { analyzeMeal, buildLimitations, deriveCompleteness, suggestCategory, RULE_VERSION } from '@/services/mealRules'
-import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL } from '@/services/foodComposition'
+import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, suggestCategory, RULE_VERSION } from '@/services/mealRules'
+import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
 import { activeExercises, exercises, gateReason } from '@/services/exercises'
 import { useRepCounter } from '@/composables/useRepCounter'
+import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
 import type { MealItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
@@ -200,9 +201,68 @@ ok('自动推荐年龄门槛导出', AUTO_RECOMMEND_MIN_AGE === 18)
 const persisted = JSON.parse(mem.get('twopoles_state') || '{}')
 ok('计划与历史一起落盘', persisted.plans?.length === 2 && persisted.planHistory?.length === 3,
   `plans=${persisted.plans?.length} history=${persisted.planHistory?.length}`)
+ok('切换记录一起落盘（刷新后不丢）', Array.isArray(persisted.modeLog) && persisted.modeLog.length === 1,
+  `modeLog=${persisted.modeLog?.length}`)
 
 store.clearAllData()
 ok('清除数据连带计划与切换记录', store.plans.length === 0 && store.planHistory.length === 0 && store.modeLog.length === 0 && !mem.has('twopoles_state'))
+
+console.log('\n7. P1-6 记录入口与「单位↔克数」换算')
+const demoUnit = resolveUnitGrams('苹果', '个')
+ok('没填过口径时按演示假设', !!demoUnit && demoUnit.grams === 100 && demoUnit.own === false)
+ok('目录没有的单位不换算', resolveUnitGrams('苹果', '勺') === null)
+const ownMap = { [unitKey('苹果', '个')]: 120 }
+const ownUnit = resolveUnitGrams('苹果', '个', ownMap)
+ok('本机口径覆盖演示假设', !!ownUnit && ownUnit.grams === 120 && ownUnit.own === true)
+const plain = estimateEnergy({ foodName: '苹果', portionSize: 1, portionUnit: '个' })
+const tuned = estimateEnergy({ foodName: '苹果', portionSize: 1, portionUnit: '个', unitGrams: ownMap })
+ok('口径改变估算克数与区间', !!plain && !!tuned && plain.grams === 100 && tuned.grams === 120 && tuned.low > plain.low)
+ok('口径来源写进 basis 供界面显示', !!plain && !!tuned && plain.basis.includes('演示假设') && tuned.basis.includes('本机口径'))
+ok('单位本来就是克时不算假设', estimateEnergy({ foodName: '苹果', portionSize: 100, portionUnit: '克' })?.basis.includes('按克记录') === true)
+ok('目录搜索命中名称与类别', searchFoods('米饭').some(f => f.name === '米饭') && searchFoods('水果类').length > 0)
+ok('空关键字不预置一屏候选', searchFoods('').length === 0)
+ok('目录没有的词返回空而不是硬塞近似条目', searchFoods('螺蛳粉').length === 0)
+
+store.updatePrivacy({ showEnergyEstimate: true })
+store.addMeal({
+  date: '2026-10-12', mealType: 'breakfast', time: '08:00',
+  items: [
+    { foodName: '苹果（半个）', category: '水果类', portionSize: 1, portionUnit: '个' },
+    { foodName: '饺子', category: '其他', portionSize: 1, portionUnit: '盘' }
+  ]
+})
+store.addMeal({ date: '2026-10-14', mealType: 'lunch', time: '12:00', items: [{ foodName: '苹果', category: '水果类', portionSize: 2, portionUnit: '个' }] })
+const freq = frequentFoods(store.meals)
+ok('常吃按目录规范名归并写法', freq.length === 1 && freq[0].name === '苹果' && freq[0].count === 2, JSON.stringify(freq))
+ok('常吃沿用最近一次的份量', freq[0].portionSize === 2 && freq[0].lastDate === '2026-10-14')
+ok('混合菜不进常吃', !freq.some(f => f.name === '饺子'))
+store.rememberUnitGrams('苹果', '个', 120)
+const recorded = store.addMeal({ date: '2026-10-15', mealType: 'dinner', time: '19:00', items: [{ foodName: '苹果', category: '水果类', portionSize: 1, portionUnit: '个' }] })
+const ref0 = recorded.analysis?.estimateRefs?.[0]
+ok('落库的估算带上本机口径', ref0?.unitOwn === true && ref0?.grams === 120 && !!ref0?.basis.includes('本机口径'))
+ok('换算口径随状态一起落盘', JSON.parse(mem.get('twopoles_state') || '{}').unitGrams?.[unitKey('苹果', '个')] === 120)
+ok('撤销本机口径后退回演示假设', store.forgetUnitGrams('苹果', '个') && resolveUnitGrams('苹果', '个', store.unitGrams)?.own === false)
+store.rememberUnitGrams('苹果', '个', 120)
+store.clearAllData()
+ok('清除数据也抹掉换算口径', Object.keys(store.unitGrams).length === 0)
+
+console.log('\n8. 姿态几何与帧时间戳（F05 端侧推理）')
+type Lm = { x: number; y: number; z: number; visibility?: number }
+const body = (over: Record<number, Partial<Lm>> = {}): Lm[] =>
+  Array.from({ length: 33 }, (_, i) => ({ x: 0, y: 0, z: 0, visibility: 0.9, ...(over[i] ?? {}) }))
+const straight = body({ 23: { x: 0.5, y: 0.2 }, 25: { x: 0.5, y: 0.5 }, 27: { x: 0.5, y: 0.8 } })
+const bent = body({ 23: { x: 0.5, y: 0.2 }, 25: { x: 0.5, y: 0.5 }, 27: { x: 0.8, y: 0.5 } })
+const elbowRight = body({ 11: { x: 0.3, y: 0.2 }, 13: { x: 0.3, y: 0.5 }, 15: { x: 0.6, y: 0.5 } })
+ok('腿伸直时膝角 180°', computeMetrics(straight).kneeAngle === 180, String(computeMetrics(straight).kneeAngle))
+ok('屈膝成直角时膝角 90°', computeMetrics(bent).kneeAngle === 90, String(computeMetrics(bent).kneeAngle))
+ok('前臂水平时肘角 90°', computeMetrics(elbowRight).elbowAngle === 90)
+ok('关键点不足 28 个时不出角度', computeMetrics(body({}).slice(0, 27)).kneeAngle === null)
+const dim = body(Object.fromEntries([11, 13, 15, 23, 25, 27].map(i => [i, { visibility: 0.4 }])))
+ok('可见度取参与算角的 6 点均值且不超过 1', Math.abs(computeMetrics(dim).visibility - 0.4) < 1e-9, String(computeMetrics(dim).visibility))
+ok('三点重合时不给角度', angleAt({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }) === null)
+ok('重复帧时间戳被跳过', nextTimestamp(100, 100) === null)
+ok('新帧时间戳单调放行', nextTimestamp(120, 100) === 120)
+ok('非有限值不当成新帧', nextTimestamp(NaN, 0) === null && nextTimestamp(0, 0) === null)
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1
