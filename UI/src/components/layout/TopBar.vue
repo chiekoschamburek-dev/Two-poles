@@ -22,7 +22,7 @@
     <div class="right">
       <!-- 模式是全局上下文，跟"今天在看哪一页"无关，所以放在页头而不是导航脊 -->
       <div class="mode-wrap">
-        <button class="mode" :class="{ open: modeOpen }" aria-haspopup="menu" :aria-expanded="modeOpen" @click="toggleMode">
+        <button ref="modeBtn" class="mode" :class="{ open: modeOpen }" aria-haspopup="menu" :aria-expanded="modeOpen" @click="toggleMode">
           <i class="dot"></i>
           <span>{{ currentLabel }}</span>
           <b v-if="isAthlete && cycleWeek">W{{ cycleWeek }}</b>
@@ -61,7 +61,7 @@
                 </div>
               </div>
               <div class="pop-actions">
-                <button class="btn-primary" @click="confirm">确认切换</button>
+                <button ref="confirmBtn" class="btn-primary" @click="confirm">确认切换</button>
                 <button class="btn-ghost" @click="cancel">取消</button>
               </div>
             </template>
@@ -76,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { Menu, ChevronDown } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
@@ -89,6 +89,8 @@ defineEmits<{ (e: 'toggle-menu'): void }>()
 const router = useRouter()
 const store = useAppStore()
 const modeOpen = ref(false)
+const modeBtn = ref<HTMLButtonElement | null>(null)
+const confirmBtn = ref<HTMLButtonElement | null>(null)
 const dateLabel = shortDate(new Date())
 const initial = computed(() => store.userProfile?.nickname?.trim()?.charAt(0) || '我')
 
@@ -124,16 +126,32 @@ function request(id: Mode) {
 function confirm() {
   store.confirmModeSwitch()
   modeOpen.value = false
+  // 确认后弹出的分支已被移除，焦点还给触发它的模式按钮，而不是掉到页面开头
+  nextTick(() => modeBtn.value?.focus())
 }
 
 function cancel() {
   store.cancelModeSwitch()
+  nextTick(() => modeBtn.value?.focus())
 }
+
+// 选完模式后选项按钮会被确认分支替换；把焦点交给「确认切换」，键盘可以直接继续
+watch(preview, async (p) => {
+  if (!p) return
+  await nextTick()
+  confirmBtn.value?.focus()
+})
 
 /** 点外面收起：一个全局上下文菜单不该要求用户再点一次按钮才能关 */
 function onDocClick(e: MouseEvent) {
-  const el = e.target as HTMLElement | null
-  if (modeOpen.value && !el?.closest('.mode-wrap')) toggleMode()
+  if (!modeOpen.value) return
+  // 选中某个模式后，Vue 会在同一个 click 冒泡到 document 之前把列表换成"确认"分支，
+  // 被点的按钮已经脱离 DOM，closest('.mode-wrap') 会误判成"点了外面"。
+  // composedPath() 在事件派发时固定，不受重渲染影响。
+  const inside = e.composedPath().some(
+    node => node instanceof Element && node.classList.contains('mode-wrap')
+  )
+  if (!inside) toggleMode()
 }
 function onEsc(e: KeyboardEvent) {
   if (e.key === 'Escape' && modeOpen.value) toggleMode()
