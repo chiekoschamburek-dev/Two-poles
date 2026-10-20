@@ -87,7 +87,12 @@ function llmProxy(defaults: DefaultLlm): Plugin {
     if (!messages.length) return send(400, { error: '缺少 messages' })
 
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 90_000)
+    // 识图客户端最多等 2 分钟；代理多留 30 秒，避免代理先于客户端截断
+    const timer = setTimeout(() => controller.abort(), 150_000)
+    // 前端取消/关闭时中止上游请求，避免模型继续算一张没人要的照片
+    res.on('close', () => {
+      if (!res.writableEnded) controller.abort()
+    })
     try {
       const upstream = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
@@ -120,7 +125,7 @@ function llmProxy(defaults: DefaultLlm): Plugin {
       if (typeof content !== 'string' || !content.trim()) return send(502, { error: '上游没有返回 content' })
       return send(200, { text: content, model: data?.model ?? model })
     } catch (e) {
-      const msg = e instanceof Error ? (e.name === 'AbortError' ? '请求超时（90 秒）' : e.message) : String(e)
+      const msg = e instanceof Error ? (e.name === 'AbortError' ? '请求超时（150 秒）' : e.message) : String(e)
       return send(502, { error: `转发失败：${msg}` })
     } finally {
       clearTimeout(timer)

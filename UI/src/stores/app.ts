@@ -36,6 +36,8 @@ export interface NewMealInput {
     uncertain?: boolean
     modelEnergy?: ModelEnergyEstimate
   }[]
+  /** 仅本机保存的压缩缩略图；不传则只保存识别结果 */
+  photoThumb?: string
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -49,7 +51,8 @@ export const useAppStore = defineStore('app', () => {
     saveVideoLocally: false,
     dataRetentionDays: 90,
     exportFormat: 'json',
-    showEnergyEstimate: false
+    showEnergyEstimate: false,
+    saveFoodPhotoLocally: true
   })
   const toasts = ref<Toast[]>([])
   const initialized = ref(false)
@@ -62,6 +65,8 @@ export const useAppStore = defineStore('app', () => {
   const planHistory = ref<Plan[]>([])
   /** 本机自定的"1 单位 = 几克"，key 见 unitKey()；没填的单位退回演示假设 */
   const unitGrams = ref<Record<string, number>>({})
+  /** 存储写满只提示一次，避免每次操作都弹同一个错误 */
+  let quotaWarned = false
 
   // === Computed ===
   const isPublicMode = computed(() => currentMode.value === 'public')
@@ -137,7 +142,22 @@ export const useAppStore = defineStore('app', () => {
       modeLog: modeLog.value,
       unitGrams: unitGrams.value
     }
-    localStorage.setItem('twopoles_state', JSON.stringify(state))
+    try {
+      localStorage.setItem('twopoles_state', JSON.stringify(state))
+      quotaWarned = false
+    } catch (error) {
+      console.error('Failed to persist state to localStorage:', error)
+      // 缩略图会让状态变大；写满时报出来，而不是静默以为已保存
+      if (!quotaWarned) {
+        quotaWarned = true
+        showToast({
+          type: 'error',
+          title: '本机存储写入失败',
+          message: '可能是饮食照片缩略图占满了浏览器存储。可在设置里关闭缩略图保存，或先导出并清理旧记录。',
+          duration: 7000
+        })
+      }
+    }
   }
 
   /**
@@ -629,7 +649,8 @@ export const useAppStore = defineStore('app', () => {
       items,
       analyzed: !!analysis,
       analysis,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      photoThumb: input.photoThumb
     }
     meals.value.push(meal)
     persistState()
@@ -706,7 +727,7 @@ export const useAppStore = defineStore('app', () => {
     planHistory.value = []
     modeLog.value = []
     pendingSwitch.value = null
-    privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json', showEnergyEstimate: false }
+    privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json', showEnergyEstimate: false, saveFoodPhotoLocally: true }
     collapsedCards.value = []
     themePref.value = 'system'
     unitGrams.value = {}

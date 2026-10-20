@@ -209,6 +209,8 @@ export interface Meal {
   analyzed: boolean
   analysis?: MealAnalysis
   createdAt: string
+  /** 本机压缩缩略图（data URL）；旧记录没有这个字段 */
+  photoThumb?: string
 }
 
 /** 照片识别模型给出的粗估热量；不是权威成分表数值，只作可选展示 */
@@ -350,6 +352,8 @@ export interface PrivacySettings {
   exportFormat: 'json' | 'csv'
   /** 热量粗估默认关闭：单张照片估不出分量，只在用户主动打开时才显示区间 */
   showEnergyEstimate: boolean
+  /** 饮食记录里保存压缩缩略图（仅本机，用于回看这次拍的照片） */
+  saveFoodPhotoLocally: boolean
 }
 
 /** 三态而不是开关：调研指出"半适配深色"和"强制深色"都是高频差评，默认跟随系统 */

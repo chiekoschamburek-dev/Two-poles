@@ -124,6 +124,29 @@ async function dataUrlToCanvas(dataUrl: string): Promise<HTMLCanvasElement> {
   }
 }
 
+/** 记录列表里回看用的小缩略图：仅本机存储，不保留原图 */
+export const FOOD_THUMB_EDGE = 256
+
+export async function makeFoodThumbnail(dataUrl: string): Promise<string> {
+  const bitmap = await createImageBitmap(dataUrlToBlob(dataUrl))
+  try {
+    const scale = Math.min(1, FOOD_THUMB_EDGE / Math.max(bitmap.width, bitmap.height))
+    const width = Math.max(1, Math.round(bitmap.width * scale))
+    const height = Math.max(1, Math.round(bitmap.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('浏览器无法创建缩略图')
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    return canvas.toDataURL('image/jpeg', 0.7)
+  } finally {
+    bitmap.close()
+  }
+}
+
 const FOOD_RECOGNITION_SYSTEM = [
   '你是食物照片识别助手。只输出一个 JSON 对象，不要 Markdown 代码块，不要任何解释文字。',
   'JSON 结构：{"items":[{"foodName":"苹果","category":"水果类","portionSize":1,"portionUnit":"个","confidence":0.86,"uncertain":false,"energy":{"low":45,"high":70,"note":"按一个中等大小苹果粗估"}}]}',
@@ -140,35 +163,56 @@ const FOOD_RECOGNITION_SYSTEM = [
  * 通过项目现有的模型代理识别照片：设置页自定义模型优先，否则用服务端默认模型。
  * 模型必须支持 image_url 输入；不支持时会返回上游错误，由页面提示换模型或改本机识别。
  */
-export async function recognizeFoodWithModel(dataUrl: string, cfg: LlmConfig): Promise<FoodRecognitionResult> {
-  const res = await callLlmChat(cfg, [
-    { role: 'system', content: FOOD_RECOGNITION_SYSTEM },
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: '识别这张照片里的食物，只输出 JSON。' },
-        { type: 'image_url', image_url: { url: dataUrl } }
-      ]
+export async function recognizeFoodWithModel(
+  dataUrl: string,
+  cfg: LlmConfig,
+  signal?: AbortSignal
+): Promise<FoodRecognitionResult> {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, 120_000)
+  const forwardAbort = () => controller.abort()
+  if (signal?.aborted) controller.abort()
+  else signal?.addEventListener('abort', forwardAbort, { once: true })
+  try {
+    const res = await callLlmChat(cfg, [
+      { role: 'system', content: FOOD_RECOGNITION_SYSTEM },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '识别这张照片里的食物，只输出 JSON。' },
+          { type: 'image_url', image_url: { url: dataUrl } }
+        ]
+      }
+    ], { temperature: 0.1, signal: controller.signal })
+    if (timedOut) {
+      throw new FoodRecognitionError('模型识别超时（2 分钟）。可以重试、改用本机识别或手动补录。', 'upstream')
     }
-  ], { temperature: 0.1 })
-  if (res.error) {
-    const code: RecognitionErrorCode = res.error.includes('没有配置') || res.error.includes('缺少 base_url')
-      ? 'not_configured'
-      : res.error.includes('连不上本地代理') ? 'network' : 'upstream'
-    throw new FoodRecognitionError(res.error, code)
-  }
-  if (!res.text.trim()) {
-    throw new FoodRecognitionError('模型返回了空内容，没有生成记录。', 'empty')
-  }
-  const check = validateRecognitionText(res.text)
-  if (!check.items.length) {
-    throw new FoodRecognitionError(check.error, 'invalid_output', check.warnings)
-  }
-  return {
-    items: check.items,
-    provider: 'cloud',
-    model: res.model || cfg.model || '模型服务',
-    warnings: check.warnings
+    if (res.error) {
+      const code: RecognitionErrorCode = res.error.includes('没有配置') || res.error.includes('缺少 base_url')
+        ? 'not_configured'
+        : res.error.includes('连不上本地代理') ? 'network' : 'upstream'
+      throw new FoodRecognitionError(res.error, code)
+    }
+    if (!res.text.trim()) {
+      throw new FoodRecognitionError('模型返回了空内容，没有生成记录。', 'empty')
+    }
+    const check = validateRecognitionText(res.text)
+    if (!check.items.length) {
+      throw new FoodRecognitionError(check.error, 'invalid_output', check.warnings)
+    }
+    return {
+      items: check.items,
+      provider: 'cloud',
+      model: res.model || cfg.model || '模型服务',
+      warnings: check.warnings
+    }
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', forwardAbort)
   }
 }
 

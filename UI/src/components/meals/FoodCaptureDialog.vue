@@ -18,10 +18,10 @@
               <div>
                 <strong>{{ mode === 'cloud' ? '这张照片会发送到模型服务' : '照片只在本机识别' }}</strong>
                 <p v-if="mode === 'cloud'">
-                  识别服务：{{ cloudModelLabel }}。照片仅用于这一次识别；本应用不保存原图，保存记录时只保留识别结果。
+                  识别服务：{{ cloudModelLabel }}。照片会发送到该服务用于本次识别；本应用不保存原图。保存前可以选择在本机留一张缩略图。
                 </p>
                 <p v-else>
-                  照片只在浏览器里解码，不上传、不保存。本机模型只覆盖 {{ LOCAL_CLASS_COUNT }} 类常见食物，认不出时可手动补录。
+                  照片只在浏览器里解码，不上传。本应用不保存原图；保存前可以选择在本机留一张缩略图。本机模型只覆盖 {{ LOCAL_CLASS_COUNT }} 类常见食物，认不出时可手动补录。
                 </p>
               </div>
             </div>
@@ -79,9 +79,13 @@
           <div v-else-if="view === 'analyzing'" class="state processing" aria-live="polite">
             <img v-if="prepared" :src="prepared" alt="正在识别的食物照片" class="processing-img" />
             <span class="spin" aria-hidden="true"></span>
-            <p>{{ mode === 'cloud' ? '正在请求模型识别食物…' : '正在本机识别食物…' }}</p>
-            <small v-if="mode === 'cloud'">照片只用于这一次识别，不保存；通常几秒到半分钟。</small>
+            <p>{{ processingStage === 'reading'
+              ? '正在读取并压缩照片…'
+              : mode === 'cloud' ? '正在请求模型识别食物…' : '正在本机识别食物…' }}</p>
+            <small v-if="processingStage === 'reading'">大图先在本机压缩，尚未发送给模型。</small>
+            <small v-else-if="mode === 'cloud'">照片只用于这一次识别，不保存；通常几秒到半分钟，最长等待 2 分钟，可随时取消。</small>
             <small v-else>首次需要加载约 6.9 MB 模型；照片不会上传。</small>
+            <button type="button" class="text-btn processing-cancel" @click="cancelProcessing">取消识别</button>
           </div>
 
           <!-- 失败 -->
@@ -196,6 +200,14 @@
               <button type="button" class="add-row" @click="addRow"><Plus :size="15" /> 再加一项</button>
             </div>
 
+            <label v-if="!isManual && prepared" class="save-photo">
+              <input v-model="saveThumb" type="checkbox" />
+              <span>
+                <b>在记录里显示这张照片</b>
+                <small>只在本机保存一张压缩缩略图；这个选择也会作为以后记录的默认，可在设置里修改。</small>
+              </span>
+            </label>
+
             <div class="summary">
               <p v-if="filledItems.length">
                 <strong>本餐类别</strong>
@@ -224,7 +236,10 @@
 
             <p v-if="formError" class="error" role="alert">{{ formError }}</p>
             <p class="fine">
-              保存后本应用只保留识别结果，不保存原图；记录会出现在今天的列表里，刷新后仍在。
+              {{ saveThumb && !isManual
+                ? '保存后本机只保留识别结果和一张压缩缩略图，不保存原图。'
+                : '保存后只保留识别结果，不保存照片。' }}
+              记录会出现在今天的列表里，刷新后仍在。
             </p>
           </template>
         </div>
@@ -233,7 +248,9 @@
           <BaseButton v-if="!isManual" variant="ghost" @click="backToCapture">重新拍</BaseButton>
           <span class="spacer"></span>
           <BaseButton variant="secondary" @click="requestClose">取消</BaseButton>
-          <BaseButton :icon="Check" :disabled="!filledItems.length" @click="save">保存记录</BaseButton>
+          <BaseButton :icon="Check" :disabled="saving || !filledItems.length" @click="save">
+            {{ saving ? '保存中…' : '保存记录' }}
+          </BaseButton>
         </footer>
       </div>
     </div>
@@ -260,6 +277,7 @@ import {
   LOCAL_CLASS_COUNT,
   LOCAL_MODEL_LABEL,
   LOW_CONFIDENCE,
+  makeFoodThumbnail,
   prepareFoodPhoto,
   recognizeFoodWithModel,
   recognizeLocally
@@ -311,8 +329,16 @@ const mealTime = ref('')
 const typeEditing = ref(false)
 const editorOpen = ref(false)
 const formError = ref('')
+const saving = ref(false)
+const processingStage = ref<'reading' | 'model'>('model')
 const recognized = ref<FoodRecognitionResult | null>(null)
+let activeRequest: AbortController | null = null
 const isManual = computed(() => view.value === 'manual')
+/** 绑定到隐私偏好：结果页勾选/取消也会成为以后记录的默认 */
+const saveThumb = computed({
+  get: () => store.privacy.saveFoodPhotoLocally,
+  set: (value: boolean) => store.updatePrivacy({ saveFoodPhotoLocally: value })
+})
 
 const videoEl = ref<HTMLVideoElement | null>(null)
 const fileEl = ref<HTMLInputElement | null>(null)
@@ -401,12 +427,15 @@ function onKeydown(event: KeyboardEvent) {
 
 function cleanup() {
   runId++
+  activeRequest?.abort()
+  activeRequest = null
   stopCamera()
   // 关闭即释放这次识别的照片与结果，不在内存里继续留着
   prepared.value = ''
   items.value = []
   recognized.value = null
   warnings.value = []
+  processingStage.value = 'model'
   window.removeEventListener('keydown', onKeydown)
   if (previousOverflow !== undefined) document.body.style.overflow = previousOverflow
 }
@@ -428,6 +457,7 @@ function reset() {
   typeEditing.value = false
   editorOpen.value = false
   formError.value = ''
+  saving.value = false
   recognized.value = null
   const at = new Date()
   mealTime.value = clockTime(at)
@@ -555,14 +585,38 @@ async function onFile(event: Event) {
   input.value = ''
   if (!file) return
   const session = runId
+  prepared.value = ''
+  analysisError.value = ''
+  warnings.value = []
+  recognized.value = null
+  items.value = []
+  formError.value = ''
+  processingStage.value = 'reading'
+  view.value = 'analyzing'
+  // 先让“正在读取”画出来，再开始解码大图
+  await nextTick()
   try {
-    const dataUrl = await prepareFoodPhoto(file)
+    const dataUrl = await withTimeout(
+      prepareFoodPhoto(file),
+      20_000,
+      '读取这张照片超时，请换一张或先压缩图片再试。'
+    )
     if (!props.open || session !== runId) return
     await analyze(dataUrl)
   } catch (err) {
     if (!props.open || session !== runId) return
     fail(err)
   }
+}
+
+function withTimeout<T>(task: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new FoodRecognitionError(message, 'image')), ms)
+    task.then(
+      value => { window.clearTimeout(timer); resolve(value) },
+      error => { window.clearTimeout(timer); reject(error) }
+    )
+  })
 }
 
 async function startCamera() {
@@ -632,11 +686,15 @@ function captureFrame() {
 }
 
 async function analyze(dataUrl: string) {
+  activeRequest?.abort()
+  const controller = new AbortController()
+  activeRequest = controller
   prepared.value = dataUrl
   analysisError.value = ''
   warnings.value = []
   formError.value = ''
   recognized.value = null
+  processingStage.value = 'model'
   const at = new Date()
   mealTime.value = clockTime(at)
   mealType.value = inferMealType(at)
@@ -646,7 +704,7 @@ async function analyze(dataUrl: string) {
   const id = ++runId
   try {
     const result = mode.value === 'cloud'
-      ? await recognizeFoodWithModel(dataUrl, store.llmConfig)
+      ? await recognizeFoodWithModel(dataUrl, store.llmConfig, controller.signal)
       : await recognizeLocally(dataUrl)
     if (id !== runId) return
     recognized.value = result
@@ -656,7 +714,24 @@ async function analyze(dataUrl: string) {
   } catch (err) {
     if (id !== runId) return
     fail(err)
+  } finally {
+    if (activeRequest === controller) activeRequest = null
   }
+}
+
+function cancelProcessing() {
+  runId++
+  activeRequest?.abort()
+  activeRequest = null
+  stopCamera()
+  prepared.value = ''
+  analysisError.value = ''
+  warnings.value = []
+  recognized.value = null
+  items.value = []
+  formError.value = ''
+  processingStage.value = 'model'
+  view.value = 'capture'
 }
 
 function fail(err: unknown) {
@@ -686,7 +761,10 @@ function useLocal() {
 
 function backToCapture() {
   stopCamera()
+  activeRequest?.abort()
+  activeRequest = null
   runId++
+  processingStage.value = 'model'
   view.value = 'capture'
   cameraError.value = ''
   analysisError.value = ''
@@ -702,11 +780,14 @@ function backToCapture() {
 
 function requestClose() {
   stopCamera()
+  activeRequest?.abort()
+  activeRequest = null
   runId++
   emit('close')
 }
 
-function save() {
+async function save() {
+  if (saving.value) return
   formError.value = ''
   const list = filledItems.value
   if (!list.length) {
@@ -727,12 +808,46 @@ function save() {
       modelEnergy: i.nutrition
     }
   })
-  const meal = store.addMeal({
-    date: props.date,
-    mealType: mealType.value,
-    time: mealTime.value,
-    items: normalized
-  })
+  saving.value = true
+  let photoThumb: string | undefined
+  let thumbFailed = false
+  if (!isManual.value && prepared.value && saveThumb.value) {
+    try {
+      const thumb = await withTimeout(makeFoodThumbnail(prepared.value), 5_000, '缩略图生成超时')
+      // 256px JPEG 正常只有几 KB；异常大时不往 localStorage 里塞
+      if (thumb.length <= 120_000) photoThumb = thumb
+      else thumbFailed = true
+    } catch {
+      thumbFailed = true
+    }
+  }
+  if (!props.open) {
+    saving.value = false
+    return
+  }
+  let meal: Meal
+  try {
+    meal = store.addMeal({
+      date: props.date,
+      mealType: mealType.value,
+      time: mealTime.value,
+      items: normalized,
+      photoThumb
+    })
+  } catch (err) {
+    saving.value = false
+    formError.value = `保存失败：${(err as Error)?.message || '未知错误'}`
+    return
+  }
+  saving.value = false
+  if (thumbFailed) {
+    store.showToast({
+      type: 'warning',
+      title: '缩略图没有保存成功',
+      message: '本次只保存了识别结果，可以稍后在设置里关闭或重试照片缩略图',
+      duration: 4000
+    })
+  }
   emit('saved', meal)
   emit('close')
 }
@@ -757,6 +872,10 @@ function save() {
 .mode-tabs button.on{background:var(--color-card);color:var(--color-ink);box-shadow:0 1px 4px rgba(21,24,27,.12),inset 0 0 0 1px var(--color-border)}
 .consent{display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.6;color:var(--color-text-secondary);padding:10px 12px;border-radius:var(--radius-sm);background:var(--color-neutral-soft)}
 .consent input{margin-top:2px;width:15px;height:15px;accent-color:var(--color-accent);flex:none}
+.save-photo{display:flex;align-items:flex-start;gap:9px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);box-shadow:inset 0 0 0 1px var(--color-border);color:var(--color-text-secondary);line-height:1.6}
+.save-photo input{margin-top:2px;width:15px;height:15px;accent-color:var(--color-accent);flex:none}
+.save-photo b{display:block;font-size:12px;color:var(--color-ink)}
+.save-photo small{display:block;font-size:11px;line-height:1.6;color:var(--color-text-muted);margin-top:2px}
 .capture-actions{display:flex;gap:10px;flex-wrap:wrap}
 .capture-actions :deep(button){flex:1;min-width:160px}
 .camera{display:grid;gap:10px}
@@ -768,6 +887,7 @@ function save() {
 .state small{font-size:11.5px;line-height:1.7;color:var(--color-text-muted);display:block;max-width:440px}
 .state.checking{padding:18px}
 .processing-img{width:132px;height:132px;object-fit:cover;border-radius:14px;margin-bottom:4px;box-shadow:0 8px 24px -14px rgba(21,24,27,.5)}
+.processing-cancel{margin-top:2px}
 .spin{display:inline-block;width:22px;height:22px;border-radius:50%;border:2px solid var(--color-accent-soft);border-top-color:var(--color-accent);animation:spin 900ms linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .alert{margin:0;padding:10px 12px;border-radius:var(--radius-sm);background:var(--color-caution-soft);color:var(--color-caution);font-size:12px;line-height:1.7}

@@ -77,18 +77,32 @@
                 </div>
               </div>
 
-              <div class="log-tags">
-                <span
-                  v-for="item in meal.items"
-                  :key="item.id"
-                  class="item-tag"
-                  :class="{ unsure: itemIsUncertain(item) }"
-                >
-                  <b>{{ item.foodName }}</b>
-                  <small>{{ item.category }}</small>
-                  <em>{{ portionOf(item) }}</em>
-                  <i v-if="itemIsUncertain(item)">待确认</i>
-                </span>
+              <div class="log-body">
+                <figure v-if="meal.photoThumb" class="meal-photo">
+                  <img :src="meal.photoThumb" alt="本次记录的食物照片缩略图" />
+                  <figcaption>本机缩略图</figcaption>
+                </figure>
+                <div class="food-block">
+                  <div class="food-block-head">
+                    <span class="detail-label">本次食物</span>
+                    <span class="food-count">{{ meal.items.length }} 项</span>
+                  </div>
+                  <ul class="food-rows">
+                    <li
+                      v-for="(item, index) in meal.items"
+                      :key="item.id || index"
+                      :class="{ unsure: itemIsUncertain(item) }"
+                    >
+                      <span class="f-name">{{ item.foodName }}</span>
+                      <span class="f-cat">{{ item.category }}</span>
+                      <span class="f-portion">{{ portionOf(item) }}</span>
+                      <span v-if="confidenceOf(item)" class="f-conf" :class="{ low: isLowPhotoConfidence(item) }">
+                        {{ confidenceOf(item) }}
+                      </span>
+                      <span v-if="itemIsUncertain(item)" class="f-flag">待确认</span>
+                    </li>
+                  </ul>
+                </div>
               </div>
 
               <div v-if="expandedId === meal.id" class="log-detail">
@@ -407,6 +421,16 @@ function attentionCount(meal: Meal): number {
   return meal.items.filter(itemIsUncertain).length
 }
 
+function confidenceOf(item: MealItem): string {
+  return item.source === 'photo' && item.photoConfidence !== undefined
+    ? `${Math.round(item.photoConfidence * 100)}%`
+    : ''
+}
+
+function isLowPhotoConfidence(item: MealItem): boolean {
+  return item.source === 'photo' && (item.photoConfidence ?? 1) < LOW_CONFIDENCE
+}
+
 function portionOf(item: MealItem): string {
   return item.portionSize ? `${item.portionSize}${item.portionUnit || ''}` : '份量未估'
 }
@@ -483,7 +507,8 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
       photoConfidence: i.photoConfidence,
       uncertain: i.uncertain,
       modelEnergy: i.modelEnergy
-    }))
+    })),
+    photoThumb: meal.photoThumb
   })
   editingId.value = null
   expandedId.value = saved.id
@@ -547,13 +572,24 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .log-actions button{font-family:inherit;font-size:11.5px;color:var(--color-text-secondary);padding:4px 7px;border-radius:6px;transition:color var(--motion-fast),background var(--motion-fast)}
 .log-actions button:hover{background:var(--color-neutral-soft);color:var(--color-ink)}
 .log-actions button.danger:hover{background:var(--color-danger-soft);color:var(--color-danger)}
-.log-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.item-tag{display:inline-flex;align-items:baseline;gap:5px;padding:5px 8px;border-radius:7px;background:var(--color-neutral-soft);border:1px solid transparent;font-size:12px;max-width:100%;min-width:0}
-.item-tag b{font-weight:600;color:var(--color-ink);overflow-wrap:anywhere}
-.item-tag small{font-size:10.5px;color:var(--color-text-muted);white-space:nowrap}
-.item-tag em{font-style:normal;font-family:var(--font-num);font-size:10.5px;color:var(--color-text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
-.item-tag i{font-style:normal;font-size:9.5px;font-weight:600;color:var(--color-caution);background:var(--color-caution-soft);padding:1px 5px;border-radius:4px;white-space:nowrap}
-.item-tag.unsure{border-color:rgba(138,90,0,.22);background:linear-gradient(90deg,var(--color-caution-soft),var(--color-neutral-soft) 80%)}
+.log-body{display:flex;gap:11px;align-items:flex-start;margin-top:9px;min-width:0}
+.meal-photo{flex:none;width:88px;margin:0;display:grid;gap:3px}
+.meal-photo img{width:88px;height:88px;object-fit:cover;border-radius:10px;background:var(--color-divider);box-shadow:inset 0 0 0 1px rgba(21,24,27,.06)}
+.meal-photo figcaption{font-size:9px;line-height:1.4;color:var(--color-text-muted);text-align:center}
+.food-block{flex:1;min-width:0;margin-top:0}
+.food-block-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:3px}
+.food-block-head .detail-label{margin-bottom:0}
+.food-count{font-family:var(--font-num);font-size:10.5px;color:var(--color-text-muted);font-variant-numeric:tabular-nums}
+.food-rows{list-style:none;margin:0;padding:0;display:grid}
+.food-rows li{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:8px 0;border-top:1px dashed var(--color-divider);font-size:12.5px;line-height:1.5}
+.food-rows li:first-child{border-top:0}
+.f-name{font-weight:600;color:var(--color-ink);overflow-wrap:anywhere;min-width:0}
+.f-cat{font-size:10.5px;color:var(--color-text-muted);white-space:nowrap}
+.f-portion{font-family:var(--font-num);font-size:11px;color:var(--color-text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
+.f-conf{font-family:var(--font-num);font-size:10px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);padding:2px 6px;border-radius:999px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.f-conf.low{color:var(--color-caution);background:var(--color-caution-soft);box-shadow:inset 0 0 0 1px rgba(138,90,0,.18)}
+.f-flag{font-size:10px;font-weight:600;color:var(--color-caution);border:1px solid rgba(138,90,0,.28);padding:1px 6px;border-radius:4px;white-space:nowrap}
+.food-rows li.unsure{background:linear-gradient(90deg,var(--color-caution-soft),transparent 72%);margin:0 -6px;padding-left:6px;padding-right:6px;border-radius:6px}
 .log-detail{margin-top:12px;padding-top:12px;border-top:1px solid var(--color-divider);display:grid;gap:12px}
 .detail-grid{display:grid;grid-template-columns:1.2fr 1.1fr .8fr;gap:16px}
 .detail-label{display:block;font-family:var(--font-num);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-muted);margin-bottom:5px}
@@ -621,6 +657,8 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
   .log{gap:8px}
   .head-spacer{display:none}
   .log-actions{width:100%;margin-left:0;justify-content:flex-start;border-top:1px dashed var(--color-divider);padding-top:4px;margin-top:2px}
+  .meal-photo{width:72px}
+  .meal-photo img{width:72px;height:72px}
   .detail-grid{grid-template-columns:1fr;gap:12px}
   .side-col{grid-template-columns:1fr}
   .tl{padding:10px 14px 14px}

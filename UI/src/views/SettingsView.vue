@@ -137,9 +137,15 @@
         <span class="tlabel"><strong>显示热量粗估</strong><small>默认关闭。开启后按"区间 + 来源"显示，依赖你填的份量与内置参考值（未与权威成分表核对），不作为营养建议。</small></span>
       </label>
 
+      <label class="toggle">
+        <input type="checkbox" role="switch" :checked="store.privacy.saveFoodPhotoLocally" @change="setPrivacy('saveFoodPhotoLocally', ($event.target as HTMLInputElement).checked)" />
+        <span class="tg"><i></i></span>
+        <span class="tlabel"><strong>保存饮食照片缩略图</strong><small>开启后，拍照记录会在本机随记录保存一张压缩缩略图，用于在饮食列表回看；不会上传，但会占用浏览器本地存储。关闭后新记录只保留识别结果，已有缩略图不会自动删除。</small></span>
+      </label>
+
       <p class="fine">
         饮食拍照识别：使用上面「模型接入」里的配置（或服务端默认模型）时，拍照前会明确说明这张照片会发送到该服务并征得你的同意；
-        没有配置模型时使用本机模型，照片不上传。两种方式下本应用都不保存原图，记录里只保留识别结果。
+        没有配置模型时使用本机模型，照片不上传。两种方式下本应用都不保存原图；开启「保存饮食照片缩略图」时只在本机保存压缩缩略图。
       </p>
 
       <div class="fields">
@@ -188,7 +194,7 @@
         <div class="stat"><span>缺 RPE 的训练</span><b>{{ rpeMissing }}</b></div>
         <div class="stat"><span>占用</span><b>{{ sizeKb }} KB</b></div>
       </div>
-      <p class="sub">导出会把档案、训练与餐食按下面的格式写到本机下载目录，不经过任何服务器。</p>
+      <p class="sub">导出会把档案、训练与餐食按下面的格式写到本机下载目录，不经过任何服务器。JSON 会包含已保存的照片缩略图；CSV 不包含图片。</p>
       <div class="actions">
         <BaseButton :icon="Download" @click="exportData(store.privacy.exportFormat)">导出 {{ store.privacy.exportFormat === 'json' ? 'JSON' : 'CSV' }}</BaseButton>
         <BaseButton variant="secondary" :icon="RotateCcw" :disabled="!store.sessions.length && !store.meals.length" @click="exportData('json')">另存为 JSON</BaseButton>
