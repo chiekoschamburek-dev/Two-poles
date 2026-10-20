@@ -3,6 +3,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { buildDayPlan, alternativesFor, isPlanDay, AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
 import { buildWeeklyReport, loadOf, weekStart } from '@/services/weekRules'
+import { buildLoadSeries, intensitySplit, loadZone } from '@/services/loadRules'
 import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, suggestCategory, RULE_VERSION } from '@/services/mealRules'
 import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
 import { activeExercises, exercises, gateReason } from '@/services/exercises'
@@ -295,6 +296,87 @@ const wSeq = Array.from({ length: 16 }, (_, i) => pickDailyWellnessCard(wDay(i))
 ok('相邻两天换卡', wSeq.every((c, i) => i === 0 || c.id !== wSeq[i - 1].id))
 ok('相邻两天类别交替', wSeq.every((c, i) => i === 0 || c.category !== wSeq[i - 1].category))
 ok('连续 16 天返回 16 个不同 id', new Set(wSeq.map(c => c.id)).size === 16, String(new Set(wSeq.map(c => c.id)).size))
+
+console.log('\n9. 负荷序列与强度分布（运动员模式取数）')
+const sess = (date: string, minutes: number, rpe: number | null): TrainingSession => ({
+  id: `s-${date}-${minutes}-${rpe}`, userId: 'demo-user', date, exerciseName: '轻松跑', type: '跑步',
+  actualDuration: minutes, completionStatus: 'completed', rpe, discomfort: false,
+  cameraUsed: false, manualCorrections: 0
+})
+const REF = new Date(2026, 9, 14) // 2026-10-14
+const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const dayFromRef = (offset: number) => { const d = new Date(2026, 9, 14); d.setDate(d.getDate() + offset); return isoOf(d) }
+
+// ——— 短样本：只有 8 天覆盖，够算均值但不够算 ACWR ———
+const shortSeries = buildLoadSeries(
+  [sess(dayFromRef(-7), 60, 5), sess(dayFromRef(-2), 40, 6)],
+  REF
+)
+ok('窗口长度 = 28 天', shortSeries.points.length === 28, String(shortSeries.points.length))
+ok('窗口升序且最后一天是参考日', shortSeries.points[0].date === dayFromRef(-27) && shortSeries.points[27].date === dayFromRef(0))
+ok('首条记录之前是 unknown，不是 0', shortSeries.points[0].state === 'unknown' && shortSeries.points[0].load === null)
+ok('首条记录之后无记录的一天是 rest 且负荷 0', shortSeries.points[27].state === 'rest' && shortSeries.points[27].load === 0, shortSeries.points[27].date)
+ok('覆盖天数 = 8', shortSeries.coveredDays === 8, String(shortSeries.coveredDays))
+ok('样本不足时 ACWR 为 null 且给出还差几天', shortSeries.acwr === null && shortSeries.daysNeeded === 6, `${shortSeries.acwr} / ${shortSeries.daysNeeded}`)
+// 300 (60min×5) + 240 (40min×6) = 540，覆盖 8 天 → 67.5
+ok('CTL 含休息日（540 / 8 = 67.5）', shortSeries.ctl === 67.5, String(shortSeries.ctl))
+ok('ATL 只看近 7 天（240 / 7 = 34.3）', shortSeries.atl === 34.3, String(shortSeries.atl))
+
+// ——— 缺 RPE 的那天整天剔除，不按 0 补齐 ———
+const missingSeries = buildLoadSeries(
+  [sess(dayFromRef(-1), 50, null), sess(dayFromRef(-2), 30, 5)],
+  REF
+)
+const missingDay = missingSeries.points.find(p => p.date === dayFromRef(-1))
+ok('缺 RPE 的日期标为 missing', missingDay?.state === 'missing' && missingDay.load === null)
+ok('missing 天数被统计', missingSeries.missingDays === 1, String(missingSeries.missingDays))
+// 10-12 有 150，10-13 缺 RPE 被剔除，10-14 休息记 0 → (150 + 0) / 2 = 75
+ok('missing 不进平均（(150+0) / 2 = 75）', missingSeries.ctl === 75, String(missingSeries.ctl))
+
+// ——— 长样本：14 天覆盖，负荷持平 → ACWR 恰好 1.00 ———
+const flatSeries = buildLoadSeries(
+  [sess(dayFromRef(-13), 60, 5), sess(dayFromRef(-1), 60, 5)],
+  REF
+)
+ok('覆盖 14 天时开始给 ACWR', flatSeries.acwr !== null, String(flatSeries.coveredDays))
+ok('两周负荷相同时 ACWR = 1', flatSeries.acwr === 1, String(flatSeries.acwr))
+ok('daysNeeded 归零', flatSeries.daysNeeded === 0)
+
+// ——— 近 7 天突增 → 落在偏高档（第 15 天 200，近 7 天 315，覆盖 16 天） ———
+const rampSeries = buildLoadSeries(
+  [sess(dayFromRef(-15), 40, 5), sess(dayFromRef(-5), 30, 5), sess(dayFromRef(-2), 33, 5)],
+  REF
+)
+ok('近 7 天突增时 ACWR > 1.3', rampSeries.acwr !== null && rampSeries.acwr > 1.3, String(rampSeries.acwr))
+ok('落在偏高两档之一', ['high', 'veryHigh'].includes(loadZone(rampSeries.acwr)), String(loadZone(rampSeries.acwr)))
+
+// ——— 分档边界 ———
+ok('0.79 → low', loadZone(0.79) === 'low')
+ok('0.80 → optimal', loadZone(0.8) === 'optimal')
+ok('1.30 → optimal', loadZone(1.3) === 'optimal')
+ok('1.31 → high', loadZone(1.31) === 'high')
+ok('1.50 → high', loadZone(1.5) === 'high')
+ok('1.51 → veryHigh', loadZone(1.51) === 'veryHigh')
+ok('null → unknown', loadZone(null) === 'unknown')
+
+// ——— 空数据不给假数 ———
+const emptySeries = buildLoadSeries([], REF)
+ok('没有记录时 ctl/atl/acwr 全为 null', emptySeries.ctl === null && emptySeries.atl === null && emptySeries.acwr === null)
+ok('没有记录时全天 unknown，不冒充休息日', emptySeries.points.every(p => p.state === 'unknown'), String(emptySeries.unknownDays))
+
+// ——— 强度分布：按 RPE 7 分界，用时长不用次数 ———
+const split = intensitySplit([
+  sess(dayFromRef(-2), 90, 4),   // 低强度 90 分钟
+  sess(dayFromRef(-1), 10, 8),   // 高强度 10 分钟
+  sess(dayFromRef(-1), 30, 1),   // 低强度 30 分钟
+  sess(dayFromRef(0), 20, null)  // 未记 RPE，无法归类
+])
+ok('低强度时长 = 120', split.lowMinutes === 120, String(split.lowMinutes))
+ok('高强度时长 = 10', split.highMinutes === 10, String(split.highMinutes))
+ok('未记 RPE 的时长单独统计，不塞进任一侧', split.unknownMinutes === 20, String(split.unknownMinutes))
+ok('占比按可归类时长算（120 / 130）', Math.abs((split.lowShare ?? 0) - 120 / 130) < 1e-9, String(split.lowShare))
+ok('没有可归类时长时占比为 null', intensitySplit([]).lowShare === null)
+ok('分界阈值默认 7', split.threshold === 7)
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

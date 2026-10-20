@@ -48,7 +48,7 @@
 
     <!-- 主集群：时间轴 + 双极仪表 -->
     <div class="cluster">
-      <BaseCard v-if="timeline.length" variant="flush" class="timeline">
+      <BaseCard v-if="!isAthlete && timeline.length" variant="flush" class="timeline">
         <div class="panel-head">
           <span class="micro">今天的 {{ timeline.length }} 段 · 合计 {{ totalMinutes }} 分钟</span>
           <span class="chip"><i class="dot"></i>计划 {{ totalMinutes }} min</span>
@@ -91,7 +91,7 @@
       </BaseCard>
 
       <!-- 休息日 / 条件不足：如实说明，不硬编一套训练 -->
-      <BaseCard v-else variant="flush" class="timeline rest">
+      <BaseCard v-else-if="!isAthlete" variant="flush" class="timeline rest">
         <div class="panel-head">
           <span class="micro">今天不安排训练</span>
           <span class="chip"><i class="dot"></i>休息日</span>
@@ -133,39 +133,71 @@
           </div>
         </div>
       </BaseCard>
+
+      <!-- 运动员模式：主图换成负荷曲线。大众模式看"今天做什么"，运动员先看"这周负荷安不安全" -->
+      <BaseCard v-if="isAthlete" variant="flush" class="load-panel">
+        <div class="panel-head">
+          <span class="micro">近 28 天 · 每日负荷</span>
+          <span class="chip" :class="zoneClass">
+            <i class="dot"></i>{{ acwrChip }}
+          </span>
+        </div>
+        <div class="load-body">
+          <LoadChart
+            :points="loadSeries.points"
+            :ctl="loadSeries.ctl"
+            :atl="loadSeries.atl"
+            :acwr="loadSeries.acwr"
+            :zone="zone"
+            :days-needed="loadSeries.daysNeeded"
+            :covered-days="loadSeries.coveredDays"
+            :missing-days="loadSeries.missingDays"
+          />
+        </div>
+      </BaseCard>
+
       <!-- 双极仪表：同一个母题，首页/周报/跟练共用 -->
       <BaseCard variant="ink" class="gauge">
         <div class="g-head">
           <div>
-            <span class="micro">Week {{ weekNo }} · Load</span>
-            <div class="g-title">本周两仪</div>
+            <span class="micro">Week {{ weekNo }} · {{ isAthlete ? 'Load' : 'Load' }}</span>
+            <div class="g-title">{{ isAthlete ? '本周强度分布' : '本周两仪' }}</div>
           </div>
-          <span class="live"><i></i>LIVE</span>
+          <span class="live"><i></i>{{ isAthlete ? 'W2' : 'LIVE' }}</span>
         </div>
 
         <div class="g-body">
           <TwoPoleDial
-            :training="trainingPct"
-            :meal="mealPct"
+            :training="isAthlete ? lowPct : trainingPct"
+            :meal="isAthlete ? highPct : mealPct"
             :size="228"
             tone="ink"
-            :aria-label="`本周训练完成 ${pctLabel(trainingPct)}，饮食记录 ${pctLabel(mealPct)}`"
+            :aria-label="isAthlete
+              ? `近 28 天强度分布：低强度 ${pctLabel(lowPct)}，高强度 ${pctLabel(highPct)}`
+              : `本周训练完成 ${pctLabel(trainingPct)}，饮食记录 ${pctLabel(mealPct)}`"
           >
             <div class="num-big">{{ loadLabel }}<sup v-if="week.totalLoad !== null">AU</sup></div>
             <div class="num-cap">本周负荷</div>
-            <div class="num-note">{{ loadNote }}</div>
+            <div class="num-note">{{ isAthlete ? splitNote : loadNote }}</div>
           </TwoPoleDial>
 
           <div class="g-side">
             <div class="legend">
-              <span><i style="background: var(--brand-pole-a-dark)"></i>训练 <b>{{ pctLabel(trainingPct) }}</b></span>
-              <span><i style="background: var(--brand-pole-b-dark)"></i>饮食 <b>{{ pctLabel(mealPct) }}</b></span>
+              <template v-if="isAthlete">
+                <span><i style="background: var(--brand-pole-a-dark)"></i>低强度 <b>{{ pctLabel(lowPct) }}</b></span>
+                <span><i style="background: var(--brand-pole-b-dark)"></i>高强度 <b>{{ pctLabel(highPct) }}</b></span>
+              </template>
+              <template v-else>
+                <span><i style="background: var(--brand-pole-a-dark)"></i>训练 <b>{{ pctLabel(trainingPct) }}</b></span>
+                <span><i style="background: var(--brand-pole-b-dark)"></i>饮食 <b>{{ pctLabel(mealPct) }}</b></span>
+              </template>
             </div>
 
             <div class="g-foot">
               <div><b>{{ week.completedSessions }}<em>/{{ week.plannedSessions }}</em></b><span>场次</span></div>
               <div><b>{{ week.totalDuration }}<em>min</em></b><span>时长</span></div>
-              <div><b>{{ mealSummary.recorded }}<em>/{{ mealSummary.planned }}</em></b><span>餐次</span></div>
+              <div v-if="isAthlete"><b>{{ avgRpe ?? '—' }}<em>RPE</em></b><span>均主观强度</span></div>
+              <div v-else><b>{{ mealSummary.recorded }}<em>/{{ mealSummary.planned }}</em></b><span>餐次</span></div>
             </div>
           </div>
         </div>
@@ -176,10 +208,20 @@
     <div class="ledger">
       <BaseCard variant="flush" class="ledger-pane">
         <div class="panel-head tight">
-          <span class="micro">本周负荷 · 逐日</span>
-          <span class="micro" :style="{ color: peak ? 'var(--color-text-muted)' : 'transparent' }">峰值 {{ peak ? `${peak.label} ${peak.value}` : '—' }}</span>
+          <span class="micro">{{ isAthlete ? '接下来 3 个训练日' : '本周负荷 · 逐日' }}</span>
+          <span class="micro" :style="{ color: peak ? 'var(--color-text-muted)' : 'transparent' }">
+            {{ isAthlete ? (loadSeries.ctl === null ? '还没有均线' : `CTL ${loadSeries.ctl}`) : `峰值 ${peak ? `${peak.label} ${peak.value}` : '—'}` }}
+          </span>
         </div>
-        <div v-if="hasAnyLoad" class="bars">
+        <!-- 运动员：负荷曲线已经画了"过去"，这里放"接下来"，避免两块说的是同一段时间 -->
+        <div v-if="isAthlete" class="next-list">
+          <div v-if="!upcoming.length" class="bars-empty">接下来 7 天都没有安排训练，可在计划页手工加一项。</div>
+          <div v-for="u in upcoming" v-else :key="u.date" class="next-row">
+            <span class="d">{{ u.label }}</span>
+            <span class="n">{{ u.items }}</span>
+          </div>
+        </div>
+        <div v-else-if="hasAnyLoad" class="bars">
           <div v-for="b in bars" :key="b.label" class="col" :class="{ zero: b.value === null, today: b.today }">
             <span class="v" :class="{ dim: b.value === null }">{{ b.value === null ? '—' : b.value }}</span>
             <div class="bar" :style="{ height: b.px + 'px' }"></div>
@@ -240,6 +282,8 @@ import { buildDayPlan } from '@/services/planRules'
 import BaseCard from '@/components/common/BaseCard.vue'
 import TwoPoleDial from '@/components/common/TwoPoleDial.vue'
 import ShapeState from '@/components/common/ShapeState.vue'
+import LoadChart from '@/components/common/LoadChart.vue'
+import { buildLoadSeries, intensitySplit, loadZone } from '@/services/loadRules'
 import DailyWellnessCard from '@/components/wellness/DailyWellnessCard.vue'
 import type { PlanItem } from '@/types/domain'
 
@@ -358,6 +402,39 @@ const loadNote = computed(() => {
   return `覆盖 ${week.value.loadDays} 天 · 不含缺 RPE 的天`
 })
 const pctLabel = (v: number) => (Number.isFinite(v) ? `${Math.round(v * 100)}%` : '—')
+
+// ——— 运动员模式：负荷序列与强度分布（口径都在 services/loadRules.ts 里） ———
+const isAthlete = computed(() => store.isAthleteMode)
+const loadSeries = computed(() => buildLoadSeries(store.sessions, now))
+const zone = computed(() => loadZone(loadSeries.value.acwr))
+const acwrChip = computed(() => {
+  if (loadSeries.value.acwr === null) return `还需 ${loadSeries.value.daysNeeded} 天样本`
+  return loadSeries.value.atl !== null && loadSeries.value.ctl !== null && loadSeries.value.atl >= loadSeries.value.ctl
+    ? 'ATL 在 CTL 上方'
+    : 'ATL 在 CTL 下方'
+})
+const zoneClass = computed(() => ({
+  ok: zone.value === 'optimal',
+  part: zone.value === 'low' || zone.value === 'high',
+  bad: zone.value === 'veryHigh'
+}))
+/** 强度分布看近 28 天，和负荷图同一个窗口，避免两块数据说的不是一段时间 */
+const split = computed(() => intensitySplit(store.sessions, { since: loadSeries.value.points[0]?.date }))
+const lowPct = computed(() => split.value.lowShare ?? 0)
+const highPct = computed(() => split.value.highShare ?? 0)
+const splitNote = computed(() => {
+  if (split.value.lowShare === null) return '还没有可归类的训练时长'
+  return `低 ${Math.round(split.value.lowMinutes)} min · 高 ${Math.round(split.value.highMinutes)} min`
+})
+/** 本周平均 RPE：只统计记了 RPE 的场次 */
+const avgRpe = computed(() => {
+  const w = week.value
+  const rows = store.sessions.filter(
+    s => s.date >= w.weekStartDate && s.date <= w.weekEndDate && s.rpe !== null
+  )
+  if (!rows.length) return null
+  return Math.round((rows.reduce((a, s) => a + (s.rpe ?? 0), 0) / rows.length) * 10) / 10
+})
 
 // ——— 逐日负荷 ———
 const loadMax = computed(() => Math.max(1, ...week.value.loadByDay.map(v => v ?? 0)))
@@ -487,6 +564,15 @@ function start() {
 
 /* 面板内距统一走 BaseCard 的 --card-pad，避免父组件和组件抢 padding */
 .timeline { display: flex; flex-direction: column; overflow: hidden; }
+/* 运动员模式的负荷面板：和 timeline 同一列、同一套表头，只是主体换成图表 */
+.load-panel { display: flex; flex-direction: column; overflow: hidden; }
+.load-body { padding: 2px 20px 14px; }
+/* 运动员账本：接下来几个训练日 */
+.next-list { display: flex; flex-direction: column; }
+.next-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 8px 20px; }
+.next-row + .next-row { border-top: 1px solid var(--hair-soft); }
+.next-row .d { font-family: var(--font-num); font-size: 11px; letter-spacing: .04em; color: var(--color-text-muted); }
+.next-row .n { font-size: 13px; color: var(--color-text-secondary); }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 20px 11px; }
 .panel-head.tight { padding-bottom: 8px; border-bottom: 1px solid var(--hair-soft); }
 
