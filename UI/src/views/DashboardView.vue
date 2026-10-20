@@ -263,6 +263,9 @@
     <!-- 收尾内容：每天一条饮食/健身知识，收起时只占一行摘要 -->
     <DailyWellnessCard :date="now" />
 
+    <!-- 模型生成的计划草稿：确认前不落库 -->
+    <PlanDraftDialog />
+
     <footer class="footnote">
       <span>无账号 · 数据只在本机 · 照片不上传</span>
       <span class="micro">v3 · plan-rules-v3</span>
@@ -285,6 +288,7 @@ import ShapeState from '@/components/common/ShapeState.vue'
 import LoadChart from '@/components/common/LoadChart.vue'
 import { buildLoadSeries, intensitySplit, loadZone } from '@/services/loadRules'
 import DailyWellnessCard from '@/components/wellness/DailyWellnessCard.vue'
+import PlanDraftDialog from '@/components/common/PlanDraftDialog.vue'
 import type { PlanItem } from '@/types/domain'
 
 const router = useRouter()

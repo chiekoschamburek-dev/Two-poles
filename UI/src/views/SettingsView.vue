@@ -44,6 +44,45 @@
       </div>
     </BaseCard>
 
+    <!-- 大模型接入：配置只存本机，密钥不随导出带走 -->
+    <BaseCard class="section animate-slide-in-up">
+      <div class="llm-head">
+        <div>
+          <h2>模型接入</h2>
+          <p class="sub">填一个 OpenAI 兼容的接口，建档完成后会用你的档案生成一周计划；计划先给你审，确认后才录入。</p>
+        </div>
+        <StatusBadge :variant="llmReady ? 'success' : 'neutral'">{{ llmReady ? '已配置' : '未配置' }}</StatusBadge>
+      </div>
+
+      <div class="fields">
+        <label class="field">
+          <span class="field-label">base_url</span>
+          <input v-model="llmForm.baseUrl" type="text" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field-label">模型名</span>
+          <input v-model="llmForm.model" type="text" placeholder="deepseek-chat" autocomplete="off" />
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">API Key（只存本机，导出时不会带走）</span>
+        <input v-model="llmForm.apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+      </label>
+
+      <div class="llm-actions">
+        <BaseButton size="sm" @click="saveLlm">保存配置</BaseButton>
+        <BaseButton variant="secondary" size="sm" :disabled="testingLlm" @click="runTest">
+          {{ testingLlm ? '测试中…' : '测试连接' }}
+        </BaseButton>
+        <span class="llm-msg" :class="{ bad: llmMsgBad }">{{ llmMsg }}</span>
+      </div>
+
+      <p class="fine">
+        浏览器直连第三方接口会被 CORS 拦掉，所以请求经本机 Vite 中间件转发（<code>/api/llm/chat</code>），
+        密钥只在这一次请求里经过本机进程，不写日志、不入库。没有配置时，应用仍然按内置规则生成计划。
+      </p>
+    </BaseCard>
+
     <BaseCard class="section animate-slide-in-up">
       <h2>隐私</h2>
       <p class="sub">当前实现里，摄像头画面只在本机做姿态推理，不上传、也不落盘。下面的开关记录的是你的偏好。</p>
@@ -151,6 +190,8 @@ import type { PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { goalSummary } from '@/services/profileRules'
 import { RULE_VERSION } from '@/services/mealRules'
+import { isLlmReady, testLlmConfig } from '@/services/llm'
+import type { LlmConfig } from '@/services/llm'
 
 const store = useAppStore()
 const confirming = ref(false)
@@ -170,10 +211,39 @@ const themes: { id: ThemePreference; label: string }[] = [
   { id: 'light', label: '浅色' },
   { id: 'dark', label: '深色' }
 ]
+// ——— 模型接入 ———
+const llmForm = ref<LlmConfig>({ ...store.llmConfig })
+const llmReady = computed(() => isLlmReady(llmForm.value))
+const testingLlm = ref(false)
+const llmMsg = ref('')
+const llmMsgBad = ref(false)
+
+function saveLlm() {
+  store.setLlmConfig({ ...llmForm.value })
+  llmForm.value = { ...store.llmConfig }
+  llmMsgBad.value = false
+  llmMsg.value = '已保存到本机'
+  store.showToast({ type: 'success', title: '模型配置已保存', message: '下次建档完成后会用这份配置生成计划', duration: 3000 })
+}
+
+async function runTest() {
+  store.setLlmConfig({ ...llmForm.value })
+  llmForm.value = { ...store.llmConfig }
+  testingLlm.value = true
+  llmMsgBad.value = false
+  llmMsg.value = '正在请求模型…'
+  try {
+    const res = await testLlmConfig(store.llmConfig)
+    llmMsg.value = res.message
+    llmMsgBad.value = !res.ok
+  } finally {
+    testingLlm.value = false
+  }
+}
+
 const systemDark = ref(typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)').matches : false)
 
-const profileLine = computed(() => {
-  const p = store.userProfile
+const profileLine = computed(() => {  const p = store.userProfile
   if (!p) return '还没有档案，可以先建档再看推荐说明。'
   const bits = [displayName(p.nickname), p.goal, p.experience].filter(Boolean)
   // 身体数据只并列展示，不做任何评价
@@ -329,4 +399,10 @@ function wipe() {
 .section.danger h2{color:var(--color-danger)}
 .foot{font-size:11px;color:var(--color-text-muted);text-align:center;margin:16px 0 0}
 @media(max-width:767px){.choices,.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-head{flex-direction:column;align-items:flex-start}.actions :deep(button){width:100%}}
+.llm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
+.llm-head h2{margin:0}
+.llm-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+.llm-msg{font-size:12px;color:var(--color-text-muted);line-height:1.6}
+.llm-msg.bad{color:var(--color-danger)}
+.fine code{font-family:var(--font-mono);font-size:11.5px;background:var(--color-neutral-soft);padding:1px 5px;border-radius:4px}
 </style>

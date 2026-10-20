@@ -107,6 +107,8 @@ export interface Plan {
   weekEndDate: string
   items: PlanItem[]
   locked: boolean
+  /** 计划来源：规则生成与模型生成在界面上的口径不同 */
+  source?: 'rules' | 'llm'
 }
 
 export interface PlanItem {

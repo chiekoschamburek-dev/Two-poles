@@ -7,6 +7,16 @@ import { estimateEnergy, unitKey } from '@/services/foodComposition'
 import type { EnergyEstimate } from '@/services/foodComposition'
 import { buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
 import { normalizeProfile } from '@/services/profileRules'
+import {
+  buildPlanMessages,
+  callPlanProxy,
+  extractJson,
+  isLlmReady,
+  loadLlmConfig,
+  saveLlmConfig,
+  validatePlanDraft
+} from '@/services/llm'
+import type { LlmConfig, PlanDraft, PlanDraftState } from '@/services/llm'
 import { weekStart } from '@/services/weekRules'
 import { toISODate } from '@/utils/time'
 
@@ -73,6 +83,8 @@ export const useAppStore = defineStore('app', () => {
    */
   function init() {
     applyTheme()
+    // 模型配置单独存一个 key，和 state 分开；读不出来也不影响其余功能
+    llmConfig.value = loadLlmConfig()
     darkMedia?.addEventListener?.('change', applyTheme)
     const stored = localStorage.getItem('twopoles_state')
     if (stored) {
@@ -268,7 +280,7 @@ export const useAppStore = defineStore('app', () => {
       conflicts: generated.conflicts,
       auto: generated.auto,
       gateNote: generated.gateNote,
-      stale: !!p && !p.reason.includes(PLAN_RULES_VERSION)
+      stale: !!p && p.source !== 'llm' && !p.reason.includes(PLAN_RULES_VERSION)
     }
   }
 
@@ -290,9 +302,108 @@ export const useAppStore = defineStore('app', () => {
     return fresh
   }
 
+  // ——— 大模型生成计划（草稿 → 用户确认 → 才入库） ———
+  /** 配置单独存一个 key，不进导出 */
+  const llmConfig = ref<LlmConfig>({ baseUrl: '', apiKey: '', model: '' })
+  const planDraftState = ref<PlanDraftState>({ status: 'idle', draft: null, error: '', warnings: [] })
+
+  function setLlmConfig(cfg: LlmConfig) {
+    llmConfig.value = saveLlmConfig(cfg)
+  }
+
+  function resetPlanDraft() {
+    planDraftState.value = { status: 'idle', draft: null, error: '', warnings: [] }
+  }
+
+  /** 生成草稿：只写进 planDraftState，不碰 plans —— 用户确认前什么都不改 */
+  async function generatePlanDraft(reference: Date = new Date()) {
+    if (!userProfile.value) {
+      planDraftState.value = { status: 'error', draft: null, error: '还没有建档，先填档案再生成。', warnings: [] }
+      return
+    }
+    if (!isLlmReady(llmConfig.value)) {
+      planDraftState.value = { status: 'error', draft: null, error: '还没有配置模型（base_url / 模型名），先到设置页填写。', warnings: [] }
+      return
+    }
+    planDraftState.value = { status: 'loading', draft: null, error: '', warnings: [] }
+    const start = weekStart(reference)
+    const dates: string[] = []
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start)
+      d.setDate(start.getDate() + i)
+      dates.push(toISODate(d))
+    }
+    const messages = buildPlanMessages(userProfile.value, dates, currentMode.value)
+    const res = await callPlanProxy(llmConfig.value, messages)
+    if (res.error) {
+      planDraftState.value = { status: 'error', draft: null, error: res.error, warnings: [] }
+      return
+    }
+    const check = validatePlanDraft(extractJson(res.text), dates, llmConfig.value.model)
+    if (!check.draft) {
+      planDraftState.value = { status: 'error', draft: null, error: check.error, warnings: check.warnings }
+      return
+    }
+    planDraftState.value = { status: 'ready', draft: check.draft, error: '', warnings: check.warnings }
+  }
+
+  /** 用户确认：草稿成为本周计划；旧版本进历史，不就地覆盖 */
+  function acceptPlanDraft(draft: PlanDraft, reference: Date = new Date()): Plan | null {
+    const start = weekStart(reference)
+    const end = new Date(start)
+    end.setDate(start.getDate() + 6)
+    const old = weekPlan(reference)
+    if (old) {
+      planHistory.value.push({ ...old, items: old.items.map(i => ({ ...i })) })
+      plans.value = plans.value.filter(p => p.id !== old.id)
+    }
+    const id = newId()
+    const items: PlanItem[] = []
+    for (const day of draft.days) {
+      for (const it of day.items) {
+        items.push({
+          id: newId(),
+          planId: id,
+          date: day.date,
+          exerciseName: it.exerciseName,
+          type: it.type,
+          plannedDuration: it.plannedDuration,
+          plannedSets: it.plannedSets,
+          plannedReps: it.plannedReps,
+          note: it.note,
+          locked: false,
+          completed: false
+        })
+      }
+    }
+    if (!items.length) return null
+    const plan: Plan = {
+      id,
+      userId: userProfile.value?.id || 'demo-user',
+      version: (old?.version ?? 0) + 1,
+      createdAt: new Date().toISOString(),
+      mode: currentMode.value,
+      reason: `${draft.reason}（模型：${draft.model || '未命名'}，已由你确认 · ${PLAN_RULES_VERSION}）`,
+      weekStartDate: toISODate(start),
+      weekEndDate: toISODate(end),
+      items,
+      locked: false,
+      source: 'llm'
+    }
+    plans.value.push(plan)
+    persistState()
+    resetPlanDraft()
+    showToast({
+      type: 'success',
+      title: '计划已录入',
+      message: `v${plan.version} · ${draft.days.length} 个训练日，可在计划页继续调整`,
+      duration: 3500
+    })
+    return plan
+  }
+
   /** 一次修改 = 一个新版本：旧版本进 planHistory，永不就地覆盖 */
-  function bumpVersion(plan: Plan, items: PlanItem[], reason: string): Plan {
-    planHistory.value.push({ ...plan, items: plan.items.map(i => ({ ...i })) })
+  function bumpVersion(plan: Plan, items: PlanItem[], reason: string): Plan {    planHistory.value.push({ ...plan, items: plan.items.map(i => ({ ...i })) })
     plan.items = items
     plan.version += 1
     plan.reason = reason
@@ -592,6 +703,8 @@ export const useAppStore = defineStore('app', () => {
     modeLog,
     pendingSwitch,
     unitGrams,
+    llmConfig,
+    planDraftState,
 
     // Computed
     isPublicMode,
@@ -626,6 +739,10 @@ export const useAppStore = defineStore('app', () => {
     weekPlan,
     dayPlanNotice,
     regenerateWeekPlan,
+    setLlmConfig,
+    generatePlanDraft,
+    acceptPlanDraft,
+    resetPlanDraft,
     acceptAdjustment,
     rejectAdjustment,
     toggleItemLock,

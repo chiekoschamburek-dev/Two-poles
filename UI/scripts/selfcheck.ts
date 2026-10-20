@@ -12,6 +12,7 @@ import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, normalizeProfile, parseResult } from '@/services/profileRules'
+import { buildPlanMessages, extractJson, isLlmReady, validatePlanDraft } from '@/services/llm'
 import type { MealItem, PersonalBest, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
@@ -433,6 +434,50 @@ ok('旧档案不凭空造出身高', normalized?.height === undefined)
 ok('null 档案仍返回 null', normalizeProfile(null) === null)
 
 ok('1RM 与训练最高重量的文案不同', gymRecordLabel({ id: 'x', lift: '深蹲', weight: 120, kind: '1rm' }) !== gymRecordLabel({ id: 'y', lift: '深蹲', weight: 120, kind: 'working' }))
+
+console.log('\n11. 大模型计划：提示词、响应解析、校验')
+ok('未填 base_url 视为未配置', isLlmReady({ baseUrl: '', apiKey: 'k', model: 'm' }) === false)
+ok('缺模型名也视为未配置', isLlmReady({ baseUrl: 'https://x/v1', apiKey: 'k', model: '' }) === false)
+ok('填齐才算配置好', isLlmReady({ baseUrl: 'https://x/v1', apiKey: '', model: 'm' }) === true)
+
+const draftDates = ['2026-10-12', '2026-10-13', '2026-10-14']
+ok('能解析纯 JSON', extractJson('{"days":[]}') !== null)
+ok('能解析代码块里的 JSON', extractJson('```json\n{"reason":"x","days":[]}\n```') !== null)
+ok('能跳过前后解释文字', JSON.stringify(extractJson('好的，计划如下：{"reason":"x","days":[]} 希望有帮助')) === '{"reason":"x","days":[]}')
+ok('不是 JSON 时返回 null', extractJson('我没法完成这个请求') === null)
+
+const rawPlan = {
+  reason: '按可用时间排了三天',
+  days: [
+    { date: '2026-10-12', items: [{ exerciseName: '轻松跑', plannedDuration: 20 }] },
+    { date: '2026-10-13', items: [{ exerciseName: '编造的动作', type: '不存在的类型', plannedDuration: 999 }] },
+    { date: '2026-09-01', items: [{ exerciseName: '轻松跑' }] }
+  ]
+}
+const checked = validatePlanDraft(rawPlan, draftDates, 'mock-model')
+ok('草稿解析成功', checked.draft !== null, checked.error)
+ok('范围外的日期被剔除并给警告', checked.draft?.days.every(d => draftDates.includes(d.date)) === true && checked.warnings.some(w => w.includes('2026-09-01')))
+ok('库内动作按库里的类型归类', checked.draft?.days[0].items[0].type === '跑步', checked.draft?.days[0].items[0].type)
+ok('库外动作标 notInLibrary', checked.draft?.days[1].items[0].notInLibrary === true)
+ok('非法类型回退为"其他"', checked.draft?.days[1].items[0].type === '其他', checked.draft?.days[1].items[0].type)
+ok('离谱时长被夹到 180 以内', (checked.draft?.days[1].items[0].plannedDuration ?? 0) <= 180)
+
+ok('一天超过 6 项只留前 6 个', validatePlanDraft({
+  days: [{ date: '2026-10-12', items: Array.from({ length: 9 }, () => ({ exerciseName: '轻松跑', plannedDuration: 10 })) }]
+}, draftDates).draft?.days[0].items.length === 6)
+ok('全部日期越界 → 报错而不是空计划', validatePlanDraft({ days: [{ date: '2026-01-01', items: [{ exerciseName: '轻松跑' }] }] }, draftDates).draft === null)
+ok('没有 days 字段 → 报错', validatePlanDraft({ reason: 'x' }, draftDates).error.includes('训练日'))
+ok('非对象输入 → 报错', validatePlanDraft('不是对象', draftDates).draft === null)
+
+const msgs = buildPlanMessages(
+  { id: 'u', mode: 'public', modeChangedAt: '', age: 30, goal: '减脂', experience: '入门', availableTimes: ['20 分钟'], equipment: ['无器材'], restrictions: [], availableVenues: ['宿舍或家'] },
+  draftDates,
+  'public'
+)
+ok('提示词要求只输出 JSON', msgs.system.includes('只输出一个 JSON'))
+ok('提示词带上了动作库', msgs.user.includes('动作库'))
+ok('提示词带上了可选日期', msgs.user.includes('2026-10-12'))
+ok('提示词包含禁项（不给医疗建议）', msgs.system.includes('不提供医疗'))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1
