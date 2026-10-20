@@ -16,7 +16,7 @@
             <div class="privacy" :class="{ upload: mode === 'cloud' }">
               <ShieldCheck :size="18" />
               <div>
-                <strong>{{ mode === 'cloud' ? '这张照片会发送到云端识别' : '照片只在本机识别' }}</strong>
+                <strong>{{ mode === 'cloud' ? '这张照片会发送到模型服务' : '照片只在本机识别' }}</strong>
                 <p v-if="mode === 'cloud'">
                   识别服务：{{ cloudModelLabel }}。照片仅用于这一次识别；本应用不保存原图，保存记录时只保留识别结果。
                 </p>
@@ -28,13 +28,13 @@
 
             <div v-if="statusLoading" class="state checking">
               <span class="spin" aria-hidden="true"></span>
-              <p>正在检查识别服务…</p>
+              <p>正在检查模型配置…</p>
             </div>
 
             <template v-else>
               <div v-if="cloudAvailable" class="mode-tabs" role="group" aria-label="选择识别方式">
                 <button type="button" :class="{ on: mode === 'cloud' }" :aria-pressed="mode === 'cloud'" @click="setMode('cloud')">
-                  云端识别
+                  模型识别
                 </button>
                 <button type="button" :class="{ on: mode === 'local' }" :aria-pressed="mode === 'local'" @click="setMode('local')">
                   仅本机识别
@@ -43,7 +43,7 @@
 
               <label v-if="mode === 'cloud'" class="consent">
                 <input v-model="consent" type="checkbox" />
-                <span>我了解这张照片会上传到上述识别服务，且本应用不会保存原图</span>
+                <span>我了解这张照片会发送到上述识别服务，且本应用不会保存原图</span>
               </label>
 
               <div v-if="cameraActive" class="camera">
@@ -79,7 +79,7 @@
           <div v-else-if="view === 'analyzing'" class="state processing" aria-live="polite">
             <img v-if="prepared" :src="prepared" alt="正在识别的食物照片" class="processing-img" />
             <span class="spin" aria-hidden="true"></span>
-            <p>{{ mode === 'cloud' ? '正在上传并识别食物…' : '正在本机识别食物…' }}</p>
+            <p>{{ mode === 'cloud' ? '正在请求模型识别食物…' : '正在本机识别食物…' }}</p>
             <small v-if="mode === 'cloud'">照片只用于这一次识别，不保存；通常几秒到半分钟。</small>
             <small v-else>首次需要加载约 6.9 MB 模型；照片不会上传。</small>
           </div>
@@ -97,6 +97,7 @@
               <BaseButton variant="ghost" size="sm" :icon="PenLine" @click="startManual">手动补录</BaseButton>
             </div>
             <small>失败时不会生成记录，也不会用猜测补齐。</small>
+            <small v-if="mode === 'cloud'">如果设置页的模型不支持图片输入，请换一个支持图片的模型，或改用本机识别/手动补录。</small>
           </div>
 
           <!-- 结果 / 手动补录 -->
@@ -259,12 +260,12 @@ import {
   LOCAL_CLASS_COUNT,
   LOCAL_MODEL_LABEL,
   LOW_CONFIDENCE,
-  fetchRecognitionStatus,
   prepareFoodPhoto,
-  recognizeInCloud,
+  recognizeFoodWithModel,
   recognizeLocally
 } from '@/services/foodRecognition'
-import type { FoodRecognitionResult, RecognitionServiceStatus, RecognizedFood } from '@/services/foodRecognition'
+import type { FoodRecognitionResult, RecognizedFood } from '@/services/foodRecognition'
+import { canUseLlm, usingDefault } from '@/services/llm'
 
 type View = 'capture' | 'analyzing' | 'result' | 'error' | 'manual'
 
@@ -296,7 +297,6 @@ const store = useAppStore()
 const UNIT_OPTIONS = Object.keys(UNIT_GRAMS)
 
 const view = ref<View>('capture')
-const status = ref<RecognitionServiceStatus | null>(null)
 const statusLoading = ref(false)
 const mode = ref<'cloud' | 'local'>('local')
 const consent = ref(false)
@@ -321,14 +321,22 @@ let stream: MediaStream | null = null
 let runId = 0
 let previousOverflow = ''
 
-const cloudAvailable = computed(() => status.value?.cloudAvailable === true)
-const cloudModelLabel = computed(() => status.value?.model || '服务端视觉模型')
+const cloudAvailable = computed(() => canUseLlm(store.llmConfig, store.llmDefault))
+const cloudModelLabel = computed(() => {
+  if (usingDefault(store.llmConfig)) {
+    return store.llmDefault.model ? `${store.llmDefault.model}（服务端默认）` : '服务端默认模型'
+  }
+  const name = store.llmConfig.model || '设置页模型'
+  let host = ''
+  try { host = new URL(store.llmConfig.baseUrl).host } catch { /* 没填完整时只显示模型名 */ }
+  return host ? `${name}（${host}）` : name
+})
 const blocked = computed(() => mode.value === 'cloud' && !consent.value)
 const showEnergyEstimate = computed(() => store.privacy.showEnergyEstimate)
 const recognizedModel = computed(() => {
   if (!recognized.value) return ''
   return recognized.value.provider === 'cloud'
-    ? `云端 · ${recognized.value.model}`
+    ? `模型识别 · ${recognized.value.model}`
     : LOCAL_MODEL_LABEL
 })
 
@@ -409,7 +417,6 @@ function reset() {
   document.body.style.overflow = 'hidden'
   window.addEventListener('keydown', onKeydown)
   view.value = props.initialView === 'manual' ? 'manual' : 'capture'
-  status.value = null
   statusLoading.value = false
   mode.value = 'local'
   consent.value = false
@@ -436,10 +443,11 @@ function reset() {
 
 async function loadStatus() {
   statusLoading.value = true
-  const s = await fetchRecognitionStatus()
+  if (usingDefault(store.llmConfig) && !store.llmDefault.available) {
+    await store.refreshLlmStatus()
+  }
   if (!props.open) return
-  status.value = s
-  mode.value = s.cloudAvailable ? 'cloud' : 'local'
+  mode.value = canUseLlm(store.llmConfig, store.llmDefault) ? 'cloud' : 'local'
   statusLoading.value = false
 }
 
@@ -638,7 +646,7 @@ async function analyze(dataUrl: string) {
   const id = ++runId
   try {
     const result = mode.value === 'cloud'
-      ? await recognizeInCloud(dataUrl)
+      ? await recognizeFoodWithModel(dataUrl, store.llmConfig)
       : await recognizeLocally(dataUrl)
     if (id !== runId) return
     recognized.value = result

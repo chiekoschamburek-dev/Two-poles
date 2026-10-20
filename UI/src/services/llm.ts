@@ -304,13 +304,34 @@ export function validatePlanDraft(raw: unknown, dates: string[], model = ''): Dr
 export interface ProxyResult {
   text: string
   error: string
+  /** 上游实际返回的模型名；代理没给时退回配置里的模型名 */
+  model?: string
+}
+
+export type LlmContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+export interface LlmMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string | LlmContentPart[]
+}
+
+export interface LlmCallOptions {
+  temperature?: number
+  signal?: AbortSignal
 }
 
 /**
  * 通过本地代理调用模型。浏览器直连第三方 API 多数会被 CORS 拦掉，
  * 所以统一走同源的 /api/llm/*，由 vite 中间件或静态服务器转发。
+ * 文本计划与照片识别共用这一条调用路径和同一份模型配置。
  */
-export async function callPlanProxy(cfg: LlmConfig, messages: PlanMessages, signal?: AbortSignal): Promise<ProxyResult> {
+export async function callLlmChat(
+  cfg: LlmConfig,
+  messages: LlmMessage[],
+  options: LlmCallOptions = {}
+): Promise<ProxyResult> {
   // 偏好为内置（或自己没填）时交给服务端默认模型；两者都没有时由代理返回明确错误
   const useDefault = usingDefault(cfg)
   try {
@@ -322,21 +343,19 @@ export async function callPlanProxy(cfg: LlmConfig, messages: PlanMessages, sign
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
         model: cfg.model,
-        messages: [
-          { role: 'system', content: messages.system },
-          { role: 'user', content: messages.user }
-        ],
-        temperature: 0.4
+        messages,
+        temperature: options.temperature ?? 0.4
       }),
-      signal
+      signal: options.signal
     })
     const data = await res.json().catch(() => ({}))
+    const model = typeof data?.model === 'string' && data.model.trim() ? data.model.trim() : cfg.model
     if (!res.ok) {
       const detail = typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`
-      return { text: '', error: `模型接口返回错误：${detail}` }
+      return { text: '', error: `模型接口返回错误：${detail}`, model }
     }
-    if (typeof data?.text !== 'string' || !data.text.trim()) return { text: '', error: '模型返回了空内容。' }
-    return { text: data.text, error: '' }
+    if (typeof data?.text !== 'string' || !data.text.trim()) return { text: '', error: '模型返回了空内容。', model }
+    return { text: data.text, error: '', model }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (msg.includes('Failed to fetch')) {
@@ -344,6 +363,13 @@ export async function callPlanProxy(cfg: LlmConfig, messages: PlanMessages, sign
     }
     return { text: '', error: `调用失败：${msg}` }
   }
+}
+
+export async function callPlanProxy(cfg: LlmConfig, messages: PlanMessages, signal?: AbortSignal): Promise<ProxyResult> {
+  return callLlmChat(cfg, [
+    { role: 'system', content: messages.system },
+    { role: 'user', content: messages.user }
+  ], { signal })
 }
 
 /** 连通性测试：发一句最短的话，只看能不能拿到回复 */

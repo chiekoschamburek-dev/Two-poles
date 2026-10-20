@@ -1,25 +1,20 @@
 // 照片食物识别层：页面只依赖这里的类型与函数。
-// 云端走同源代理 /api/food/*（密钥只在服务端），未配置时回落本机 EfficientDet。
+// 模型识别复用项目现有的 /api/llm/chat 与设置页模型配置；没有可用模型时回落本机 EfficientDet。
 // 所有模型输出都必须经过 validateRecognitionObject，缺字段或格式错误时整条结果作废，不补猜。
 import type { FoodCategory, ModelEnergyEstimate } from '@/types/domain'
 import { FOOD_CATEGORIES, isMixed, suggestCategory } from '@/services/mealRules'
 import { UNIT_GRAMS } from '@/services/foodComposition'
-import { extractJson } from '@/services/llm'
+import { callLlmChat, extractJson } from '@/services/llm'
+import type { LlmConfig } from '@/services/llm'
 
 export type RecognitionProvider = 'cloud' | 'local'
 
 /** 低于这个置信度的条目要在界面上明确标出；不强迫用户逐项确认 */
 export const LOW_CONFIDENCE = 0.6
 
-export const MAX_IMAGE_EDGE = 1280
+/** 1024 足够认食物，也能控制通过文本代理上传的体积 */
+export const MAX_IMAGE_EDGE = 1024
 export const MAX_INPUT_BYTES = 12 * 1024 * 1024
-
-export interface RecognitionServiceStatus {
-  cloudAvailable: boolean
-  model: string | null
-}
-
-export const NO_CLOUD_RECOGNITION: RecognitionServiceStatus = { cloudAvailable: false, model: null }
 
 export interface RecognizedFood {
   foodName: string
@@ -69,28 +64,6 @@ const LOCAL_CLASSES: Record<string, { zh: string; category: FoodCategory }> = {
 
 export const LOCAL_MODEL_LABEL = '本机 EfficientDet-Lite0'
 export const LOCAL_CLASS_COUNT = Object.keys(LOCAL_CLASSES).length
-
-/** 云端视觉模型是否可用；拿不到状态就按"只可本机识别"处理 */
-export async function fetchRecognitionStatus(): Promise<RecognitionServiceStatus> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 4000)
-  try {
-    const res = await fetch('/api/food/status', {
-      headers: { 'Cache-Control': 'no-store' },
-      signal: controller.signal
-    })
-    if (!res.ok) return { ...NO_CLOUD_RECOGNITION }
-    const data = await res.json().catch(() => null) as { available?: unknown; model?: unknown } | null
-    return {
-      cloudAvailable: data?.available === true,
-      model: typeof data?.model === 'string' ? data.model : null
-    }
-  } catch {
-    return { ...NO_CLOUD_RECOGNITION }
-  } finally {
-    clearTimeout(timer)
-  }
-}
 
 /**
  * 把用户选/拍的照片缩到最长边 1280 并转成 JPEG data URL。
@@ -151,33 +124,50 @@ async function dataUrlToCanvas(dataUrl: string): Promise<HTMLCanvasElement> {
   }
 }
 
-export async function recognizeInCloud(dataUrl: string): Promise<FoodRecognitionResult> {
-  let res: Response
-  try {
-    res = await fetch('/api/food/recognize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl })
-    })
-  } catch {
-    throw new FoodRecognitionError('连不上本机代理，无法使用云端识别。可以改用本机识别或手动补录。', 'network')
+const FOOD_RECOGNITION_SYSTEM = [
+  '你是食物照片识别助手。只输出一个 JSON 对象，不要 Markdown 代码块，不要任何解释文字。',
+  'JSON 结构：{"items":[{"foodName":"苹果","category":"水果类","portionSize":1,"portionUnit":"个","confidence":0.86,"uncertain":false,"energy":{"low":45,"high":70,"note":"按一个中等大小苹果粗估"}}]}',
+  '要求：',
+  '1. 只列照片里可见的食物，不编造没出现的食物；照片里没有食物就返回 {"items":[]}。',
+  `2. 每项必须给出 foodName、category、confidence（0–1）与 uncertain。category 只能是：${FOOD_CATEGORIES.join('、')}。`,
+  `3. 份量只在能合理判断时给出；portionUnit 只能是：${Object.keys(UNIT_GRAMS).join('、')}。看不清就省略这两个字段。`,
+  '4. energy 是可选的粗略热量区间（kcal），不确定就省略；不要为看不清的食物编造营养数值。',
+  '5. 餐次由客户端按拍摄时间判断，你不要推测早餐/午餐/晚餐。',
+  '6. 不给医疗、治疗、减重或竞技营养建议，不评价吃得多不多。'
+].join('\n')
+
+/**
+ * 通过项目现有的模型代理识别照片：设置页自定义模型优先，否则用服务端默认模型。
+ * 模型必须支持 image_url 输入；不支持时会返回上游错误，由页面提示换模型或改本机识别。
+ */
+export async function recognizeFoodWithModel(dataUrl: string, cfg: LlmConfig): Promise<FoodRecognitionResult> {
+  const res = await callLlmChat(cfg, [
+    { role: 'system', content: FOOD_RECOGNITION_SYSTEM },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: '识别这张照片里的食物，只输出 JSON。' },
+        { type: 'image_url', image_url: { url: dataUrl } }
+      ]
+    }
+  ], { temperature: 0.1 })
+  if (res.error) {
+    const code: RecognitionErrorCode = res.error.includes('没有配置') || res.error.includes('缺少 base_url')
+      ? 'not_configured'
+      : res.error.includes('连不上本地代理') ? 'network' : 'upstream'
+    throw new FoodRecognitionError(res.error, code)
   }
-  const data = await res.json().catch(() => ({})) as { text?: unknown; model?: unknown; error?: unknown }
-  if (!res.ok) {
-    const msg = typeof data?.error === 'string' ? data.error : `识别接口返回 HTTP ${res.status}`
-    throw new FoodRecognitionError(msg, res.status === 503 ? 'not_configured' : 'upstream')
+  if (!res.text.trim()) {
+    throw new FoodRecognitionError('模型返回了空内容，没有生成记录。', 'empty')
   }
-  if (typeof data?.text !== 'string' || !data.text.trim()) {
-    throw new FoodRecognitionError('识别服务返回了空内容，没有生成记录。', 'empty')
-  }
-  const check = validateRecognitionText(data.text)
+  const check = validateRecognitionText(res.text)
   if (!check.items.length) {
     throw new FoodRecognitionError(check.error, 'invalid_output', check.warnings)
   }
   return {
     items: check.items,
     provider: 'cloud',
-    model: typeof data.model === 'string' && data.model.trim() ? data.model.trim() : '云端视觉模型',
+    model: res.model || cfg.model || '模型服务',
     warnings: check.warnings
   }
 }

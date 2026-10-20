@@ -21,10 +21,10 @@
         <h2>拍一张，记一顿</h2>
         <p>不用先选早餐还是晚餐：系统按拍摄时间自动判断餐次，识别后默认直接保存，想改再展开。</p>
         <div class="hero-meta">
-          <span class="mode-chip" :class="{ ok: recognitionStatus?.cloudAvailable }">
+          <span class="mode-chip" :class="{ ok: modelAvailable }">
             <i class="dot"></i>{{ recognitionLabel }}
           </span>
-          <span>本应用不保存原图 · 上传前会征得同意</span>
+          <span>本应用不保存原图 · 发送前会征得同意</span>
         </div>
       </div>
       <div class="hero-act">
@@ -228,8 +228,8 @@ import {
   mealTypeLabel,
   summarizeDay
 } from '@/services/mealRules'
-import { LOW_CONFIDENCE, fetchRecognitionStatus } from '@/services/foodRecognition'
-import type { RecognitionServiceStatus } from '@/services/foodRecognition'
+import { LOW_CONFIDENCE } from '@/services/foodRecognition'
+import { canUseLlm, isLlmReady, usingDefault } from '@/services/llm'
 import { shortDate, toISODate } from '@/utils/time'
 
 const store = useAppStore()
@@ -263,15 +263,14 @@ const coverageRows = computed(() => FOOD_CATEGORIES.slice(0, 8).map(name => ({
   present: summary.value.coverage.includes(name)
 })))
 
-const recognitionStatus = ref<RecognitionServiceStatus | null>(null)
-onMounted(async () => {
-  recognitionStatus.value = await fetchRecognitionStatus()
+const modelAvailable = computed(() => canUseLlm(store.llmConfig, store.llmDefault))
+onMounted(() => {
+  if (!isLlmReady(store.llmConfig) && !store.llmDefault.available) void store.refreshLlmStatus()
 })
 const recognitionLabel = computed(() => {
-  if (!recognitionStatus.value) return '检查识别服务…'
-  return recognitionStatus.value.cloudAvailable
-    ? `云端识别${recognitionStatus.value.model ? ` · ${recognitionStatus.value.model}` : ''}`
-    : '本机识别 · 9 类'
+  if (!modelAvailable.value) return '本机识别 · 9 类（未配置模型）'
+  const model = usingDefault(store.llmConfig) ? store.llmDefault.model : store.llmConfig.model
+  return `模型识别 · ${model || '已配置'}`
 })
 
 const headerCopy = computed(() => showEstimate.value
@@ -312,7 +311,7 @@ const limitations = computed(() => {
       ? ['部分照片识别结果带有模型提供的热量区间：它只是模型粗估，未与成分表核对，也不构成营养建议。']
       : []),
     '照片识别会给出名称、类别与置信度；低置信度项在列表里标注，默认不强迫逐项确认。',
-    '识别失败不会生成记录；原图不保存。若使用云端识别，拍照前会单独说明并征得同意。'
+    '识别失败不会生成记录；原图不保存。若使用模型识别，拍照前会单独说明并征得同意。'
   ]
 })
 
