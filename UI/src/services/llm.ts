@@ -50,6 +50,37 @@ export function isLlmReady(cfg: LlmConfig | null | undefined): boolean {
 
 export const TRAINING_TYPES: TrainingType[] = ['跑步', '动态热身', '坐站训练', '站姿弯举', '舒缓整理', '其他']
 
+/** 服务端默认模型的状态：只有"有没有"和"叫什么"，不含任何密钥 */
+export interface LlmDefaultStatus {
+  available: boolean
+  model: string | null
+}
+
+export const NO_LLM_DEFAULT: LlmDefaultStatus = { available: false, model: null }
+
+/** 自己的配置优先，没配就用服务端默认 */
+export function canUseLlm(cfg: LlmConfig | null | undefined, fallback: LlmDefaultStatus): boolean {
+  return isLlmReady(cfg) || fallback.available
+}
+
+/**
+ * 问本机代理有没有配默认模型。
+ * 拿不到就当没有：这条请求失败不应该影响页面其它部分。
+ */
+export async function fetchLlmStatus(): Promise<LlmDefaultStatus> {
+  try {
+    const res = await fetch('/api/llm/status', { headers: { 'Cache-Control': 'no-store' } })
+    if (!res.ok) return { ...NO_LLM_DEFAULT }
+    const data = await res.json()
+    return {
+      available: data?.available === true,
+      model: typeof data?.model === 'string' ? data.model : null
+    }
+  } catch {
+    return { ...NO_LLM_DEFAULT }
+  }
+}
+
 export interface PlanDraftItem {
   exerciseName: string
   type: TrainingType
@@ -260,12 +291,14 @@ export interface ProxyResult {
  * 所以统一走同源的 /api/llm/*，由 vite 中间件或静态服务器转发。
  */
 export async function callPlanProxy(cfg: LlmConfig, messages: PlanMessages, signal?: AbortSignal): Promise<ProxyResult> {
-  if (!isLlmReady(cfg)) return { text: '', error: '还没有填写 base_url 或模型名。' }
+  // 没填自己的配置就交给服务端默认模型；两者都没有时由代理返回明确错误
+  const useDefault = !isLlmReady(cfg)
   try {
     const res = await fetch('/api/llm/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        useDefault,
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
         model: cfg.model,

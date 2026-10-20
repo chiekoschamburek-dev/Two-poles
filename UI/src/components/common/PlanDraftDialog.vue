@@ -4,7 +4,7 @@
       <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="draft-title">
         <header class="dlg-head">
           <div>
-            <span class="micro">AI PLAN · {{ store.llmConfig.model || '未配置模型' }}</span>
+            <span class="micro">AI PLAN · {{ modelLabel }}</span>
             <h2 id="draft-title">{{ title }}</h2>
           </div>
           <button class="x" type="button" aria-label="关闭" @click="close">✕</button>
@@ -95,6 +95,13 @@ watch(
   },
   { immediate: true }
 )
+
+/** 实际生效的模型：自己的优先，否则是服务端默认 */
+const modelLabel = computed(() => {
+  if (store.llmConfig.model) return store.llmConfig.model
+  if (store.llmDefault.model) return `${store.llmDefault.model}（服务端默认）`
+  return '未配置模型'
+})
 
 const title = computed(() => {
   if (state.value.status === 'loading') return '正在生成计划…'

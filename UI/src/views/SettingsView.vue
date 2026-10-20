@@ -49,10 +49,20 @@
       <div class="llm-head">
         <div>
           <h2>模型接入</h2>
-          <p class="sub">填一个 OpenAI 兼容的接口，建档完成后会用你的档案生成一周计划；计划先给你审，确认后才录入。</p>
+          <p class="sub">留空就用服务端的内置模型；填了自己的接口就用你自己的。建档完成后据此生成一周计划，确认后才录入。</p>
         </div>
-        <StatusBadge :variant="llmReady ? 'success' : 'neutral'">{{ llmReady ? '已配置' : '未配置' }}</StatusBadge>
+        <StatusBadge :variant="llmReady ? 'success' : 'neutral'">{{ llmBadge }}</StatusBadge>
       </div>
+
+      <p class="llm-default" :class="{ dim: !store.llmDefault.available }">
+        <template v-if="store.llmDefault.available">
+          服务端默认模型：<b>{{ store.llmDefault.model }}</b>
+          <span v-if="!hasCustom">· 当前正在使用它</span>
+        </template>
+        <template v-else>
+          服务端没有配置默认模型{{ hasCustom ? '' : '，需要自己填一个才能生成计划' }}。
+        </template>
+      </p>
 
       <div class="fields">
         <label class="field">
@@ -74,12 +84,14 @@
         <BaseButton variant="secondary" size="sm" :disabled="testingLlm" @click="runTest">
           {{ testingLlm ? '测试中…' : '测试连接' }}
         </BaseButton>
+        <BaseButton v-if="hasCustom" variant="ghost" size="sm" @click="clearLlm">改用内置模型</BaseButton>
         <span class="llm-msg" :class="{ bad: llmMsgBad }">{{ llmMsg }}</span>
       </div>
 
       <p class="fine">
-        浏览器直连第三方接口会被 CORS 拦掉，所以请求经本机 Vite 中间件转发（<code>/api/llm/chat</code>），
-        密钥只在这一次请求里经过本机进程，不写日志、不入库。没有配置时，应用仍然按内置规则生成计划。
+        浏览器直连第三方接口会被 CORS 拦掉，所以请求经本机 Vite 中间件转发（<code>/api/llm/chat</code>）。
+        你自己的密钥只存在这台设备上，只在这次请求里经过本机进程，不写日志、不入库；
+        服务端默认模型的密钥只存在于服务端，不会下发到浏览器。两者都没有时，应用仍然按内置规则生成计划。
       </p>
     </BaseCard>
 
@@ -190,7 +202,7 @@ import type { PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { goalSummary } from '@/services/profileRules'
 import { RULE_VERSION } from '@/services/mealRules'
-import { isLlmReady, testLlmConfig } from '@/services/llm'
+import { canUseLlm, isLlmReady, testLlmConfig } from '@/services/llm'
 import type { LlmConfig } from '@/services/llm'
 
 const store = useAppStore()
@@ -213,7 +225,9 @@ const themes: { id: ThemePreference; label: string }[] = [
 ]
 // ——— 模型接入 ———
 const llmForm = ref<LlmConfig>({ ...store.llmConfig })
-const llmReady = computed(() => isLlmReady(llmForm.value))
+const hasCustom = computed(() => isLlmReady(llmForm.value))
+const llmReady = computed(() => canUseLlm(llmForm.value, store.llmDefault))
+const llmBadge = computed(() => (hasCustom.value ? '自己的配置' : store.llmDefault.available ? '内置模型' : '未配置'))
 const testingLlm = ref(false)
 const llmMsg = ref('')
 const llmMsgBad = ref(false)
@@ -224,6 +238,13 @@ function saveLlm() {
   llmMsgBad.value = false
   llmMsg.value = '已保存到本机'
   store.showToast({ type: 'success', title: '模型配置已保存', message: '下次建档完成后会用这份配置生成计划', duration: 3000 })
+}
+
+function clearLlm() {
+  store.setLlmConfig({ baseUrl: '', apiKey: '', model: '' })
+  llmForm.value = { ...store.llmConfig }
+  llmMsgBad.value = false
+  llmMsg.value = store.llmDefault.available ? '已改用服务端内置模型' : '已清除；服务端没有默认模型，需自己填'
 }
 
 async function runTest() {
@@ -399,6 +420,9 @@ function wipe() {
 .section.danger h2{color:var(--color-danger)}
 .foot{font-size:11px;color:var(--color-text-muted);text-align:center;margin:16px 0 0}
 @media(max-width:767px){.choices,.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-head{flex-direction:column;align-items:flex-start}.actions :deep(button){width:100%}}
+.llm-default{font-size:12px;color:var(--color-text-secondary);margin:-4px 0 14px;line-height:1.6}
+.llm-default b{font-family:var(--font-num);color:var(--color-accent)}
+.llm-default.dim{color:var(--color-text-muted)}
 .llm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
 .llm-head h2{margin:0}
 .llm-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}

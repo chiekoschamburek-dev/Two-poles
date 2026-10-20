@@ -8,15 +8,17 @@ import type { EnergyEstimate } from '@/services/foodComposition'
 import { buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
 import { normalizeProfile } from '@/services/profileRules'
 import {
+  NO_LLM_DEFAULT,
   buildPlanMessages,
   callPlanProxy,
+  canUseLlm,
   extractJson,
-  isLlmReady,
+  fetchLlmStatus,
   loadLlmConfig,
   saveLlmConfig,
   validatePlanDraft
 } from '@/services/llm'
-import type { LlmConfig, PlanDraft, PlanDraftState } from '@/services/llm'
+import type { LlmConfig, LlmDefaultStatus, PlanDraft, PlanDraftState } from '@/services/llm'
 import { weekStart } from '@/services/weekRules'
 import { toISODate } from '@/utils/time'
 
@@ -85,6 +87,7 @@ export const useAppStore = defineStore('app', () => {
     applyTheme()
     // 模型配置单独存一个 key，和 state 分开；读不出来也不影响其余功能
     llmConfig.value = loadLlmConfig()
+    void refreshLlmStatus()
     darkMedia?.addEventListener?.('change', applyTheme)
     const stored = localStorage.getItem('twopoles_state')
     if (stored) {
@@ -305,7 +308,16 @@ export const useAppStore = defineStore('app', () => {
   // ——— 大模型生成计划（草稿 → 用户确认 → 才入库） ———
   /** 配置单独存一个 key，不进导出 */
   const llmConfig = ref<LlmConfig>({ baseUrl: '', apiKey: '', model: '' })
+  /** 服务端默认模型（保底）：只有状态，没有密钥 */
+  const llmDefault = ref<LlmDefaultStatus>({ ...NO_LLM_DEFAULT })
   const planDraftState = ref<PlanDraftState>({ status: 'idle', draft: null, error: '', warnings: [] })
+
+  /** 自己的配置优先，没有就用服务端默认 */
+  const planLlmReady = computed(() => canUseLlm(llmConfig.value, llmDefault.value))
+
+  async function refreshLlmStatus() {
+    llmDefault.value = await fetchLlmStatus()
+  }
 
   function setLlmConfig(cfg: LlmConfig) {
     llmConfig.value = saveLlmConfig(cfg)
@@ -321,8 +333,13 @@ export const useAppStore = defineStore('app', () => {
       planDraftState.value = { status: 'error', draft: null, error: '还没有建档，先填档案再生成。', warnings: [] }
       return
     }
-    if (!isLlmReady(llmConfig.value)) {
-      planDraftState.value = { status: 'error', draft: null, error: '还没有配置模型（base_url / 模型名），先到设置页填写。', warnings: [] }
+    if (!planLlmReady.value) {
+      planDraftState.value = {
+        status: 'error',
+        draft: null,
+        error: '既没有配置自己的模型，服务端也没有配默认模型。可以到设置页填写，或继续使用内置规则计划。',
+        warnings: []
+      }
       return
     }
     planDraftState.value = { status: 'loading', draft: null, error: '', warnings: [] }
@@ -704,7 +721,9 @@ export const useAppStore = defineStore('app', () => {
     pendingSwitch,
     unitGrams,
     llmConfig,
+    llmDefault,
     planDraftState,
+    planLlmReady,
 
     // Computed
     isPublicMode,
@@ -740,6 +759,7 @@ export const useAppStore = defineStore('app', () => {
     dayPlanNotice,
     regenerateWeekPlan,
     setLlmConfig,
+    refreshLlmStatus,
     generatePlanDraft,
     acceptPlanDraft,
     resetPlanDraft,

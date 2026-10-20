@@ -247,7 +247,6 @@ import type { GoalType, GymRecord, Mode, PersonalBest } from '@/types/domain'
 import { AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
 import { gateReason } from '@/services/exercises'
 import { FIELD_EVENTS, TRACK_EVENTS, bodyErrors, cycleRangeError, goalSummary } from '@/services/profileRules'
-import { isLlmReady } from '@/services/llm'
 
 const router = useRouter()
 const store = useAppStore()
@@ -423,7 +422,7 @@ function finish() {
   })
   if (mode.value !== store.currentMode) store.commitMode(mode.value)
   // 配了模型就在建档后立刻生成一份计划草稿，首页弹窗审阅后才录入
-  if (isLlmReady(store.llmConfig)) void store.generatePlanDraft()
+  if (store.planLlmReady) void store.generatePlanDraft()
   // 档案条件变了就明确重算本周计划，避免继续显示按旧条件生成的版本
   if (wasEditing) store.regenerateWeekPlan(new Date())
   store.showToast({
