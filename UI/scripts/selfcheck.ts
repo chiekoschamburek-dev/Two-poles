@@ -9,6 +9,7 @@ import { activeExercises, exercises, gateReason } from '@/services/exercises'
 import { useRepCounter } from '@/composables/useRepCounter'
 import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
+import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import type { MealItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
@@ -263,6 +264,37 @@ ok('三点重合时不给角度', angleAt({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z:
 ok('重复帧时间戳被跳过', nextTimestamp(100, 100) === null)
 ok('新帧时间戳单调放行', nextTimestamp(120, 100) === 120)
 ok('非有限值不当成新帧', nextTimestamp(NaN, 0) === null && nextTimestamp(0, 0) === null)
+
+console.log('\n9. 今日养生：内容口径与每日轮换')
+ok('养生卡片 ≥ 16 条', wellnessCards.length >= 16, String(wellnessCards.length))
+ok('健身类 ≥ 8 条', wellnessCards.filter(c => c.category === '健身').length >= 8, String(wellnessCards.filter(c => c.category === '健身').length))
+ok('饮食类 ≥ 8 条', wellnessCards.filter(c => c.category === '饮食').length >= 8, String(wellnessCards.filter(c => c.category === '饮食').length))
+ok('id 唯一', new Set(wellnessCards.map(c => c.id)).size === wellnessCards.length)
+ok('id 为英文 kebab-case', wellnessCards.every(c => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(c.id)))
+ok('标题 8–24 字符', wellnessCards.every(c => [...c.title].length >= 8 && [...c.title].length <= 24), wellnessCards.filter(c => [...c.title].length < 8 || [...c.title].length > 24).map(c => `${c.id}:${[...c.title].length}`).join(','))
+ok('摘要 25–70 字符', wellnessCards.every(c => [...c.summary].length >= 25 && [...c.summary].length <= 70), wellnessCards.filter(c => [...c.summary].length < 25 || [...c.summary].length > 70).map(c => `${c.id}:${[...c.summary].length}`).join(','))
+ok('详情总长 150–400 字符', wellnessCards.every(c => [...c.detail.join('')].length >= 150 && [...c.detail.join('')].length <= 400), wellnessCards.filter(c => [...c.detail.join('')].length < 150 || [...c.detail.join('')].length > 400).map(c => `${c.id}:${[...c.detail.join('')].length}`).join(','))
+ok('要点每条不超过 60 字符', wellnessCards.every(c => c.points.every(p => [...p].length <= 60)))
+ok('标题 / 摘要 / 来源非空', wellnessCards.every(c => !!c.title.trim() && !!c.summary.trim() && !!c.source.trim()))
+ok('详情 2–4 段且每段非空', wellnessCards.every(c => c.detail.length >= 2 && c.detail.length <= 4 && c.detail.every(d => !!d.trim())))
+ok('详情不是摘要复读', wellnessCards.every(c => c.detail.join('').length > c.summary.length))
+ok('要点 2–4 条', wellnessCards.every(c => c.points.length >= 2 && c.points.length <= 4))
+ok('标签 2–4 个', wellnessCards.every(c => c.tags.length >= 2 && c.tags.length <= 4))
+ok('覆盖动作要点 / 能量系统 / 抗炎饮食', ['动作要点', '能量系统', '抗炎饮食'].every(t => wellnessCards.some(c => c.topic === t)))
+ok('运动员补充内容齐全', wellnessCards.every(c => !!c.athlete.focus.trim() && c.athlete.detail.length >= 1 && c.athlete.points.length >= 2))
+ok('免责声明为统一文案', WELLNESS_DISCLAIMER.includes('不构成医疗建议') && WELLNESS_DISCLAIMER.includes('咨询专业人士'))
+
+const wDay = (n: number, h = 12) => {
+  const d = new Date(2026, 9, 12, h, 0)
+  d.setDate(d.getDate() + n)
+  return d
+}
+ok('同一天重复调用返回同一条', pickDailyWellnessCard(wDay(0)).id === pickDailyWellnessCard(wDay(0)).id)
+ok('同一天不同时刻仍是同一条', pickDailyWellnessCard(wDay(0, 0)).id === pickDailyWellnessCard(wDay(0, 23)).id)
+const wSeq = Array.from({ length: 16 }, (_, i) => pickDailyWellnessCard(wDay(i)))
+ok('相邻两天换卡', wSeq.every((c, i) => i === 0 || c.id !== wSeq[i - 1].id))
+ok('相邻两天类别交替', wSeq.every((c, i) => i === 0 || c.category !== wSeq[i - 1].category))
+ok('连续 16 天返回 16 个不同 id', new Set(wSeq.map(c => c.id)).size === 16, String(new Set(wSeq.map(c => c.id)).size))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

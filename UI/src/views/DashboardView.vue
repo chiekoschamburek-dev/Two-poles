@@ -218,6 +218,9 @@
       </BaseCard>
     </div>
 
+    <!-- 收尾内容：每天一条饮食/健身知识，收起时只占一行摘要 -->
+    <DailyWellnessCard :date="now" />
+
     <footer class="footnote">
       <span>无账号 · 数据只在本机 · 照片不上传</span>
       <span class="micro">v3 · plan-rules-v3</span>
@@ -237,6 +240,7 @@ import { buildDayPlan } from '@/services/planRules'
 import BaseCard from '@/components/common/BaseCard.vue'
 import TwoPoleDial from '@/components/common/TwoPoleDial.vue'
 import ShapeState from '@/components/common/ShapeState.vue'
+import DailyWellnessCard from '@/components/wellness/DailyWellnessCard.vue'
 import type { PlanItem } from '@/types/domain'
 
 const router = useRouter()
