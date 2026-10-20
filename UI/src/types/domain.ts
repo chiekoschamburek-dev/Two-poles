@@ -211,6 +211,8 @@ export interface Meal {
   createdAt: string
   /** 本机压缩缩略图（data URL）；旧记录没有这个字段 */
   photoThumb?: string
+  /** 本机原图在 IndexedDB 里的 key；旧记录没有这个字段 */
+  photoId?: string
 }
 
 /** 照片识别模型给出的粗估热量；不是权威成分表数值，只作可选展示 */

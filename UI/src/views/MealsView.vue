@@ -24,7 +24,7 @@
           <span class="mode-chip" :class="{ ok: modelAvailable }">
             <i class="dot"></i>{{ recognitionLabel }}
           </span>
-          <span>本应用不保存原图 · 发送前会征得同意</span>
+          <span>照片是否本机保存可选 · 发送前会征得同意</span>
         </div>
       </div>
       <div class="hero-act">
@@ -78,10 +78,16 @@
               </div>
 
               <div class="log-body">
-                <figure v-if="meal.photoThumb" class="meal-photo">
+                <button
+                  v-if="meal.photoThumb"
+                  type="button"
+                  class="meal-photo"
+                  :aria-label="`查看${meal.items.map(i => i.foodName).join('、') || '这次记录'}的照片`"
+                  @click="openPhotoViewer(meal)"
+                >
                   <img :src="meal.photoThumb" alt="本次记录的食物照片缩略图" />
-                  <figcaption>本机缩略图</figcaption>
-                </figure>
+                  <span>本机照片 · 点开看原图</span>
+                </button>
                 <div class="food-block">
                   <div class="food-block-head">
                     <span class="detail-label">本次食物</span>
@@ -218,6 +224,13 @@
       @close="captureOpen = false"
       @saved="onSaved"
     />
+    <MealPhotoViewer
+      :open="!!photoViewer"
+      :photo-id="photoViewer?.photoId"
+      :fallback="photoViewer?.fallback"
+      :label="photoViewer?.label || ''"
+      @close="photoViewer = null"
+    />
   </div>
 </template>
 
@@ -230,6 +243,7 @@ import InsightCard from '@/components/common/InsightCard.vue'
 import StatStrip, { type StatItem } from '@/components/common/StatStrip.vue'
 import MealForm from '@/components/meals/MealForm.vue'
 import FoodCaptureDialog from '@/components/meals/FoodCaptureDialog.vue'
+import MealPhotoViewer from '@/components/meals/MealPhotoViewer.vue'
 import { useAppStore } from '@/stores/app'
 import type { Meal, MealDraft, MealItem, MealType, ModelEnergyEstimate } from '@/types/domain'
 import {
@@ -325,7 +339,7 @@ const limitations = computed(() => {
       ? ['部分照片识别结果带有模型提供的热量区间：它只是模型粗估，未与成分表核对，也不构成营养建议。']
       : []),
     '照片识别会给出名称、类别与置信度；低置信度项在列表里标注，默认不强迫逐项确认。',
-    '识别失败不会生成记录；原图不保存。若使用模型识别，拍照前会单独说明并征得同意。'
+    '识别失败不会生成记录；照片是否在本机保存可在结果页/设置选择。模型识别发送前会单独说明并征得同意。'
   ]
 })
 
@@ -382,6 +396,15 @@ function onSaved(meal: Meal) {
 // ——— 今日记录 ———
 const expandedId = ref<string | null>(null)
 const editingId = ref<string | null>(null)
+const photoViewer = ref<{ photoId?: string; fallback?: string; label: string } | null>(null)
+
+function openPhotoViewer(meal: Meal) {
+  photoViewer.value = {
+    photoId: meal.photoId,
+    fallback: meal.photoThumb,
+    label: meal.items.map(i => i.foodName).join('、') || '这次记录'
+  }
+}
 
 function toggleDetail(mealId: string) {
   if (expandedId.value === mealId) {
@@ -508,7 +531,8 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
       uncertain: i.uncertain,
       modelEnergy: i.modelEnergy
     })),
-    photoThumb: meal.photoThumb
+    photoThumb: meal.photoThumb,
+    photoId: meal.photoId
   })
   editingId.value = null
   expandedId.value = saved.id
@@ -573,9 +597,11 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .log-actions button:hover{background:var(--color-neutral-soft);color:var(--color-ink)}
 .log-actions button.danger:hover{background:var(--color-danger-soft);color:var(--color-danger)}
 .log-body{display:flex;gap:11px;align-items:flex-start;margin-top:9px;min-width:0}
-.meal-photo{flex:none;width:88px;margin:0;display:grid;gap:3px}
-.meal-photo img{width:88px;height:88px;object-fit:cover;border-radius:10px;background:var(--color-divider);box-shadow:inset 0 0 0 1px rgba(21,24,27,.06)}
-.meal-photo figcaption{font-size:9px;line-height:1.4;color:var(--color-text-muted);text-align:center}
+.meal-photo{flex:none;width:88px;display:grid;gap:3px;padding:0;border:0;background:transparent;font-family:inherit;cursor:zoom-in;text-align:center;border-radius:12px}
+.meal-photo img{width:88px;height:88px;object-fit:cover;border-radius:10px;background:var(--color-divider);box-shadow:inset 0 0 0 1px rgba(21,24,27,.06);transition:box-shadow var(--motion-fast)}
+.meal-photo span{font-size:9px;line-height:1.4;color:var(--color-text-muted)}
+.meal-photo:hover img,.meal-photo:focus-visible img{box-shadow:inset 0 0 0 1px var(--color-accent-line),0 0 0 3px rgba(15,118,110,.18)}
+.meal-photo:focus-visible{outline:none}
 .food-block{flex:1;min-width:0;margin-top:0}
 .food-block-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:3px}
 .food-block-head .detail-label{margin-bottom:0}

@@ -5,18 +5,22 @@ import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
 import type { EnergyEstimate } from '@/services/foodComposition'
+import { clearMealPhotos, deleteMealPhoto } from '@/services/mealPhotos'
 import { buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
 import { normalizeProfile } from '@/services/profileRules'
 import {
   NO_LLM_DEFAULT,
   buildPlanMessages,
+  buildPlanQuestionMessages,
   callPlanProxy,
   canUseLlm,
+  desiredWeeklySessions,
   extractJson,
   fetchLlmStatus,
   loadLlmConfig,
   saveLlmConfig,
-  validatePlanDraft
+  validatePlanDraft,
+  validatePlanQuestions
 } from '@/services/llm'
 import type { LlmConfig, LlmDefaultStatus, PlanDraft, PlanDraftState } from '@/services/llm'
 import { weekStart } from '@/services/weekRules'
@@ -38,6 +42,8 @@ export interface NewMealInput {
   }[]
   /** 仅本机保存的压缩缩略图；不传则只保存识别结果 */
   photoThumb?: string
+  /** 本机原图在 IndexedDB 里的 key */
+  photoId?: string
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -332,7 +338,17 @@ export const useAppStore = defineStore('app', () => {
   const llmConfig = ref<LlmConfig>({ baseUrl: '', apiKey: '', model: '' })
   /** 服务端默认模型（保底）：只有状态，没有密钥 */
   const llmDefault = ref<LlmDefaultStatus>({ ...NO_LLM_DEFAULT })
-  const planDraftState = ref<PlanDraftState>({ status: 'idle', draft: null, error: '', warnings: [] })
+  const planDraftState = ref<PlanDraftState>({
+    status: 'idle',
+    loadingStage: null,
+    questions: [],
+    answers: {},
+    draft: null,
+    error: '',
+    warnings: []
+  })
+  /** 关闭弹窗/重新提问后，旧请求的晚到结果不再把弹窗重新打开 */
+  let planRequestId = 0
 
   /** 切换用哪个模型；只改偏好，已填的 base_url / key / 模型名原样保留 */
   function setLlmPreference(preference: 'custom' | 'default') {
@@ -351,25 +367,19 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function resetPlanDraft() {
-    planDraftState.value = { status: 'idle', draft: null, error: '', warnings: [] }
+    planRequestId++
+    planDraftState.value = {
+      status: 'idle',
+      loadingStage: null,
+      questions: [],
+      answers: {},
+      draft: null,
+      error: '',
+      warnings: []
+    }
   }
 
-  /** 生成草稿：只写进 planDraftState，不碰 plans —— 用户确认前什么都不改 */
-  async function generatePlanDraft(reference: Date = new Date()) {
-    if (!userProfile.value) {
-      planDraftState.value = { status: 'error', draft: null, error: '还没有建档，先填档案再生成。', warnings: [] }
-      return
-    }
-    if (!planLlmReady.value) {
-      planDraftState.value = {
-        status: 'error',
-        draft: null,
-        error: '既没有配置自己的模型，服务端也没有配默认模型。可以到设置页填写，或继续使用内置规则计划。',
-        warnings: []
-      }
-      return
-    }
-    planDraftState.value = { status: 'loading', draft: null, error: '', warnings: [] }
+  function planWeekDates(reference: Date): string[] {
     const start = weekStart(reference)
     const dates: string[] = []
     for (let i = 0; i < 7; i++) {
@@ -377,18 +387,153 @@ export const useAppStore = defineStore('app', () => {
       d.setDate(start.getDate() + i)
       dates.push(toISODate(d))
     }
-    const messages = buildPlanMessages(userProfile.value, dates, currentMode.value)
+    return dates
+  }
+
+  function planModelError(): string {
+    if (!userProfile.value) return '还没有建档，先填档案再生成。'
+    if (!planLlmReady.value) return '既没有配置自己的模型，服务端也没有配默认模型。可以到设置页填写，或继续使用内置规则计划。'
+    return ''
+  }
+
+  /** 第一阶段：先让模型看档案，问 1–3 个会改变排课的问题 */
+  async function generatePlanQuestions(reference: Date = new Date()) {
+    const guard = planModelError()
+    if (guard) {
+      planDraftState.value = {
+        status: 'error',
+        loadingStage: 'questions',
+        questions: [],
+        answers: {},
+        draft: null,
+        error: guard,
+        warnings: []
+      }
+      return
+    }
+    const requestId = ++planRequestId
+    planDraftState.value = {
+      status: 'loading',
+      loadingStage: 'questions',
+      questions: [],
+      answers: {},
+      draft: null,
+      error: '',
+      warnings: []
+    }
+    const dates = planWeekDates(reference)
+    const messages = buildPlanQuestionMessages(userProfile.value!, currentMode.value, dates)
     const res = await callPlanProxy(llmConfig.value, messages)
+    if (requestId !== planRequestId) return
     if (res.error) {
-      planDraftState.value = { status: 'error', draft: null, error: res.error, warnings: [] }
+      planDraftState.value = {
+        status: 'error',
+        loadingStage: 'questions',
+        questions: [],
+        answers: {},
+        draft: null,
+        error: res.error,
+        warnings: []
+      }
+      return
+    }
+    const check = validatePlanQuestions(extractJson(res.text))
+    if (check.error) {
+      planDraftState.value = {
+        status: 'error',
+        loadingStage: 'questions',
+        questions: [],
+        answers: {},
+        draft: null,
+        error: check.error,
+        warnings: check.warnings
+      }
+      return
+    }
+    planDraftState.value = {
+      status: 'questions',
+      loadingStage: null,
+      questions: check.questions,
+      answers: {},
+      draft: null,
+      error: '',
+      warnings: check.warnings
+    }
+  }
+
+  /** 第二阶段：用户回答后生成草稿；只写进 planDraftState，不碰 plans */
+  async function generatePlanDraft(reference: Date = new Date(), answers: Record<string, string> = planDraftState.value.answers) {
+    const guard = planModelError()
+    if (guard) {
+      planDraftState.value = {
+        status: 'error',
+        loadingStage: 'plan',
+        questions: planDraftState.value.questions,
+        answers,
+        draft: null,
+        error: guard,
+        warnings: []
+      }
+      return
+    }
+    const questions = planDraftState.value.questions
+    const requestId = ++planRequestId
+    planDraftState.value = {
+      status: 'loading',
+      loadingStage: 'plan',
+      questions,
+      answers,
+      draft: null,
+      error: '',
+      warnings: []
+    }
+    const dates = planWeekDates(reference)
+    const messages = buildPlanMessages(userProfile.value!, dates, currentMode.value, { questions, answers })
+    const res = await callPlanProxy(llmConfig.value, messages)
+    if (requestId !== planRequestId) return
+    if (res.error) {
+      planDraftState.value = {
+        status: 'error',
+        loadingStage: 'plan',
+        questions,
+        answers,
+        draft: null,
+        error: res.error,
+        warnings: []
+      }
       return
     }
     const check = validatePlanDraft(extractJson(res.text), dates, llmConfig.value.model)
     if (!check.draft) {
-      planDraftState.value = { status: 'error', draft: null, error: check.error, warnings: check.warnings }
+      planDraftState.value = {
+        status: 'error',
+        loadingStage: 'plan',
+        questions,
+        answers,
+        draft: null,
+        error: check.error,
+        warnings: check.warnings
+      }
       return
     }
-    planDraftState.value = { status: 'ready', draft: check.draft, error: '', warnings: check.warnings }
+    const warnings = [...check.warnings]
+    const requested = desiredWeeklySessions(questions, answers)
+    if (requested !== null) {
+      if (check.draft.days.length < requested) {
+        warnings.push(`你希望每周 ${requested} 次，这份草稿目前只有 ${check.draft.days.length} 个训练日。可以点「修改计划」补足，或重新生成。`)
+      } else if (check.draft.days.length > requested) {
+        warnings.push(`你希望每周 ${requested} 次，这份草稿安排了 ${check.draft.days.length} 个训练日；可以点「修改计划」删减。`)
+      }
+    }
+    planDraftState.value = {
+      status: 'ready',
+      loadingStage: null,
+      questions,
+      answers,
+      draft: check.draft,
+      error: '',
+      warnings
+    }
   }
 
   /** 用户确认：草稿成为本周计划；旧版本进历史，不就地覆盖 */
@@ -650,7 +795,8 @@ export const useAppStore = defineStore('app', () => {
       analyzed: !!analysis,
       analysis,
       createdAt: new Date().toISOString(),
-      photoThumb: input.photoThumb
+      photoThumb: input.photoThumb,
+      photoId: input.photoId
     }
     meals.value.push(meal)
     persistState()
@@ -664,6 +810,8 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function removeMeal(mealId: string) {
+    const meal = meals.value.find(m => m.id === mealId)
+    if (meal?.photoId) void deleteMealPhoto(meal.photoId).catch(() => { /* 清不掉原图不影响删除记录 */ })
     meals.value = meals.value.filter(m => m.id !== mealId)
     persistState()
     showToast({ type: 'info', title: '已删除该餐记录', message: '删除后这一天会重新显示为"未记录"', duration: 2500 })
@@ -733,10 +881,11 @@ export const useAppStore = defineStore('app', () => {
     unitGrams.value = {}
     applyTheme()
     localStorage.removeItem('twopoles_state')
+    void clearMealPhotos().catch(() => { /* 照片库清理失败时至少保留了主数据清除结果 */ })
     showToast({
       type: 'success',
       title: '数据已清除',
-      message: '档案、训练、餐食、计划版本、切换记录与本机换算口径都已从本机删除',
+      message: '档案、训练、餐食、照片、计划版本、切换记录与本机换算口径都已从本机删除',
       duration: 3000
     })
   }
@@ -799,6 +948,7 @@ export const useAppStore = defineStore('app', () => {
     setLlmConfig,
     setLlmPreference,
     refreshLlmStatus,
+    generatePlanQuestions,
     generatePlanDraft,
     acceptPlanDraft,
     resetPlanDraft,

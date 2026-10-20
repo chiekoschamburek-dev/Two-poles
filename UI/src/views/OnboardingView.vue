@@ -421,8 +421,8 @@ function finish() {
     gymRecords: [...gymRecords.value]
   })
   if (mode.value !== store.currentMode) store.commitMode(mode.value)
-  // 配了模型就在建档后立刻生成一份计划草稿，首页弹窗审阅后才录入
-  if (store.planLlmReady) void store.generatePlanDraft()
+  // 配了模型就在建档后先让模型问清关键信息，首页弹窗回答后才生成计划
+  if (store.planLlmReady) void store.generatePlanQuestions()
   // 档案条件变了就明确重算本周计划，避免继续显示按旧条件生成的版本
   if (wasEditing) store.regenerateWeekPlan(new Date())
   store.showToast({

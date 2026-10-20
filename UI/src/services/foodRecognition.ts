@@ -100,7 +100,7 @@ export async function prepareFoodPhoto(file: File): Promise<string> {
   }
 }
 
-function dataUrlToBlob(dataUrl: string): Blob {
+export function dataUrlToBlob(dataUrl: string): Blob {
   const [meta, body] = dataUrl.split(',')
   const mime = /data:([^;]+)/.exec(meta)?.[1] || 'image/jpeg'
   const binary = atob(body)

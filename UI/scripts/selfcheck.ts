@@ -13,7 +13,7 @@ import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, normalizeProfile, parseResult } from '@/services/profileRules'
-import { buildPlanMessages, canUseLlm, extractJson, isLlmReady, usingDefault, validatePlanDraft } from '@/services/llm'
+import { buildPlanMessages, buildPlanQuestionMessages, canUseLlm, desiredWeeklySessions, extractJson, isLlmReady, usingDefault, validatePlanDraft, validatePlanQuestions } from '@/services/llm'
 import type { MealItem, PersonalBest, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
@@ -525,6 +525,32 @@ ok('提示词要求只输出 JSON', msgs.system.includes('只输出一个 JSON')
 ok('提示词带上了动作库', msgs.user.includes('动作库'))
 ok('提示词带上了可选日期', msgs.user.includes('2026-10-12'))
 ok('提示词包含禁项（不给医疗建议）', msgs.system.includes('不提供医疗'))
+
+const qMsgs = buildPlanQuestionMessages(p({}), 'public', draftDates)
+ok('先问再生成：提示词只让模型问问题', qMsgs.system.includes('先不要生成训练计划') && qMsgs.system.includes('"questions"'))
+ok('先问再生成：要求确认每周次数且不要默认三天', qMsgs.system.includes('每周训练次数') && qMsgs.system.includes('不要默认只排三天'))
+const qValid = validatePlanQuestions({
+  questions: [
+    { id: 'days', question: '每周希望练几次？', options: ['3 次', '4 次', '5 次'] },
+    { id: 'time', question: '每次能练多久？', options: ['30 分钟', '45 分钟'] }
+  ]
+})
+ok('补充问题被接受', qValid.error === '' && qValid.questions.length === 2)
+const qFallback = validatePlanQuestions({ questions: [{ question: '每次能练多久？', options: ['30 分钟'] }] })
+ok('缺次数问题时自动补上默认问题', qFallback.questions.some(q => q.id === 'weekly-frequency'))
+ok('补充问题最多 3 个', validatePlanQuestions({
+  questions: Array.from({ length: 5 }, (_, i) => ({ question: `问题${i}？`, options: ['A', 'B'] }))
+}).questions.length <= 3)
+ok('从回答解析每周 5 次', desiredWeeklySessions(
+  [{ id: 'weekly-frequency', question: '每周希望安排几次训练？', options: [] }],
+  { 'weekly-frequency': '5 次' }
+) === 5)
+const msgsWithAnswers = buildPlanMessages(p({}), draftDates, 'public', {
+  questions: [{ id: 'weekly-frequency', question: '每周希望安排几次训练？', options: [] }],
+  answers: { 'weekly-frequency': '5 次' }
+})
+ok('生成计划提示词带上补充回答', msgsWithAnswers.user.includes('每周希望安排几次训练？ → 5 次'))
+ok('生成计划提示词要求按回答排够次数且不要默认三天', msgsWithAnswers.system.includes('不要默认只排三天') && msgsWithAnswers.system.includes('4–5'))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

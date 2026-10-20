@@ -18,10 +18,10 @@
               <div>
                 <strong>{{ mode === 'cloud' ? '这张照片会发送到模型服务' : '照片只在本机识别' }}</strong>
                 <p v-if="mode === 'cloud'">
-                  识别服务：{{ cloudModelLabel }}。照片会发送到该服务用于本次识别；本应用不保存原图。保存前可以选择在本机留一张缩略图。
+                  识别服务：{{ cloudModelLabel }}。照片会发送到该服务用于本次识别；识别结果和可选的本机照片（缩略图 + 原图）会保存在这台设备。关闭本机照片时只保留识别结果。
                 </p>
                 <p v-else>
-                  照片只在浏览器里解码，不上传。本应用不保存原图；保存前可以选择在本机留一张缩略图。本机模型只覆盖 {{ LOCAL_CLASS_COUNT }} 类常见食物，认不出时可手动补录。
+                  照片只在浏览器里解码，不上传。识别结果和可选的本机照片（缩略图 + 原图）会保存在这台设备；关闭本机照片时只保留识别结果。本机模型只覆盖 {{ LOCAL_CLASS_COUNT }} 类常见食物，认不出时可手动补录。
                 </p>
               </div>
             </div>
@@ -43,7 +43,7 @@
 
               <label v-if="mode === 'cloud'" class="consent">
                 <input v-model="consent" type="checkbox" />
-                <span>我了解这张照片会发送到上述识别服务，且本应用不会保存原图</span>
+                <span>我了解这张照片会发送到上述识别服务用于本次识别</span>
               </label>
 
               <div v-if="cameraActive" class="camera">
@@ -203,8 +203,8 @@
             <label v-if="!isManual && prepared" class="save-photo">
               <input v-model="saveThumb" type="checkbox" />
               <span>
-                <b>在记录里显示这张照片</b>
-                <small>只在本机保存一张压缩缩略图；这个选择也会作为以后记录的默认，可在设置里修改。</small>
+                <b>在记录里显示这张照片（可点开看原图）</b>
+                <small>缩略图和原图只存本机；这个选择也会作为以后记录的默认，可在设置里修改。</small>
               </span>
             </label>
 
@@ -237,7 +237,7 @@
             <p v-if="formError" class="error" role="alert">{{ formError }}</p>
             <p class="fine">
               {{ saveThumb && !isManual
-                ? '保存后本机只保留识别结果和一张压缩缩略图，不保存原图。'
+                ? '保存后本机保留识别结果、缩略图和原图；原图只在本机存储。'
                 : '保存后只保留识别结果，不保存照片。' }}
               记录会出现在今天的列表里，刷新后仍在。
             </p>
@@ -277,6 +277,7 @@ import {
   LOCAL_CLASS_COUNT,
   LOCAL_MODEL_LABEL,
   LOW_CONFIDENCE,
+  dataUrlToBlob,
   makeFoodThumbnail,
   prepareFoodPhoto,
   recognizeFoodWithModel,
@@ -284,6 +285,8 @@ import {
 } from '@/services/foodRecognition'
 import type { FoodRecognitionResult, RecognizedFood } from '@/services/foodRecognition'
 import { canUseLlm, usingDefault } from '@/services/llm'
+import { saveMealPhoto } from '@/services/mealPhotos'
+import { newId } from '@/utils/id'
 
 type View = 'capture' | 'analyzing' | 'result' | 'error' | 'manual'
 
@@ -332,6 +335,8 @@ const formError = ref('')
 const saving = ref(false)
 const processingStage = ref<'reading' | 'model'>('model')
 const recognized = ref<FoodRecognitionResult | null>(null)
+/** 上传文件保留原 File；相机拍摄保留原始 data URL。仅在本机存 IndexedDB，不上传。 */
+const originalPhoto = ref<Blob | string | null>(null)
 let activeRequest: AbortController | null = null
 const isManual = computed(() => view.value === 'manual')
 /** 绑定到隐私偏好：结果页勾选/取消也会成为以后记录的默认 */
@@ -432,6 +437,7 @@ function cleanup() {
   stopCamera()
   // 关闭即释放这次识别的照片与结果，不在内存里继续留着
   prepared.value = ''
+  originalPhoto.value = null
   items.value = []
   recognized.value = null
   warnings.value = []
@@ -490,6 +496,7 @@ function setMode(next: 'cloud' | 'local') {
 
 function startManual() {
   stopCamera()
+  originalPhoto.value = null
   view.value = 'manual'
   editorOpen.value = true
   typeEditing.value = false
@@ -585,6 +592,7 @@ async function onFile(event: Event) {
   input.value = ''
   if (!file) return
   const session = runId
+  originalPhoto.value = file
   prepared.value = ''
   analysisError.value = ''
   warnings.value = []
@@ -681,6 +689,7 @@ function captureFrame() {
   }
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
   const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+  originalPhoto.value = dataUrl
   stopCamera()
   void analyze(dataUrl)
 }
@@ -725,6 +734,7 @@ function cancelProcessing() {
   activeRequest = null
   stopCamera()
   prepared.value = ''
+  originalPhoto.value = null
   analysisError.value = ''
   warnings.value = []
   recognized.value = null
@@ -770,6 +780,7 @@ function backToCapture() {
   analysisError.value = ''
   warnings.value = []
   prepared.value = ''
+  originalPhoto.value = null
   recognized.value = null
   items.value = []
   formError.value = ''
@@ -782,6 +793,7 @@ function requestClose() {
   stopCamera()
   activeRequest?.abort()
   activeRequest = null
+  originalPhoto.value = null
   runId++
   emit('close')
 }
@@ -825,6 +837,7 @@ async function save() {
     saving.value = false
     return
   }
+  const photoId = photoThumb && originalPhoto.value ? newId() : undefined
   let meal: Meal
   try {
     meal = store.addMeal({
@@ -832,12 +845,23 @@ async function save() {
       mealType: mealType.value,
       time: mealTime.value,
       items: normalized,
-      photoThumb
+      photoThumb,
+      photoId
     })
   } catch (err) {
     saving.value = false
     formError.value = `保存失败：${(err as Error)?.message || '未知错误'}`
     return
+  }
+  let originalFailed = false
+  if (photoId && originalPhoto.value) {
+    try {
+      const source = originalPhoto.value
+      const blob = typeof source === 'string' ? dataUrlToBlob(source) : source
+      await withTimeout(saveMealPhoto(photoId, blob), 10_000, '原图保存超时')
+    } catch {
+      originalFailed = true
+    }
   }
   saving.value = false
   if (thumbFailed) {
@@ -845,6 +869,13 @@ async function save() {
       type: 'warning',
       title: '缩略图没有保存成功',
       message: '本次只保存了识别结果，可以稍后在设置里关闭或重试照片缩略图',
+      duration: 4000
+    })
+  } else if (originalFailed) {
+    store.showToast({
+      type: 'warning',
+      title: '原图没有保存成功',
+      message: '记录仍然保存了，点缩略图时只能先看缩略图',
       duration: 4000
     })
   }

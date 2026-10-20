@@ -123,9 +123,31 @@ export interface PlanDraft {
   model: string
 }
 
-/** 首页弹窗读的状态机：idle 不显示，loading/ready/error 都显示 */
+export interface PlanQuestion {
+  id: string
+  question: string
+  /** 为什么问这个；显示在问题下方，帮用户判断怎么答 */
+  why?: string
+  options: string[]
+  allowCustom?: boolean
+}
+
+/** 模型没给出可用问题时，至少确认每周训练次数；这也直接决定 days 的数量 */
+export const DEFAULT_FREQUENCY_QUESTION: PlanQuestion = {
+  id: 'weekly-frequency',
+  question: '每周希望安排几次训练？',
+  why: '决定训练日数量与恢复安排，避免默认只排三天',
+  options: ['3 次', '4 次', '5 次', '6 次'],
+  allowCustom: true
+}
+
+/** 弹窗读的状态机：questions 是“先问再生成”，ready/error 都显示 */
 export interface PlanDraftState {
-  status: 'idle' | 'loading' | 'ready' | 'error'
+  status: 'idle' | 'loading' | 'questions' | 'ready' | 'error'
+  /** loading 时区分是在准备问题还是在生成计划 */
+  loadingStage: 'questions' | 'plan' | null
+  questions: PlanQuestion[]
+  answers: Record<string, string>
   draft: PlanDraft | null
   error: string
   warnings: string[]
@@ -144,13 +166,7 @@ function weekdayOf(iso: string): string {
   return `周${WEEKDAY[w] ?? '?'}`
 }
 
-/** 提示词：档案 + 日期 + 动作库 + 输出格式。动作库给定候选，减少模型瞎编动作 */
-export function buildPlanMessages(
-  profile: UserProfile,
-  dates: string[],
-  mode: 'public' | 'athlete'
-): PlanMessages {
-  const lib = activeExercises().map(e => `${e.name}（${e.type}，约 ${e.minutes} 分钟）`)
+function profileSnapshot(profile: UserProfile, mode: 'public' | 'athlete'): Record<string, unknown> {
   const body: Record<string, unknown> = {
     模式: mode === 'athlete' ? '运动员模式' : '大众模式',
     年龄: profile.age,
@@ -176,6 +192,126 @@ export function buildPlanMessages(
     body['PB'] = (profile.personalBests ?? []).map(p => `${p.event} ${p.result}`)
     body['极限重量'] = (profile.gymRecords ?? []).map(r => `${r.lift} ${r.weight}kg${r.reps ? ` × ${r.reps}` : ''}（${r.kind === '1rm' ? '1RM' : '训练最高'}）`)
   }
+  return body
+}
+
+export interface PlanAnswerContext {
+  questions: PlanQuestion[]
+  answers: Record<string, string>
+}
+
+function answerLines(context?: PlanAnswerContext): string[] {
+  if (!context) return []
+  return context.questions
+    .map(q => ({ question: q.question, answer: context.answers[q.id]?.trim() ?? '' }))
+    .filter(x => x.answer)
+    .map(x => `${x.question} → ${x.answer}`)
+}
+
+/** 先问再生成：只输出补充问题，不生成计划 */
+export function buildPlanQuestionMessages(
+  profile: UserProfile,
+  mode: 'public' | 'athlete',
+  dates: string[]
+): PlanMessages {
+  const body = profileSnapshot(profile, mode)
+  const system = [
+    '你是训练计划助手。现在先不要生成训练计划，只判断现有档案里还缺哪些会显著改变排课的信息，并向用户提问。',
+    '只输出一个 JSON 对象，不要 Markdown 代码块，不要任何解释文字。',
+    'JSON 结构：{"questions":[{"id":"weekly-frequency","question":"每周希望安排几次训练？","why":"决定训练日数量与恢复安排","options":["3 次","4 次","5 次","6 次"]}]}',
+    '要求：',
+    '1. 最多 3 个问题；每个问题给 2–5 个短选项；只问档案里没有、且会影响训练日数量、单次安排或恢复的信息。',
+    '2. 必须包含一个每周训练次数的问题（如果档案和当前上下文没有给出次数）。不要默认只排三天。',
+    '3. 可以问：每周几次、偏好哪几天、每次能练多久、是否需要更多恢复、最想练/最不想练什么。不要重复档案里已有的年龄、目标、经验、器材、场地、回避条件。',
+    '4. 不问医疗诊断、伤病治疗、药物、体重评价或竞技成绩承诺；不要求用户提供敏感健康数据。',
+    '5. 如果档案已经足够，返回 {"questions":[]}，不要为了问而问。'
+  ].join('\n')
+
+  const user = [
+    `档案：${JSON.stringify(body, null, 2)}`,
+    '',
+    `本周可选日期（共 ${dates.length} 天）：${dates.map(d => `${d} ${weekdayOf(d)}`).join('、')}`,
+    '',
+    '请只输出补充问题 JSON。'
+  ].join('\n')
+
+  return { system, user }
+}
+
+export interface QuestionValidation {
+  questions: PlanQuestion[]
+  error: string
+  warnings: string[]
+}
+
+const FREQUENCY_QUESTION_RE = /每周|一周|频率|几次|训练次数|训练日数量/
+
+export function validatePlanQuestions(raw: unknown): QuestionValidation {
+  const warnings: string[] = []
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { questions: [], error: '模型没有返回可用的补充问题。', warnings }
+  }
+  const obj = raw as Record<string, unknown>
+  const rawQuestions = Array.isArray(obj.questions) ? obj.questions : []
+  const seen = new Set<string>()
+  const questions: PlanQuestion[] = []
+  for (const entry of rawQuestions.slice(0, 4)) {
+    if (!entry || typeof entry !== 'object') continue
+    const row = entry as Record<string, unknown>
+    const question = typeof row.question === 'string' ? row.question.trim().slice(0, 120) : ''
+    if (!question) continue
+    const rawId = typeof row.id === 'string' ? row.id.trim().slice(0, 40) : ''
+    let id = rawId || `q-${questions.length + 1}`
+    while (seen.has(id)) id = `${id}-${questions.length + 1}`
+    seen.add(id)
+    const options = Array.isArray(row.options)
+      ? [...new Set(row.options.filter((o): o is string => typeof o === 'string').map(o => o.trim().slice(0, 30)).filter(Boolean))].slice(0, 5)
+      : []
+    const why = typeof row.why === 'string' && row.why.trim() ? row.why.trim().slice(0, 100) : undefined
+    questions.push({ id, question, why, options, allowCustom: true })
+    if (questions.length >= 3) break
+  }
+  if (!questions.length) {
+    warnings.push('模型没有给出额外问题，先确认每周训练次数。')
+    return { questions: [DEFAULT_FREQUENCY_QUESTION], error: '', warnings }
+  }
+  if (!questions.some(q => FREQUENCY_QUESTION_RE.test(q.question) || q.id.includes('frequency'))) {
+    if (questions.length >= 3) questions.pop()
+    questions.push(DEFAULT_FREQUENCY_QUESTION)
+    warnings.push('模型没有问到每周训练次数，已补上这一问。')
+  }
+  return { questions, error: '', warnings }
+}
+
+/** 从问题/回答里提取用户希望的一周训练次数（1–7），解析不到返回 null */
+export function desiredWeeklySessions(
+  questions: PlanQuestion[],
+  answers: Record<string, string>
+): number | null {
+  const frequency = questions.find(q => FREQUENCY_QUESTION_RE.test(q.question) || q.id.includes('frequency'))
+  const texts = frequency
+    ? [answers[frequency.id] ?? '']
+    : Object.values(answers)
+  for (const text of texts) {
+    const m = /([1-7])\s*(?:次|天)?/.exec(text)
+    if (m) {
+      const n = Number(m[1])
+      if (n >= 1 && n <= 7) return n
+    }
+  }
+  return null
+}
+
+/** 提示词：档案 + 日期 + 动作库 + 输出格式；answers 来自生成前的补充问题 */
+export function buildPlanMessages(
+  profile: UserProfile,
+  dates: string[],
+  mode: 'public' | 'athlete',
+  context?: PlanAnswerContext
+): PlanMessages {
+  const lib = activeExercises().map(e => `${e.name}（${e.type}，约 ${e.minutes} 分钟）`)
+  const body = profileSnapshot(profile, mode)
+  const answers = answerLines(context)
 
   const system = [
     '你是训练计划助手，为一个本地运动 App 生成一周训练计划。',
@@ -183,23 +319,29 @@ export function buildPlanMessages(
     'JSON 结构：{"reason":"一句话说明为什么这样排","days":[{"date":"YYYY-MM-DD","items":[{"exerciseName":"动作名","type":"类型","plannedDuration":20,"plannedSets":2,"plannedReps":10,"note":"可选提示"}]}]}',
     `type 只能是这些之一：${TRAINING_TYPES.join('、')}。`,
     '要求：',
-    '1. 只安排给定日期里的一部分天，休息日就不要放进 days，不要硬凑满七天。',
-    '2. 每天项目不超过 4 个，单日总时长不超过该用户填写的可用时间上限。',
-    '3. exerciseName 优先从给定动作库里选；库里的动作不够用时才写别的，但要写清楚。',
-    '4. 尊重"需要避开"的条件：例如避开跳跃就不要安排冲击类动作。',
-    '5. 不提供医疗、康复、伤病或营养处方，不承诺成绩，不评价身体好坏。',
-    '6. 不要输出 BMI、健康结论或"你应该能举多少"这类推断。'
+    '1. 只把训练日放进 days，休息日不要放，也不要硬凑满七天。',
+    '2. 必须遵守用户补充回答里的每周训练次数：回答 N 次，就安排 N 个训练日（最多 6 个，至少保留 1 个休息日）。如果回答里没有次数，大众模式默认安排 4–5 个训练日，运动员模式安排 5–6 个；不要默认只排三天。',
+    '3. 如果用户回答与"每次可用时间"冲突，优先满足训练次数，缩短单次项目数量或时长，并在 reason 里说明这个取舍。',
+    '4. 每天项目不超过 4 个，单日总时长不超过该用户填写的可用时间上限。',
+    '5. exerciseName 优先从给定动作库里选；库里的动作不够用时才写别的，但要写清楚。',
+    '6. 尊重"需要避开"的条件：例如避开跳跃就不要安排冲击类动作；有伤病、孕期或未成年限制时，不强行加量。',
+    '7. 不提供医疗、康复、伤病或营养处方，不承诺成绩，不评价身体好坏。',
+    '8. 不要输出 BMI、健康结论或"你应该能举多少"这类推断。'
   ].join('\n')
 
-  const user = [
+  const userLines = [
     `档案：${JSON.stringify(body, null, 2)}`,
-    '',
+    ''
+  ]
+  if (answers.length) {
+    userLines.push('用户补充回答（优先于默认模板）：', ...answers.map(a => `- ${a}`), '')
+  }
+  userLines.push(
     `可选日期（共 ${dates.length} 天）：${dates.map(d => `${d} ${weekdayOf(d)}`).join('、')}`,
     '',
     `动作库：${lib.join('；')}`
-  ].join('\n')
-
-  return { system, user }
+  )
+  return { system, user: userLines.join('\n') }
 }
 
 /** 模型有时会把 JSON 包在代码块或解释里，这里只取最外层对象 */

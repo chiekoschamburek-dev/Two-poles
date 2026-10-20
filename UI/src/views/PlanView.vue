@@ -13,7 +13,13 @@
       <div class="version">
         <History :size="16" /> 当前版本 <strong>{{ plan ? `v${plan.version}` : '未生成' }}</strong>
         <span class="ver-mode">{{ plan ? (plan.mode === 'public' ? '大众模式' : '运动员模式') : currentLabel }}</span>
-        <button class="regen" @click="regenerate">按新条件重生成</button>
+        <button class="regen" title="用内置规则按当前档案重算，不调用模型" @click="regenerate">按规则重算</button>
+        <button
+          class="regen ai"
+          :disabled="!store.planLlmReady"
+          :title="store.planLlmReady ? '先由模型询问关键信息，再生成可修改的计划' : '未配置可用模型，请先到设置页填写'"
+          @click="openModelPlan"
+        >用模型规划</button>
       </div>
     </div>
 
@@ -395,6 +401,10 @@ function saveManual() {
   manualOpen.value = false
 }
 
+function openModelPlan() {
+  void store.generatePlanQuestions()
+}
+
 function regenerate() {
   store.regenerateWeekPlan(selectedDate.value)
 }
@@ -426,6 +436,8 @@ watch(
 .ver-mode{font-size:10.5px;letter-spacing:.04em;padding:2px 6px;border:1px solid var(--color-border);border-radius:var(--radius-sm);color:var(--color-text-secondary)}
 .regen{font-size:11.5px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);padding:5px 10px;border-radius:var(--radius-sm);min-height:28px;border:1px solid var(--color-accent-line);transition:border-color var(--motion-fast)}
 .regen:hover{border-color:var(--color-accent)}
+.regen.ai{background:var(--color-card)}
+.regen:disabled{opacity:.45;cursor:not-allowed}
 .gate-note{font-size:12.5px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:var(--radius-sm);padding:10px 12px;margin:0 0 10px;line-height:1.65;box-shadow:inset 3px 0 0 var(--color-caution)}
 .ver-reason{font-size:11.5px;color:var(--color-text-muted);margin:0 0 12px;line-height:1.6}
 .ver-reason em{font-style:normal;margin-left:6px}

@@ -13,6 +13,7 @@
       </RouterView>
     </main>
     <MobileNav />
+    <PlanDraftDialog />
     <ToastRegion />
   </div>
 </template>
@@ -24,6 +25,7 @@ import TopBar from './TopBar.vue'
 import SidebarNav from './SidebarNav.vue'
 import MobileNav from './MobileNav.vue'
 import ToastRegion from '../common/ToastRegion.vue'
+import PlanDraftDialog from '../common/PlanDraftDialog.vue'
 import { useAppStore } from '@/stores/app'
 
 const mobileOpen = ref(false)
