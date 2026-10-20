@@ -57,12 +57,29 @@
       <p class="llm-default" :class="{ dim: !store.llmDefault.available }">
         <template v-if="store.llmDefault.available">
           服务端默认模型：<b>{{ store.llmDefault.model }}</b>
-          <span v-if="!hasCustom">· 当前正在使用它</span>
         </template>
         <template v-else>
           服务端没有配置默认模型{{ hasCustom ? '' : '，需要自己填一个才能生成计划' }}。
         </template>
       </p>
+
+      <!-- 用哪个模型是偏好，不是清空：切到内置后，下面填的配置原样保留 -->
+      <div class="llm-pick" role="group" aria-label="使用哪个模型">
+        <button type="button" :class="{ on: !usingBuiltin }" :aria-pressed="!usingBuiltin" @click="setPreference('custom')">
+          使用我填的接口
+        </button>
+        <button
+          type="button"
+          :class="{ on: usingBuiltin }"
+          :aria-pressed="usingBuiltin"
+          :disabled="!store.llmDefault.available"
+          @click="setPreference('default')"
+        >
+          使用内置模型
+        </button>
+        <span v-if="usingBuiltin" class="pick-note">已切到内置；下面填的配置都还在，随时切回来</span>
+        <span v-else-if="!hasCustom" class="pick-note warn">还没填接口，会先回退到内置模型</span>
+      </div>
 
       <div class="fields">
         <label class="field">
@@ -84,7 +101,6 @@
         <BaseButton variant="secondary" size="sm" :disabled="testingLlm" @click="runTest">
           {{ testingLlm ? '测试中…' : '测试连接' }}
         </BaseButton>
-        <BaseButton v-if="hasCustom" variant="ghost" size="sm" @click="clearLlm">改用内置模型</BaseButton>
         <span class="llm-msg" :class="{ bad: llmMsgBad }">{{ llmMsg }}</span>
       </div>
 
@@ -202,7 +218,7 @@ import type { PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { goalSummary } from '@/services/profileRules'
 import { RULE_VERSION } from '@/services/mealRules'
-import { canUseLlm, isLlmReady, testLlmConfig } from '@/services/llm'
+import { canUseLlm, isLlmReady, testLlmConfig, usingDefault } from '@/services/llm'
 import type { LlmConfig } from '@/services/llm'
 
 const store = useAppStore()
@@ -227,24 +243,37 @@ const themes: { id: ThemePreference; label: string }[] = [
 const llmForm = ref<LlmConfig>({ ...store.llmConfig })
 const hasCustom = computed(() => isLlmReady(llmForm.value))
 const llmReady = computed(() => canUseLlm(llmForm.value, store.llmDefault))
-const llmBadge = computed(() => (hasCustom.value ? '自己的配置' : store.llmDefault.available ? '内置模型' : '未配置'))
+const usingBuiltin = computed(() => usingDefault(llmForm.value))
+const llmBadge = computed(() =>
+  usingBuiltin.value ? (store.llmDefault.available ? '内置模型' : '未配置') : hasCustom.value ? '自己的接口' : '接口未填'
+)
 const testingLlm = ref(false)
 const llmMsg = ref('')
 const llmMsgBad = ref(false)
 
 function saveLlm() {
-  store.setLlmConfig({ ...llmForm.value })
+  // 填完点保存 = 想用自己这份，所以顺手切到自定义偏好（而不是留着"内置"却存了一份不用的配置）
+  const ready = isLlmReady(llmForm.value)
+  store.setLlmConfig({ ...llmForm.value, preference: ready ? 'custom' : llmForm.value.preference })
   llmForm.value = { ...store.llmConfig }
   llmMsgBad.value = false
-  llmMsg.value = '已保存到本机'
-  store.showToast({ type: 'success', title: '模型配置已保存', message: '下次建档完成后会用这份配置生成计划', duration: 3000 })
+  llmMsg.value = ready ? '已保存，并切到这份配置' : '已保存（还没填全，仍会用内置模型）'
+  store.showToast({
+    type: 'success',
+    title: '模型配置已保存',
+    message: ready ? '建档完成后会用这份配置生成计划' : '接口没填全，生成时仍回退到服务端默认模型',
+    duration: 3000
+  })
 }
 
-function clearLlm() {
-  store.setLlmConfig({ baseUrl: '', apiKey: '', model: '' })
+/** 只切偏好：切到内置时不清空任何已填内容 */
+function setPreference(preference: 'custom' | 'default') {
+  store.setLlmPreference(preference)
   llmForm.value = { ...store.llmConfig }
   llmMsgBad.value = false
-  llmMsg.value = store.llmDefault.available ? '已改用服务端内置模型' : '已清除；服务端没有默认模型，需自己填'
+  llmMsg.value = preference === 'default'
+    ? '已切到内置模型；你填的配置仍然保留'
+    : '已切回你自己的接口'
 }
 
 async function runTest() {
@@ -420,6 +449,12 @@ function wipe() {
 .section.danger h2{color:var(--color-danger)}
 .foot{font-size:11px;color:var(--color-text-muted);text-align:center;margin:16px 0 0}
 @media(max-width:767px){.choices,.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-head{flex-direction:column;align-items:flex-start}.actions :deep(button){width:100%}}
+.llm-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.llm-pick button{padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:600;min-height:38px;color:var(--color-text-secondary);background:var(--color-neutral-soft);border:1px solid transparent}
+.llm-pick button.on{background:var(--color-accent);color:var(--color-on-accent)}
+.llm-pick button:disabled{opacity:.45;cursor:not-allowed}
+.pick-note{font-size:11.5px;color:var(--color-text-muted)}
+.pick-note.warn{color:var(--color-caution)}
 .llm-default{font-size:12px;color:var(--color-text-secondary);margin:-4px 0 14px;line-height:1.6}
 .llm-default b{font-family:var(--font-num);color:var(--color-accent)}
 .llm-default.dim{color:var(--color-text-muted)}

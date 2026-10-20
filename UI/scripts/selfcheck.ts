@@ -12,7 +12,7 @@ import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, normalizeProfile, parseResult } from '@/services/profileRules'
-import { buildPlanMessages, canUseLlm, extractJson, isLlmReady, validatePlanDraft } from '@/services/llm'
+import { buildPlanMessages, canUseLlm, extractJson, isLlmReady, usingDefault, validatePlanDraft } from '@/services/llm'
 import type { MealItem, PersonalBest, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
@@ -439,6 +439,14 @@ console.log('\n11. 大模型计划：提示词、响应解析、校验')
 ok('未填 base_url 视为未配置', isLlmReady({ baseUrl: '', apiKey: 'k', model: 'm' }) === false)
 ok('缺模型名也视为未配置', isLlmReady({ baseUrl: 'https://x/v1', apiKey: 'k', model: '' }) === false)
 ok('填齐才算配置好', isLlmReady({ baseUrl: 'https://x/v1', apiKey: '', model: 'm' }) === true)
+// 切到内置模型只是偏好，不能把已填的配置弄丢
+const keptConfig = { baseUrl: 'https://x/v1', apiKey: 'k', model: 'mine', preference: 'default' as const }
+ok('选了内置模型：请求走默认', usingDefault(keptConfig) === true)
+ok('选了内置模型：自己的配置仍然在', isLlmReady(keptConfig) === true && keptConfig.baseUrl === 'https://x/v1')
+ok('切回自定义：又用自己的', usingDefault({ ...keptConfig, preference: 'custom' as const }) === false)
+ok('旧数据没偏好但有配置 → 用自己的', usingDefault({ baseUrl: 'https://x/v1', apiKey: 'k', model: 'mine' }) === false)
+ok('旧数据没偏好也没配置 → 用默认', usingDefault({ baseUrl: '', apiKey: '', model: '' }) === true)
+ok('选了自定义但没填 → 回退默认', usingDefault({ baseUrl: '', apiKey: '', model: '', preference: 'custom' as const }) === true)
 ok('没自己的配置但有服务端默认 → 可用', canUseLlm({ baseUrl: '', apiKey: '', model: '' }, { available: true, model: 'mock' }) === true)
 ok('两边都没有 → 不可用', canUseLlm({ baseUrl: '', apiKey: '', model: '' }, { available: false, model: null }) === false)
 ok('自己的配置优先于默认', canUseLlm({ baseUrl: 'https://x/v1', apiKey: 'k', model: 'mine' }, { available: true, model: 'mock' }) === true)

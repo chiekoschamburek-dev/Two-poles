@@ -312,6 +312,11 @@ export const useAppStore = defineStore('app', () => {
   const llmDefault = ref<LlmDefaultStatus>({ ...NO_LLM_DEFAULT })
   const planDraftState = ref<PlanDraftState>({ status: 'idle', draft: null, error: '', warnings: [] })
 
+  /** 切换用哪个模型；只改偏好，已填的 base_url / key / 模型名原样保留 */
+  function setLlmPreference(preference: 'custom' | 'default') {
+    llmConfig.value = saveLlmConfig({ ...llmConfig.value, preference })
+  }
+
   /** 自己的配置优先，没有就用服务端默认 */
   const planLlmReady = computed(() => canUseLlm(llmConfig.value, llmDefault.value))
 
@@ -759,6 +764,7 @@ export const useAppStore = defineStore('app', () => {
     dayPlanNotice,
     regenerateWeekPlan,
     setLlmConfig,
+    setLlmPreference,
     refreshLlmStatus,
     generatePlanDraft,
     acceptPlanDraft,

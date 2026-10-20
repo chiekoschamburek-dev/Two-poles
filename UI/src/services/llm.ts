@@ -3,11 +3,16 @@
 import type { TrainingType, UserProfile } from '@/types/domain'
 import { activeExercises } from '@/services/exercises'
 
+/** 用哪个模型：custom = 自己的接口，default = 服务端内置（只是偏好，不删除已填的配置） */
+export type LlmPreference = 'custom' | 'default'
+
 export interface LlmConfig {
   /** OpenAI 兼容的 base_url，例如 https://api.deepseek.com/v1 */
   baseUrl: string
   apiKey: string
   model: string
+  /** 缺省时按"填了就用自定义，没填就用内置"推断，兼容旧数据 */
+  preference?: LlmPreference
 }
 
 const STORAGE_KEY = 'twopoles_llm'
@@ -23,7 +28,8 @@ export function loadLlmConfig(): LlmConfig {
     return {
       baseUrl: typeof data.baseUrl === 'string' ? data.baseUrl : '',
       apiKey: typeof data.apiKey === 'string' ? data.apiKey : '',
-      model: typeof data.model === 'string' ? data.model : ''
+      model: typeof data.model === 'string' ? data.model : '',
+      preference: data.preference === 'custom' || data.preference === 'default' ? data.preference : undefined
     }
   } catch {
     return { ...EMPTY_LLM_CONFIG }
@@ -34,7 +40,8 @@ export function saveLlmConfig(cfg: LlmConfig): LlmConfig {
   const clean: LlmConfig = {
     baseUrl: cfg.baseUrl.trim().replace(/\/+$/, ''),
     apiKey: cfg.apiKey.trim(),
-    model: cfg.model.trim()
+    model: cfg.model.trim(),
+    preference: cfg.preference
   }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(clean))
@@ -50,6 +57,18 @@ export function isLlmReady(cfg: LlmConfig | null | undefined): boolean {
 
 export const TRAINING_TYPES: TrainingType[] = ['跑步', '动态热身', '坐站训练', '站姿弯举', '舒缓整理', '其他']
 
+/**
+ * 这次请求该用内置模型还是自己的配置。
+ * 关键：切到内置只改"用哪个"，**不清空**已填的 base_url / key / 模型名。
+ */
+export function usingDefault(cfg: LlmConfig | null | undefined): boolean {
+  if (!cfg) return true
+  if (cfg.preference === 'default') return true
+  if (cfg.preference === 'custom') return !isLlmReady(cfg)
+  // 旧数据没有 preference：填了就视为想用自己的
+  return !isLlmReady(cfg)
+}
+
 /** 服务端默认模型的状态：只有"有没有"和"叫什么"，不含任何密钥 */
 export interface LlmDefaultStatus {
   available: boolean
@@ -60,6 +79,7 @@ export const NO_LLM_DEFAULT: LlmDefaultStatus = { available: false, model: null 
 
 /** 自己的配置优先，没配就用服务端默认 */
 export function canUseLlm(cfg: LlmConfig | null | undefined, fallback: LlmDefaultStatus): boolean {
+  if (usingDefault(cfg)) return fallback.available
   return isLlmReady(cfg) || fallback.available
 }
 
@@ -291,8 +311,8 @@ export interface ProxyResult {
  * 所以统一走同源的 /api/llm/*，由 vite 中间件或静态服务器转发。
  */
 export async function callPlanProxy(cfg: LlmConfig, messages: PlanMessages, signal?: AbortSignal): Promise<ProxyResult> {
-  // 没填自己的配置就交给服务端默认模型；两者都没有时由代理返回明确错误
-  const useDefault = !isLlmReady(cfg)
+  // 偏好为内置（或自己没填）时交给服务端默认模型；两者都没有时由代理返回明确错误
+  const useDefault = usingDefault(cfg)
   try {
     const res = await fetch('/api/llm/chat', {
       method: 'POST',

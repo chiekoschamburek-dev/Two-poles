@@ -78,6 +78,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
+import { usingDefault } from '@/services/llm'
 import type { PlanDraft, PlanDraftDay } from '@/services/llm'
 
 const store = useAppStore()
@@ -96,11 +97,12 @@ watch(
   { immediate: true }
 )
 
-/** 实际生效的模型：自己的优先，否则是服务端默认 */
+/** 实际生效的模型：按偏好算，而不是看填没填 */
 const modelLabel = computed(() => {
-  if (store.llmConfig.model) return store.llmConfig.model
-  if (store.llmDefault.model) return `${store.llmDefault.model}（服务端默认）`
-  return '未配置模型'
+  if (usingDefault(store.llmConfig)) {
+    return store.llmDefault.model ? `${store.llmDefault.model}（服务端默认）` : '未配置模型'
+  }
+  return store.llmConfig.model || '未配置模型'
 })
 
 const title = computed(() => {
