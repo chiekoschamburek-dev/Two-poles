@@ -6,6 +6,7 @@ import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
 import type { EnergyEstimate } from '@/services/foodComposition'
 import { buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
+import { normalizeProfile } from '@/services/profileRules'
 import { weekStart } from '@/services/weekRules'
 import { toISODate } from '@/utils/time'
 
@@ -78,7 +79,8 @@ export const useAppStore = defineStore('app', () => {
       try {
         const data = JSON.parse(stored)
         currentMode.value = data.mode || 'public'
-        userProfile.value = data.profile || null
+        // 旧档案没有 PB / 极限数组：在这里补齐，页面就不用到处写 `?? []`
+        userProfile.value = normalizeProfile(data.profile || null)
         sessions.value = Array.isArray(data.sessions) ? data.sessions : []
         meals.value = Array.isArray(data.meals) ? data.meals : []
         if (data.privacy) privacy.value = { ...privacy.value, ...data.privacy }

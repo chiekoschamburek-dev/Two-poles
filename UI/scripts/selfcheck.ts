@@ -11,7 +11,8 @@ import { useRepCounter } from '@/composables/useRepCounter'
 import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
-import type { MealItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
+import { bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, normalizeProfile, parseResult } from '@/services/profileRules'
+import type { MealItem, PersonalBest, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
 let passed = 0
@@ -377,6 +378,61 @@ ok('未记 RPE 的时长单独统计，不塞进任一侧', split.unknownMinutes
 ok('占比按可归类时长算（120 / 130）', Math.abs((split.lowShare ?? 0) - 120 / 130) < 1e-9, String(split.lowShare))
 ok('没有可归类时长时占比为 null', intensitySplit([]).lowShare === null)
 ok('分界阈值默认 7', split.threshold === 7)
+
+console.log('\n10. 档案：身体数据、成绩解析、PB、目标摘要')
+ok('径赛成绩 11.23 → 11.23 秒', parseResult('11.23', true) === 11.23, String(parseResult('11.23', true)))
+ok('径赛成绩 2:05.3 → 125.3 秒', parseResult('2:05.3', true) === 125.3, String(parseResult('2:05.3', true)))
+ok('带空格的 2:05 也能解析', parseResult(' 2:05 ', true) === 125)
+ok('田赛成绩 6.85 m → 6.85 米', parseResult('6.85 m', false) === 6.85, String(parseResult('6.85 m', false)))
+ok('田赛成绩 6.85 → 6.85 米', parseResult('6.85', false) === 6.85)
+ok('田赛不接受"分:秒"写法', parseResult('2:05', false) === null)
+ok('空成绩返回 null', parseResult('   ', true) === null)
+ok('非数字返回 null', parseResult('abc', true) === null)
+ok('0 与负数不算成绩', parseResult('0', true) === null && parseResult('-3', false) === null)
+
+const pb = (id: string, event: string, track: boolean, result: string): PersonalBest => ({ id, event, track, result })
+const pbList = [
+  pb('a', '100m', true, '11.50'),
+  pb('b', '100m', true, '11.23'),
+  pb('c', '100m', true, '11.02'),
+  pb('d', '跳远', false, '6.40'),
+  pb('e', '跳远', false, '6.85'),
+  pb('f', '跳远', false, '6.12')
+]
+const bests = eventBests(pbList)
+const best100 = bests.find(b => b.event === '100m')
+const bestLong = bests.find(b => b.event === '跳远')
+ok('径赛取最短时间作为当前 PB', best100?.best.id === 'c', best100?.best.result)
+ok('田赛取最远距离作为当前 PB', bestLong?.best.id === 'e', bestLong?.best.result)
+ok('当前 PB 统计了同项目的历史条数', best100?.count === 3 && bestLong?.count === 3)
+ok('历史记录不会被合并或删除', eventBests(pbList).reduce((n, b) => n + b.count, 0) === pbList.length)
+ok('isCurrentBest 只认最好的一条', isCurrentBest(pbList[0], pbList) === false && isCurrentBest(pbList[2], pbList) === true)
+ok('解析不出的记录不参与比较但仍保留', eventBests([...pbList, pb('g', '100m', true, '稍后补')]).find(b => b.event === '100m')?.count === 3)
+
+ok('两项都没填 → 无错误', Object.keys(bodyErrors('', '')).length === 0)
+ok('只填身高不阻塞', Object.keys(bodyErrors(175, '')).length === 0)
+ok('身高超范围报错', !!bodyErrors(90, '').height && !!bodyErrors(300, '').height)
+ok('体重超范围报错', !!bodyErrors('', 10).weight && !!bodyErrors('', 260).weight)
+ok('175 / 65 → 无错误', Object.keys(bodyErrors(175, 65)).length === 0)
+
+ok('周期开始晚于结束 → 报错', cycleRangeError('2026-10-10', '2026-10-01') !== null)
+ok('周期顺序正常 → 不报错', cycleRangeError('2026-09-01', '2026-10-01') === null)
+ok('只填一端不校验', cycleRangeError('2026-10-10', '') === null)
+
+ok('比赛目标摘要', goalSummary({ goalType: 'competition', targetEvent: '秋季赛', targetEventDate: '2026-10-18' }) === '秋季赛 · 10 月 18 日', goalSummary({ goalType: 'competition', targetEvent: '秋季赛', targetEventDate: '2026-10-18' }))
+ok('周期目标摘要', goalSummary({ goalType: 'cycle', discipline: '800m', cyclePhase: '强度建立' }) === '800m · 强度建立', goalSummary({ goalType: 'cycle', discipline: '800m', cyclePhase: '强度建立' }))
+ok('没有目标时给诚实文案', goalSummary({ goalType: 'competition' }).includes('还没填'))
+ok('日期格式化跨月正确', formatCnDate('2026-12-01') === '12 月 1 日')
+
+const oldProfile = { id: 'u1', mode: 'public', modeChangedAt: '', age: 30, goal: '减脂', experience: '偶尔运动', availableTimes: ['20 分钟'], equipment: [], restrictions: [], weight: 62 } as UserProfile
+const normalized = normalizeProfile(oldProfile)
+ok('旧档案补出 PB 空数组', Array.isArray(normalized?.personalBests) && normalized?.personalBests?.length === 0)
+ok('旧档案补出极限数据空数组', Array.isArray(normalized?.gymRecords))
+ok('旧档案的体重原样保留', normalized?.weight === 62)
+ok('旧档案不凭空造出身高', normalized?.height === undefined)
+ok('null 档案仍返回 null', normalizeProfile(null) === null)
+
+ok('1RM 与训练最高重量的文案不同', gymRecordLabel({ id: 'x', lift: '深蹲', weight: 120, kind: '1rm' }) !== gymRecordLabel({ id: 'y', lift: '深蹲', weight: 120, kind: 'working' }))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

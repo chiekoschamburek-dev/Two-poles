@@ -28,6 +28,32 @@ export type ExercisePhase = 'idle' | 'ready' | 'down' | 'up' | 'occluded' | 'com
 
 // === User & Profile ===
 
+/** 目标类型：比赛目标与周期目标二选一，但两边的已填内容都要留住 */
+export type GoalType = 'competition' | 'cycle'
+
+/** 一条 PB。成绩存用户输入的原文，比较时再解析成秒 / 米 */
+export interface PersonalBest {
+  id: string
+  /** 项目名，可以是预设项也可以是自定义 */
+  event: string
+  /** 径赛按时间、田赛按距离 */
+  track: boolean
+  /** 原始输入：11.23 / 2:05.3 / 6.85 m */
+  result: string
+  date?: string
+  notes?: string
+}
+
+/** 健身房极限数据。kind 区分"实测 1RM"与"训练中最高重量"，不互相反推 */
+export interface GymRecord {
+  id: string
+  lift: string
+  weight: number
+  reps?: number
+  kind: '1rm' | 'working'
+  date?: string
+}
+
 export interface UserProfile {
   id: string
   mode: Mode
@@ -44,13 +70,28 @@ export interface UserProfile {
   availableVenues?: string[]
   restrictions: string[]
 
+  // 身体数据（两种模式都可用，选填）
+  /** 身高 cm */
+  height?: number
+  /** 体重 kg；旧档案里已有这个字段，继续沿用 */
+  weight?: number
+
   // Athlete-specific fields
   discipline?: string
   cyclePhase?: string
   cycleStartDate?: string
   cycleEndDate?: string
   targetEvent?: string
-  weight?: number
+  /** 目标类型，只决定档案页先展开哪一块 */
+  goalType?: GoalType
+  /** 比赛目标：日期与目标成绩 */
+  targetEventDate?: string
+  targetResult?: string
+  /** 周期目标：这一阶段的重点 */
+  cycleFocus?: string
+  /** PB 与健身房极限都是追加式历史，不覆盖 */
+  personalBests?: PersonalBest[]
+  gymRecords?: GymRecord[]
 }
 
 // === Plan & Versioning ===

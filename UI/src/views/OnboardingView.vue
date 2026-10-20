@@ -43,6 +43,20 @@
           </label>
         </div>
 
+        <div class="grid2">
+          <label class="field">
+            <span class="field-label">身高 cm（可留空）</span>
+            <input v-model.number="height" type="number" min="100" max="250" step="0.5" placeholder="175" />
+            <small v-if="bodyError.height" class="fine err">{{ bodyError.height }}</small>
+          </label>
+          <label class="field">
+            <span class="field-label">体重 kg（可留空）</span>
+            <input v-model.number="weight" type="number" min="25" max="200" step="0.5" placeholder="65" />
+            <small v-if="bodyError.weight" class="fine err">{{ bodyError.weight }}</small>
+          </label>
+        </div>
+        <p class="fine body-note">身体数据只用于记录与展示，不据此给出 BMI 或健康结论。</p>
+
         <div class="field">
           <span class="field-label">主要目标</span>
           <div class="chips">
@@ -97,19 +111,68 @@
 
       <template v-else-if="mode === 'athlete'">
         <h2 class="q">专项信息</h2>
-        <div class="grid2">
+
+        <div class="field">
+          <span class="field-label">主项（单选，可留空）</span>
+          <div class="chips">
+            <button
+              v-for="e in eventOptions"
+              :key="e"
+              class="chip"
+              :class="{ active: !otherSport && discipline === e }"
+              :aria-pressed="!otherSport && discipline === e"
+              @click="pickEvent(e)"
+            >{{ e }}</button>
+            <button class="chip" :class="{ active: otherSport }" :aria-pressed="otherSport" @click="pickOtherSport">其他</button>
+          </div>
+          <input
+            v-if="otherSport"
+            v-model="discipline"
+            class="other-input"
+            type="text"
+            maxlength="24"
+            placeholder="填写主项，例如：60m 栏"
+          />
+        </div>
+
+        <div class="field">
+          <span class="field-label">训练目标（二选一；切换不会丢掉另一类已填的内容）</span>
+          <div class="seg">
+            <button type="button" :class="{ on: goalType === 'competition' }" :aria-pressed="goalType === 'competition'" @click="goalType = 'competition'">比赛目标</button>
+            <button type="button" :class="{ on: goalType === 'cycle' }" :aria-pressed="goalType === 'cycle'" @click="goalType = 'cycle'">训练周期目标</button>
+          </div>
+        </div>
+
+        <div v-if="goalType === 'competition'" class="grid2">
           <label class="field">
-            <span class="field-label">项目</span>
-            <input v-model="discipline" type="text" placeholder="例如：长跑" />
+            <span class="field-label">赛事名称</span>
+            <input v-model="targetEvent" type="text" maxlength="30" placeholder="例如：秋季赛" />
           </label>
           <label class="field">
+            <span class="field-label">比赛日期（可留空）</span>
+            <input v-model="targetEventDate" type="date" />
+          </label>
+          <label class="field">
+            <span class="field-label">目标成绩（可留空）</span>
+            <input v-model="targetResult" type="text" maxlength="16" placeholder="例如：2:05 或 6.85" />
+          </label>
+          <label class="field">
+            <span class="field-label">对应项目</span>
+            <input :value="discipline || '未选主项'" type="text" disabled />
+          </label>
+        </div>
+
+        <div v-else class="grid2">
+          <div class="field">
             <span class="field-label">周期阶段</span>
             <div class="chips">
               <button v-for="p in phases" :key="p" class="chip" :class="{ active: cyclePhase === p }" :aria-pressed="cyclePhase === p" @click="cyclePhase = p">{{ p }}</button>
             </div>
+          </div>
+          <label class="field">
+            <span class="field-label">阶段重点（可留空）</span>
+            <input v-model="cycleFocus" type="text" maxlength="30" placeholder="例如：有氧基础 + 技术" />
           </label>
-        </div>
-        <div class="grid2">
           <label class="field">
             <span class="field-label">周期开始</span>
             <input v-model="cycleStartDate" type="date" />
@@ -118,17 +181,23 @@
             <span class="field-label">周期结束</span>
             <input v-model="cycleEndDate" type="date" />
           </label>
+          <small v-if="cycleError" class="fine err wide">{{ cycleError }}</small>
         </div>
-        <div class="grid2">
-          <label class="field">
-            <span class="field-label">目标赛事（可留空）</span>
-            <input v-model="targetEvent" type="text" placeholder="例如：秋季半马" />
-          </label>
-          <label class="field">
-            <span class="field-label">体重 kg（可留空）</span>
-            <input v-model.number="weight" type="number" min="25" max="200" step="0.5" placeholder="60" />
-          </label>
+
+        <div class="goal-summary">
+          <span class="micro">当前目标</span>
+          <b>{{ summary }}</b>
         </div>
+
+        <details class="sec">
+          <summary><span>PB 成绩</span><em>{{ personalBests.length }} 条</em></summary>
+          <PbList v-model="personalBests" />
+        </details>
+
+        <details class="sec">
+          <summary><span>健身房极限数据</span><em>{{ gymRecords.length }} 条</em></summary>
+          <GymList v-model="gymRecords" />
+        </details>
       </template>
 
       <template v-else>
@@ -137,7 +206,11 @@
           <li><span>模式</span><b>大众模式</b></li>
           <li><span>称呼</span><b>{{ nickname || '朋友' }}</b></li>
           <li><span>年龄</span><b>{{ age || '—' }}</b></li>
+          <li><span>身高 / 体重</span><b>{{ bodyLabel }}</b></li>
           <li><span>目标</span><b>{{ goal || '—' }}</b></li>
+          <li v-if="athleteDraft"><span>主项</span><b>{{ discipline || '未填写' }}</b></li>
+          <li v-if="athleteDraft"><span>训练目标</span><b>{{ summary }}</b></li>
+          <li v-if="athleteDraft"><span>PB / 极限数据</span><b>{{ personalBests.length }} 条 / {{ gymRecords.length }} 条</b></li>
           <li><span>经验</span><b>{{ experience || '—' }}</b></li>
           <li><span>可用时间</span><b>{{ join(availableTimes) }}</b></li>
           <li><span>器材</span><b>{{ join(equipment) }}</b></li>
@@ -167,10 +240,13 @@ import { useRouter } from 'vue-router'
 import { Check } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
+import PbList from '@/components/profile/PbList.vue'
+import GymList from '@/components/profile/GymList.vue'
 import { useAppStore } from '@/stores/app'
-import type { Mode } from '@/types/domain'
+import type { GoalType, GymRecord, Mode, PersonalBest } from '@/types/domain'
 import { AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
 import { gateReason } from '@/services/exercises'
+import { FIELD_EVENTS, TRACK_EVENTS, bodyErrors, cycleRangeError, goalSummary } from '@/services/profileRules'
 
 const router = useRouter()
 const store = useAppStore()
@@ -216,6 +292,50 @@ const cycleEndDate = ref(profile?.cycleEndDate ?? '')
 const targetEvent = ref(profile?.targetEvent ?? '')
 const weight = ref<number | ''>(profile?.weight ?? '')
 const error = ref('')
+
+// ——— 本轮新增：身体数据、主项、目标类型、PB、极限数据 ———
+const height = ref<number | ''>(profile?.height ?? '')
+const goalType = ref<GoalType>(profile?.goalType ?? (profile?.targetEvent ? 'competition' : 'cycle'))
+const targetEventDate = ref(profile?.targetEventDate ?? '')
+const targetResult = ref(profile?.targetResult ?? '')
+const cycleFocus = ref(profile?.cycleFocus ?? '')
+/** 每次都复制一份：编辑到一半取消也不污染 store */
+const personalBests = ref<PersonalBest[]>([...(profile?.personalBests ?? [])])
+const gymRecords = ref<GymRecord[]>([...(profile?.gymRecords ?? [])])
+
+const eventOptions = [...TRACK_EVENTS, ...FIELD_EVENTS]
+/** "其他"用一个开关记，避免和预设项抢同一个 ref */
+const otherPicked = ref(!!profile?.discipline && !eventOptions.includes(profile.discipline))
+const otherSport = computed(() => otherPicked.value || (!!discipline.value && !eventOptions.includes(discipline.value)))
+
+function pickEvent(e: string) {
+  otherPicked.value = false
+  discipline.value = discipline.value === e ? '' : e
+}
+function pickOtherSport() {
+  otherPicked.value = true
+  if (eventOptions.includes(discipline.value)) discipline.value = ''
+}
+
+const bodyError = computed(() => bodyErrors(height.value, weight.value))
+/** 模板里 mode 会被 v-else 收窄，用一个 computed 绕开这个收窄 */
+const athleteDraft = computed(() => mode.value === 'athlete')
+const bodyLabel = computed(() => {
+  const h = height.value === '' ? null : Number(height.value)
+  const w = weight.value === '' ? null : Number(weight.value)
+  if (h === null && w === null) return '未填写'
+  return `${h === null ? '—' : `${h} cm`} / ${w === null ? '—' : `${w} kg`}`
+})
+const cycleError = computed(() => cycleRangeError(cycleStartDate.value, cycleEndDate.value))
+const summary = computed(() =>
+  goalSummary({
+    goalType: goalType.value,
+    targetEvent: targetEvent.value,
+    targetEventDate: targetEventDate.value,
+    discipline: discipline.value,
+    cyclePhase: cyclePhase.value
+  })
+)
 
 function toggle(list: string[], value: string) {
   const i = list.indexOf(value)
@@ -263,9 +383,17 @@ const blocked = computed(() => {
 function finish() {
   error.value = ''
   const wasEditing = store.hasProfile
-  if (mode.value === 'athlete' && step.value === 3 && cycleStartDate.value && cycleEndDate.value && cycleStartDate.value > cycleEndDate.value) {
-    error.value = '周期开始日期不能晚于结束日期。'
+  const body = bodyError.value
+  if (body.height || body.weight) {
+    error.value = body.height || body.weight || ''
     return
+  }
+  if (mode.value === 'athlete') {
+    const rangeError = cycleRangeError(cycleStartDate.value, cycleEndDate.value)
+    if (rangeError) {
+      error.value = rangeError
+      return
+    }
   }
   store.updateProfile({
     nickname: nickname.value.trim() || undefined,
@@ -276,12 +404,21 @@ function finish() {
     equipment: [...equipment.value],
     availableVenues: [...availableVenues.value],
     restrictions: [...restrictions.value],
+    // 身体数据：两种模式都会写；留空时存 undefined，不覆盖成 0
+    height: height.value === '' ? undefined : Number(height.value),
+    weight: weight.value === '' ? undefined : Number(weight.value),
+    // 运动员字段：切到大众模式保存时也原样带回，不丢
     discipline: discipline.value.trim() || undefined,
     cyclePhase: cyclePhase.value || undefined,
     cycleStartDate: cycleStartDate.value || undefined,
     cycleEndDate: cycleEndDate.value || undefined,
+    cycleFocus: cycleFocus.value.trim() || undefined,
+    goalType: goalType.value,
     targetEvent: targetEvent.value.trim() || undefined,
-    weight: weight.value === '' ? undefined : Number(weight.value)
+    targetEventDate: targetEventDate.value || undefined,
+    targetResult: targetResult.value.trim() || undefined,
+    personalBests: [...personalBests.value],
+    gymRecords: [...gymRecords.value]
   })
   if (mode.value !== store.currentMode) store.commitMode(mode.value)
   // 档案条件变了就明确重算本周计划，避免继续显示按旧条件生成的版本
@@ -326,6 +463,23 @@ function finish() {
 .chip.warn.active{background:var(--color-caution);color:var(--color-on-caution)}
 .note{font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:14px 0 0}
 .fine{font-size:11.5px;color:var(--color-text-muted);line-height:1.6;margin:7px 0 0}
+.fine.err{color:var(--color-danger)}
+.body-note{margin:-6px 0 16px}
+/* 主项"其他"的自由输入 */
+.other-input{width:100%;margin-top:9px;padding:11px 13px;border:1px solid var(--color-border);border-radius:12px;font-size:14px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
+/* 目标类型二选一 */
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.seg button{padding:10px 16px;border-radius:11px;font-size:13px;font-weight:600;color:var(--color-text-secondary);background:var(--color-neutral-soft);transition:all var(--motion-fast);min-height:44px}
+.seg button.on{background:var(--color-accent);color:var(--color-on-accent)}
+.goal-summary{display:flex;align-items:baseline;gap:10px;padding:11px 14px;border-radius:12px;background:var(--color-accent-soft);margin:4px 0 16px}
+.goal-summary b{font-size:13.5px;color:var(--color-ink)}
+/* 折叠区：PB / 极限数据，避免把建档页拉成超长表单 */
+.sec{border-top:1px solid var(--color-divider);margin-top:12px}
+.sec summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:13px 0;font-size:13.5px;font-weight:600;color:var(--color-ink)}
+.sec summary::-webkit-details-marker{display:none}
+.sec summary::after{content:'展开';font-size:11px;font-weight:500;color:var(--color-text-muted);margin-left:10px}
+.sec[open] summary::after{content:'收起'}
+.sec summary em{font-style:normal;font-size:11.5px;font-weight:500;color:var(--color-text-muted);margin-left:auto;margin-right:10px}
 .gate{font-size:12.5px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:11px;padding:10px 12px;margin:10px 0 0;line-height:1.65}
 .field .chips + .fine,.field .chips + .gate{margin-top:9px}
 .review{list-style:none;padding:0;margin:0 0 8px;display:grid;gap:10px}

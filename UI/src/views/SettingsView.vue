@@ -39,7 +39,7 @@
         </div>
       </div>
       <div class="row-line">
-        <div><strong>档案</strong><small>{{ profileLine }}</small></div>
+        <div><strong>档案</strong><small>{{ profileLine }}</small><em v-if="goalLine" class="goal-line">{{ goalLine }}</em></div>
         <RouterLink class="link" to="/onboarding">{{ store.hasProfile ? '修改档案' : '去建档' }} <ArrowRight :size="14" /></RouterLink>
       </div>
     </BaseCard>
@@ -149,6 +149,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
 import type { PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
+import { goalSummary } from '@/services/profileRules'
 import { RULE_VERSION } from '@/services/mealRules'
 
 const store = useAppStore()
@@ -175,7 +176,16 @@ const profileLine = computed(() => {
   const p = store.userProfile
   if (!p) return '还没有档案，可以先建档再看推荐说明。'
   const bits = [displayName(p.nickname), p.goal, p.experience].filter(Boolean)
+  // 身体数据只并列展示，不做任何评价
+  const body = [p.height ? `${p.height} cm` : '', p.weight ? `${p.weight} kg` : ''].filter(Boolean).join(' / ')
+  if (body) bits.push(body)
   return bits.join(' · ')
+})
+/** 运动员档案多一行目标摘要：比赛目标与周期目标的说法由 profileRules 统一 */
+const goalLine = computed(() => {
+  const p = store.userProfile
+  if (!p || store.currentMode !== 'athlete') return ''
+  return goalSummary(p)
 })
 const rpeMissing = computed(() => store.sessions.filter(s => s.rpe === null).length)
 const preview = computed(() => store.switchPreview)
