@@ -1,5 +1,5 @@
 // 餐食记录的结构规则：只判断"类别是否出现"，不推断摄入量、不评价健康程度。
-import type { FoodCategory, Meal, MealAnalysis, MealCompleteness, MealItem } from '@/types/domain'
+import type { FoodCategory, Meal, MealAnalysis, MealCompleteness, MealItem, MealType } from '@/types/domain'
 import { ESTIMATE_BAND, findFood, FOOD_CATALOG_VERSION, inferCategory, isMixedFood } from './foodComposition'
 
 export const RULE_VERSION = 'diet-rules-v2'
@@ -41,6 +41,59 @@ export const MEAL_SLOTS = [
   { id: 'lunch' as const, label: '午餐', defaultTime: '12:00' },
   { id: 'dinner' as const, label: '晚餐', defaultTime: '18:30' }
 ]
+
+export const MEAL_TYPE_LABELS: Record<MealType, string> = {
+  breakfast: '早餐',
+  lunch: '午餐',
+  dinner: '晚餐',
+  snack: '加餐'
+}
+
+export const MEAL_TYPE_OPTIONS = (Object.keys(MEAL_TYPE_LABELS) as MealType[]).map(id => ({
+  id,
+  label: MEAL_TYPE_LABELS[id]
+}))
+
+export function mealTypeLabel(type: MealType): string {
+  return MEAL_TYPE_LABELS[type] ?? '加餐'
+}
+
+/** 餐次窗口按本地时间闭区间判断；不落在任何正餐窗口里的都记为加餐 */
+export interface MealTimeWindow {
+  type: Exclude<MealType, 'snack'>
+  start: string
+  end: string
+}
+
+/** 阈值集中在这里，调整餐次边界不需要改页面或识别服务 */
+export const MEAL_TIME_WINDOWS: MealTimeWindow[] = [
+  { type: 'breakfast', start: '05:00', end: '10:29' },
+  { type: 'lunch', start: '10:30', end: '14:59' },
+  { type: 'dinner', start: '15:00', end: '21:00' }
+]
+
+function minuteOfDay(value: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h > 23 || min > 59) return null
+  return h * 60 + min
+}
+
+export function inferMealType(at: Date | string, windows: MealTimeWindow[] = MEAL_TIME_WINDOWS): MealType {
+  const minutes = at instanceof Date
+    ? at.getHours() * 60 + at.getMinutes()
+    : minuteOfDay(at)
+  if (minutes === null) return 'snack'
+  for (const win of windows) {
+    const start = minuteOfDay(win.start)
+    const end = minuteOfDay(win.end)
+    if (start === null || end === null) continue
+    if (minutes >= start && minutes <= end) return win.type
+  }
+  return 'snack'
+}
 
 /**
  * 免责清单必须与实际出的数一致：以前无论有没有开热量粗估都写"没有热量估算"，

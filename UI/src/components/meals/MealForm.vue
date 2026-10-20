@@ -69,34 +69,8 @@
       </button>
     </div>
 
-    <div class="m-photo">
-      <input ref="fileRef" type="file" accept="image/*" capture="environment" class="file-input" @change="onPick" />
-      <button type="button" class="photo-toggle" :aria-expanded="photoOpen" @click="photoOpen = !photoOpen">
-        <Camera :size="15" />
-        <span>{{ photoOpen ? '收起拍照识别' : '拍照 / 选图识别（可选）' }}</span>
-        <ChevronDown :size="14" :class="{ flip: photoOpen }" />
-      </button>
-      <div v-if="photoOpen" class="photo">
-        <div class="photo-bar">
-          <BaseButton variant="ghost" size="sm" :icon="Camera" :disabled="photoBusy" @click="fileRef?.click()">{{ photoBusy ? '识别中…' : '选一张照片' }}</BaseButton>
-          <span class="photo-state">{{ photoState }}</span>
-        </div>
-        <div v-if="photoPreview" class="photo-body">
-          <img :src="photoPreview" alt="待识别的食物照片" class="photo-img" />
-          <ul v-if="photoDetected.length" class="cand">
-            <li v-for="c in photoDetected" :key="c.name">
-              <span class="cand-t"><b>{{ c.name }}</b><small>{{ c.category }} · {{ Math.round(c.confidence * 100) }}%<template v-if="c.count > 1"> · {{ c.count }} 处</template></small></span>
-              <button type="button" class="cand-add" :aria-label="`把${c.name}加入这一餐`" @click="adopt(c)"><Plus :size="15" />加入</button>
-            </li>
-          </ul>
-        </div>
-        <p v-if="photoError" class="photo-note">{{ photoError }}</p>
-        <p v-else class="photo-note">端侧模型只覆盖 9 类常见食物（苹果、香蕉、橙子、西兰花、胡萝卜、披萨、热狗、甜甜圈、蛋糕），认不出属正常，直接手动填即可。</p>
-      </div>
-    </div>
-
     <div class="m-search">
-      <button type="button" class="photo-toggle" :aria-expanded="searchOpen" @click="searchOpen = !searchOpen">
+      <button type="button" class="panel-toggle" :aria-expanded="searchOpen" @click="searchOpen = !searchOpen">
         <Search :size="15" />
         <span>{{ searchOpen ? '收起目录搜索' : `在内置目录里搜（${foodTable.length} 条，未与权威成分表核对）` }}</span>
         <ChevronDown :size="14" :class="{ flip: searchOpen }" />
@@ -137,12 +111,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Camera, Check, ChevronDown, Plus, Search, X } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { Check, ChevronDown, Plus, Search, X } from 'lucide-vue-next'
 import BaseButton from '../common/BaseButton.vue'
 import { useAppStore } from '@/stores/app'
-import { useFoodPhoto } from '@/composables/useFoodPhoto'
-import type { DetectedFood } from '@/composables/useFoodPhoto'
 import { FOOD_CATEGORIES, frequentFoods, isMixed, suggestCategory } from '@/services/mealRules'
 import type { FrequentFood } from '@/services/mealRules'
 import {
@@ -159,11 +131,13 @@ interface Row extends MealDraft {
 }
 
 const props = defineProps<{
-  /** 槽位标签，如"早餐""加餐"；餐次由打开表单的卡片决定，表单内不再选择 */
+  /** 槽位标签，如"早餐""加餐"；餐次由调用方决定，表单内不再选择 */
   label: string
   initialTime: string
   initialItems: MealDraft[]
   showEstimate: boolean
+  /** 编辑已有记录时的提示文案与新建不同 */
+  editing?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'save', value: { time: string; items: MealDraft[] }): void
@@ -177,60 +151,23 @@ const time = ref(props.initialTime)
 /** 编辑已有餐次时，用户当时选的类别就是事实，不再自动改写 */
 const items = ref<Row[]>(props.initialItems.map(i => ({ ...i, catAuto: false })))
 const error = ref('')
-const photoOpen = ref(false)
 const searchOpen = ref(false)
 const query = ref('')
-const fileRef = ref<HTMLInputElement | null>(null)
 const nameEls = ref<HTMLInputElement[]>([])
 const sizeEls = ref<HTMLInputElement[]>([])
 
-const note = computed(() => (props.label === '晚餐' ? '晚餐还没记。没记只表示"未记录"，不代表没吃。' : `还没记录${props.label}。`))
-
-const {
-  status: photoStatus,
-  busy: photoBusy,
-  errorMessage: photoError,
-  previewUrl: photoPreview,
-  detected: photoDetected,
-  analyze: analyzePhoto,
-  reset: resetPhoto
-} = useFoodPhoto()
-
-const photoState = computed(() => {
-  if (photoStatus.value === 'loading') return '端侧识别中…（首次需加载 6.9 MB 模型）'
-  if (photoDetected.value.length) return `识别到 ${photoDetected.value.length} 类，勾选后加入`
-  if (photoStatus.value === 'done') return '没认出可对照的食物'
-  return '照片只在本机推理，不上传、不保存'
-})
+const note = computed(() => props.editing
+  ? `编辑${props.label}的时间与食物；份量可以留空。`
+  : (props.label === '晚餐' ? '晚餐还没记。没记只表示"未记录"，不代表没吃。' : `还没记录${props.label}。`))
 
 onMounted(async () => {
   await nextTick()
   nameEls.value[0]?.focus()
 })
-onBeforeUnmount(resetPhoto)
-
-async function onPick(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (file) await analyzePhoto(file)
-  input.value = ''
-}
 
 function blankRow(): Row {
   // 类别先落"其他"（即待确认），由名称推断改写——固定默认谷薯类会让"苹果"记成谷薯类
   return { foodName: '', category: '其他', portionSize: '', portionUnit: '碗', catAuto: true }
-}
-
-function rowOf(c: DetectedFood): Row {
-  return {
-    foodName: c.name,
-    category: suggestCategory(c.name) ?? c.category,
-    portionSize: '',
-    portionUnit: '份',
-    source: 'photo',
-    photoConfidence: c.confidence,
-    catAuto: true
-  }
 }
 
 /** 名称变化时推断类别；用户手动改过类别（catAuto=false）就不再改写 */
@@ -246,18 +183,6 @@ function catHint(row: Row) {
   if (isMixed(name)) return '混合菜：类别与热量待确认，可拆成原料'
   if (row.category === '其他') return '未命中参考表，类别请人工确认'
   return row.catAuto ? `类别按参考表推断为${row.category}，可改` : ''
-}
-
-function adopt(c: DetectedFood) {
-  const existing = items.value.find(i => i.foodName === c.name)
-  if (existing) {
-    existing.source = 'photo'
-    existing.photoConfidence = Math.max(existing.photoConfidence ?? 0, c.confidence)
-    return
-  }
-  const first = items.value[0]
-  if (!first.foodName) items.value[0] = rowOf(c)
-  else items.value.push(rowOf(c))
 }
 
 function addRow() {
@@ -480,17 +405,9 @@ function submit() {
 .mini-del{color:var(--color-text-muted);display:grid;place-items:center;padding:4px;border-radius:8px;transition:all var(--motion-fast);flex:none}
 .mini-del:hover:not(:disabled){background:var(--color-danger-soft);color:var(--color-danger)}
 .mini-del:disabled{opacity:.4;cursor:not-allowed}
-.m-photo{display:grid;gap:10px}
-.file-input{display:none}
-.photo-toggle{display:inline-flex;align-items:center;gap:7px;justify-self:start;padding:8px 13px;border-radius:11px;font-size:12px;color:var(--color-text-secondary);background:transparent;box-shadow:inset 0 0 0 1px var(--color-border);transition:all var(--motion-fast)}
-.photo-toggle:hover{color:var(--color-accent);box-shadow:inset 0 0 0 1px rgba(15,118,110,.4)}
-.photo-toggle .flip{transform:rotate(180deg);transition:transform var(--motion-fast)}
-.photo{border:1px dashed var(--color-accent-line);border-radius:15px;padding:14px;background:linear-gradient(160deg,var(--color-accent-soft),var(--color-neutral-soft));box-shadow:inset 0 1px 0 #fff}
-.photo-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.photo-bar :deep(button){width:auto;padding:0 16px;margin:0}
-.photo-state{font-size:12px;color:var(--color-text-muted);margin:0}
-.photo-body{display:flex;gap:12px;margin-top:12px;align-items:flex-start;flex-wrap:wrap}
-.photo-img{width:120px;height:120px;object-fit:cover;border-radius:12px;background:var(--color-divider);box-shadow:0 0 0 1px rgba(21,24,27,.08),0 8px 20px -10px rgba(21,24,27,.35)}
+.panel-toggle{display:inline-flex;align-items:center;gap:7px;justify-self:start;padding:8px 13px;border-radius:11px;font-size:12px;color:var(--color-text-secondary);background:transparent;box-shadow:inset 0 0 0 1px var(--color-border);transition:all var(--motion-fast)}
+.panel-toggle:hover{color:var(--color-accent);box-shadow:inset 0 0 0 1px rgba(15,118,110,.4)}
+.panel-toggle .flip{transform:rotate(180deg);transition:transform var(--motion-fast)}
 .cand{list-style:none;padding:0;margin:0;display:grid;gap:6px;flex:1;min-width:190px}
 .cand li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:11px;background:var(--color-card);border:1px solid rgba(220,229,237,.85);box-shadow:var(--inner-light);transition:transform var(--motion-fast) var(--easing-ease-out),box-shadow var(--motion-fast)}
 .cand li:hover{transform:translateX(2px);box-shadow:var(--inner-light),var(--ring-accent)}

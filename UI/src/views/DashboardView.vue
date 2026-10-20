@@ -267,7 +267,7 @@
     <PlanDraftDialog />
 
     <footer class="footnote">
-      <span>无账号 · 数据只在本机 · 照片不上传</span>
+      <span>无账号 · 记录只存本机 · 照片经同意才用于识别</span>
       <span class="micro">v3 · plan-rules-v3</span>
     </footer>
   </div>

@@ -196,17 +196,26 @@ export interface SessionFeedback {
 
 // === Meals & Nutrition ===
 
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+
 export interface Meal {
   id: string
   userId: string
   date: string
-  mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack'
+  mealType: MealType
   time: string
   completeness: MealCompleteness
   items: MealItem[]
   analyzed: boolean
   analysis?: MealAnalysis
   createdAt: string
+}
+
+/** 照片识别模型给出的粗估热量；不是权威成分表数值，只作可选展示 */
+export interface ModelEnergyEstimate {
+  low: number
+  high: number
+  note?: string
 }
 
 export interface MealItem {
@@ -218,10 +227,14 @@ export interface MealItem {
   portionSize?: number
   portionUnit?: string
   confirmed: boolean
-  /** 条目来源：手动填写或端侧照片识别后由用户确认 */
+  /** 条目来源：手动填写或照片识别后由用户确认 */
   source?: 'manual' | 'photo'
   /** 照片识别时的最高置信度 */
   photoConfidence?: number
+  /** 识别模型明确标记不确定，或类别只能落到"其他" */
+  uncertain?: boolean
+  /** 识别模型给出的粗略热量区间，旧记录没有这个字段 */
+  modelEnergy?: ModelEnergyEstimate
 }
 
 /** 表单里的一行草稿：类别有默认值，份量允许留空（留空即"部分记录"） */
@@ -232,6 +245,8 @@ export interface MealDraft {
   portionUnit: string
   source?: 'manual' | 'photo'
   photoConfidence?: number
+  uncertain?: boolean
+  modelEnergy?: ModelEnergyEstimate
 }
 
 export interface EnergyEstimateRef {

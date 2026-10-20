@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { FoodCategory, Meal, MealItem, Mode, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, PlanItem, ThemePreference } from '@/types/domain'
+import type { FoodCategory, Meal, MealItem, MealType, Mode, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
@@ -24,7 +24,7 @@ import { toISODate } from '@/utils/time'
 
 export interface NewMealInput {
   date: string
-  mealType: Meal['mealType']
+  mealType: MealType
   time: string
   items: {
     foodName: string
@@ -33,6 +33,8 @@ export interface NewMealInput {
     portionUnit?: string
     source?: 'manual' | 'photo'
     photoConfidence?: number
+    uncertain?: boolean
+    modelEnergy?: ModelEnergyEstimate
   }[]
 }
 
@@ -646,6 +648,15 @@ export const useAppStore = defineStore('app', () => {
     showToast({ type: 'info', title: '已删除该餐记录', message: '删除后这一天会重新显示为"未记录"', duration: 2500 })
   }
 
+  /** 自动判断的餐次只影响标签与时间线，不改动条目与结构分析 */
+  function updateMealType(mealId: string, mealType: MealType) {
+    const meal = meals.value.find(m => m.id === mealId)
+    if (!meal || meal.mealType === mealType) return false
+    meal.mealType = mealType
+    persistState()
+    return true
+  }
+
   /** 隐私与导出偏好；当前版本不会据此自动删除数据 */
   function updatePrivacy(patch: Partial<PrivacySettings>) {
     privacy.value = { ...privacy.value, ...patch }
@@ -752,6 +763,7 @@ export const useAppStore = defineStore('app', () => {
     applyFeedback,
     addMeal,
     removeMeal,
+    updateMealType,
     updatePrivacy,
     rememberUnitGrams,
     forgetUnitGrams,

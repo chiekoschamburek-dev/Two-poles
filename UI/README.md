@@ -8,17 +8,17 @@
 
 | 范围 | 状态 |
 |------|------|
-| 页面视图 | **7 / 7 都有实际界面**（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）。计数已与识别联动、计划版本与调整确认在本机落地；仍然没有后端 |
+| 页面视图 | **7 / 7 都有实际界面**（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）。计数已与识别联动、计划版本与调整确认在本机落地；没有账号后端，模型请求经同源 Vite 代理转发 |
 | 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好都存在 localStorage；可从设置页导出 JSON/CSV（含计划与换算口径）或一键清除 |
 | 训练反馈 | ✅ 跟练结束可填 RPE（**0–10**，或留空=未记录）、不适、部分完成原因与备注，写回该条 session 并持久化 |
 | 建档 | ✅ 三步表单写入 `store.updateProfile()`，含场地多选；12–17 岁与勾选孕期/伤病限制者只保留记录与手工录入，不生成自动推荐 |
-| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **92 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
+| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **229 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
 | 摄像头 | **真联动 + 未实测**：实时摄像头分支由 MediaPipe 关键点角度驱动 `useRepCounter` 状态机计数（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），支持机位校准与手工修正，模型计数与修正值分别保留。**未在任何真机上验证过计数准确率**，90% 误差指标待隔离测试集实测；权限被拒、无设备或非安全上下文时自动退回"演示回放"，界面明确标注计数来源。取帧用 `requestVideoFrameCallback` 的真实帧时间戳，推理默认在经典 worker 内跑 **GPU delegate**（构建后实测生效），两者任一不可用则自动回落主线程 / CPU，状态文案如实显示实际后端 |
-| 记录入口（调研 P1-6） | ✅ 三个入口都在表单里：**常吃**（`frequentFoods` 按目录规范名归并本机历史，"苹果（半个）"与"苹果"算同一条，点一下填一行，无历史时整节不渲染）、**搜索**（`searchFoods` 过 56 条内置目录，空关键字不预置候选，回车添加首个结果且不误提交表单）、**拍照**（端侧 EfficientDet-Lite0 识别 9 类常见食物作为待确认候选，照片不上传不落盘，默认折叠）。单位↔克数：行内可改"1 碗=几克"，改完**先只影响本行**，点"记住"才按 `食物|单位` 落本机、可"撤销"退回演示假设（没点记住时不允许保存，避免界面显示的数与存下的数分叉）；热量粗估**默认关闭**，开启后只显示区间与来源，口径写进 `basis`（如"1 碗=250 g（本机口径）"）；混合菜不出数 |
+| 记录入口（调研 P1-6） | ✅ 饮食页只有一个主入口「记录饮食」：拍照/选图 → 识别模型（云端可替换，未配置时走端侧 EfficientDet 9 类）→ 按拍摄时间自动判餐次 → 默认直接保存。结果页不展示完整表单，低置信度/待确认项明确标出，想改再展开；保存后的记录仍保留查看、编辑、删除与常吃/搜索/单位↔克数换算。云端识别要求在拍照前勾选上传同意，原图不保存；失败不生成记录。 |
 | 内容库 | 动作库 `services/exercises.ts` 27 条（含 1 条停用）带器材/场地/时长/强度/限制门槛与来源标注；食物目录 `services/foodComposition.ts` 56 条 + 22 种混合菜，全部 `verified: false` |
 | 摄像头资产 | 需先执行 `cd UI && npm run camera:assets`（拉取 5.5 MB 模型 + 27 MB wasm，已被 .gitignore 排除）；且页面必须走 **https 或 localhost**（`vite --host` 的局域网 http 地址无法调用摄像头） |
 | 模式切换 | ✅ **页头右侧的模式芯片**（UI 3.0 从侧栏迁来）与设置页切换都**先展示差异与未完成计划、确认后才生效**，取消则不改动任何数据；切换历史与当时未完成计划数落本机，旧模式计划仍可见（需明确复制才形成新模式计划） |
-| 后端 | 无 |
+| 后端 | 无账号后端；`/api/llm/*` 与 `/api/food/*` 是同源 Vite 代理，密钥只从服务端环境变量读取（`LLM_DEFAULT_*` / `FOOD_VISION_*`） |
 
 下方"核心功能"章节描述的是**设计目标**，剩余未实现项已逐项标注。**后续怎么做（拍照识别热量的取舍、后端与前端如何对接、里程碑顺序）见仓库根 [`../plan.md`](../plan.md)。**
 
@@ -75,11 +75,12 @@ UI/
 │   ├── components/
 │   │   ├── common/          # BaseButton / BaseCard / StatusBadge / InsightCard / ToastRegion
 │   │   │                    # + TwoPoleDial（双极环）/ StatStrip（指标条）/ ShapeState（三态形状）
+│   │   ├── meals/           # FoodCaptureDialog（拍照/同意/识别结果/轻量修改）+ MealForm（保存后的可选编辑）
 │   │   └── layout/          # AppShell / TopBar（58px 纸面页头，含模式芯片）/ SidebarNav（86px 图标脊）/ MobileNav
-│   ├── composables/         # usePoseCamera.ts + poseEngine.ts + poseInference.worker.ts（端侧姿态识别：worker/GPU 推理、骨架、可见度、关节角）· useRepCounter.ts（计数状态机）· useFoodPhoto.ts
+│   ├── composables/         # usePoseCamera.ts + poseEngine.ts + poseInference.worker.ts（端侧姿态识别：worker/GPU 推理、骨架、可见度、关节角）· useRepCounter.ts（计数状态机）
 │   ├── views/               # 7 个页面均有实际界面（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）
 │   ├── stores/              # app.ts（mode、profile、sessions、meals、privacy、toast）
-│   ├── services/            # demoCameraService（演示时间线）· mealRules（餐食结构规则）· planRules（计划单一来源）· weekRules（周报聚合与负荷）
+│   ├── services/            # foodRecognition（云端/本机可替换识别）、mealRules（结构规则与餐次时间窗）、foodComposition（目录/估算）、llm（计划模型与代理）、planRules、weekRules、loadRules 等
 │   ├── types/               # domain.ts
 │   ├── utils/               # id.ts（非安全上下文 ID 兜底）、time.ts（日期/问候/日历偏移）
 │   ├── styles/              # tokens.css（UI 3.0 令牌）/ globals.css（.micro .num .hairline）/ animations.css / gradients.css（只剩回放扫光）
@@ -129,17 +130,18 @@ UI/
 - ✅ 隐私优先的本地处理说明文案
 
 ### 4. 饮食记录
-- ✅ 三餐 + 加餐：记录食物条目（名称、10 类之一、可选份量与单位），可补记/修改/删除（改一餐＝替换该餐原记录）
-- ✅ **拍照识别（端侧）**：`useFoodPhoto` 用 EfficientDet-Lite0（6.9 MB，CPU）在本机解码照片，只映射 COCO 里的 9 个可食类（苹果/香蕉/橙子/西兰花/胡萝卜/披萨/热狗/甜甜圈/蛋糕）；结果作为**候选**给出，需点"加入"并由用户确认；认不出就提示手动填，不做猜测。照片不上传、不保存
-- ✅ 结构规则 `diet-rules-v1`：给出本餐出现的类别，并算"记完这餐后当天仍缺的类别"（期望 8 类；油脂类与"其他"不作要求）
-- ✅ 热量只在设置里打开"显示热量粗估"时出现（**默认关闭**），且一律是区间 + 来源：`≈80–135 kcal`，并标注"内置演示参考值（未与权威成分表核对）· 单位→克数为演示假设 · ±25% · 未计入烹调油"。份量没填或食物不在参考表内 → 不显示，而不是给个 0
-- ✅ `hasNutritionEstimate` 改为按次标记（打开且至少一项可估才为 `true`），`estimateRefs` 随记录持久化
-- ✅ 没记录的餐次显示"未记录"，概览与周报同一口径
-- ✅ **食物库与搜索**：`foodComposition.searchFoods()` 过 56 条内置目录（名称/类别命中，空关键字不预置候选），混合菜另有 22 条；目录没收录的词直接提示"回上面填名字也能记，只是不出热量粗估"
-- ✅ **常吃**：`frequentFoods()` 按目录规范名归并本机历史，点一下就把名称/类别/份量填进表单
-- ✅ **单位↔克数**：行内可把"1 碗"改成 280 g，先只影响本行，点"记住"才按 `食物|单位` 落本机、可撤销
-- ✅ **运动员模式的训练日用餐时间线**：把当天餐次与训练按时间排在一起（`MealsView` 的 timeline 卡）
-- ⚠️ 识别覆盖仅 9 类（中餐大多认不出）——这是模型能力边界，不是坏了
+- ✅ **拍照即记录**：饮食页只有一个主入口「记录饮食」，点击后直接拍照或选图；不再进入四个餐次卡，也不再要求先选早餐/午餐/晚餐/加餐。识别结果页默认只做展示，主操作是「保存记录」，想改再展开轻量编辑器。
+- ✅ **餐次按拍摄时间自动判断**：`mealRules.MEAL_TIME_WINDOWS` 集中配置阈值（05:00–10:29 早餐 / 10:30–14:59 午餐 / 15:00–21:00 晚餐 / 其余加餐），结果页和已保存记录都提供轻量修改入口，不依赖模型猜餐次。
+- ✅ **可替换识别层**：`services/foodRecognition.ts` 统一输入输出。云端走同源 `/api/food/recognize`，密钥只从服务端 `FOOD_VISION_*` 读取；未配置或用户选择本机时走 EfficientDet-Lite0（6.9 MB，CPU，COCO 9 个可食类）。两条路径都不保存原图。
+- ✅ **云端上传前置同意**：检测到云端识别可用时，拍照/选图按钮在勾选"照片会上传用于本次识别"前不可用；弹窗里同时提供「仅本机识别」和「手动补录」。旧版"照片不上传"文案已从 Dashboard / 表单 / README 移除。
+- ✅ **严格校验、失败不造假**：模型输出必须含食物名称与 0–1 置信度；类别缺失时只允许按本机目录推断或落"其他"，份量/营养无效就留空。非 JSON、空条目、全部字段缺失、网络/代理失败都进入错误态，不生成记录；低置信度与不确定项明确标注，但不强迫逐项确认。
+- ✅ **数据结构兼容**：仍写入原有 `Meal` / `MealItem` / `MealAnalysis`；仅追加可选的 `uncertain` 与 `modelEnergy`。旧记录照常显示、编辑、删除，周报与首页统计沿用原口径。
+- ✅ 结构规则 `diet-rules-v2`：给出本餐出现的类别，并算"记完这餐后当天仍缺的类别"（期望 8 类；油脂类与"其他"不作要求）。
+- ✅ 热量粗估**默认关闭**：开启后本地参考表区间带 `basis` 与来源；识别模型提供的热量区间单独标"模型粗估（未与成分表核对）"，两者都不会伪装成精确值。份量没估、食物不在参考表或混合菜 → 不显示，而不是给 0。
+- ✅ 没记录的餐次显示"未记录"，概览与周报同一口径。
+- ✅ **食物库与搜索 / 常吃 / 单位↔克数**：仍在保存后的编辑表单里可用；`searchFoods()` 过 56 条内置目录，混合菜另有 22 条；`frequentFoods()` 按目录规范名归并本机历史；单位换算先只影响本行，点"记住"才落本机。
+- ✅ **运动员模式的训练日用餐时间线**：保留在饮食页，把当天餐次与训练按时间排在一起。
+- ⚠️ 本机识别只覆盖 9 类（中餐大多认不出）；云端覆盖取决于配置的视觉模型。模型判不出份量时显示"份量未估"，不猜克数。
 
 ### 5. 数据完整性
 - ✅ `Meal` / `MealItem` / `MealAnalysis` / `WeeklyReport` / `PrivacySettings` / `SessionFeedback` / `TrainingSession` / `PlanItem` / `AlternativeExercise` 都由真实数据流消费；只剩 `CameraSession`、`PoseFrame`、`PlanAdjustment`、`PlanChange` 停留在定义层

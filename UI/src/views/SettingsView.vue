@@ -4,7 +4,7 @@
       <div>
         <span class="eyebrow">SETTINGS</span>
         <h1>设置与数据</h1>
-        <p>这里的东西都只存在这台设备的浏览器里；没有账号，也没有服务器。</p>
+        <p>档案、训练与饮食记录只存在这台设备的浏览器里；没有账号。需要云端模型时，只发送这次操作所需的内容，密钥留在服务端。</p>
       </div>
       <StatusBadge :variant="store.hasProfile ? 'success' : 'neutral'">{{ store.hasProfile ? '已建档' : '未建档' }}</StatusBadge>
     </div>
@@ -132,6 +132,11 @@
         <span class="tg"><i></i></span>
         <span class="tlabel"><strong>显示热量粗估</strong><small>默认关闭。开启后按"区间 + 来源"显示，依赖你填的份量与内置参考值（未与权威成分表核对），不作为营养建议。</small></span>
       </label>
+
+      <p class="fine">
+        饮食拍照识别：服务端配置了视觉模型时，拍照前会明确说明这张照片会发送到该服务并征得你的同意；没有配置时使用本机模型，照片不上传。
+        两种方式下本应用都不保存原图，记录里只保留识别结果。
+      </p>
 
       <div class="fields">
         <label class="field">

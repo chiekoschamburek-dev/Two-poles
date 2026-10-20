@@ -4,8 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { buildDayPlan, alternativesFor, isPlanDay, AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
 import { buildWeeklyReport, loadOf, weekStart } from '@/services/weekRules'
 import { buildLoadSeries, intensitySplit, loadZone } from '@/services/loadRules'
-import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, suggestCategory, RULE_VERSION } from '@/services/mealRules'
+import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, inferMealType, suggestCategory, RULE_VERSION } from '@/services/mealRules'
 import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
+import { validateRecognitionObject, validateRecognitionText } from '@/services/foodRecognition'
 import { activeExercises, exercises, gateReason } from '@/services/exercises'
 import { useRepCounter } from '@/composables/useRepCounter'
 import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
@@ -109,6 +110,41 @@ ok('出数带区间与来源', !!est && est.low < est.high && est.source === FOO
 ok('缺份量不出数', estimateEnergy({ foodName: '苹果' }) === null)
 ok('混合菜不出数', estimateEnergy({ foodName: '饺子', portionSize: 1, portionUnit: '盘' }) === null)
 ok('份量完整性判定', deriveCompleteness([mi('苹果', '水果类')]) === 'partial')
+
+console.log('\n4b. 拍照即记录：餐次时间窗与模型结果校验')
+ok('05:00 起算早餐', inferMealType('05:00') === 'breakfast')
+ok('10:29 仍是早餐', inferMealType('10:29') === 'breakfast')
+ok('10:30 起算午餐', inferMealType('10:30') === 'lunch')
+ok('14:59 仍是午餐', inferMealType('14:59') === 'lunch')
+ok('15:00 起算晚餐', inferMealType('15:00') === 'dinner')
+ok('21:00 仍是晚餐', inferMealType('21:00') === 'dinner')
+ok('21:01 起算加餐', inferMealType('21:01') === 'snack')
+ok('04:59 属于加餐', inferMealType('04:59') === 'snack')
+ok('时间窗可覆盖', inferMealType('09:00', [{ type: 'lunch', start: '08:00', end: '09:00' }]) === 'lunch')
+ok('Date 按本地时刻判断', inferMealType(new Date(2026, 0, 1, 12, 0)) === 'lunch')
+
+const recGood = validateRecognitionObject({
+  items: [
+    { foodName: '苹果', category: '水果类', confidence: 0.88, uncertain: false, portionSize: 1, portionUnit: '个', energy: { low: 45, high: 70 } },
+    { name: '西兰花', confidence: 86, category: '蔬菜类' }
+  ]
+})
+ok('合法识别结果被接受', recGood.items.length === 2 && recGood.error === '')
+ok('0–100 的置信度归一化', recGood.items[1].confidence === 0.86)
+ok('营养估计保留为区间', recGood.items[0].nutrition?.low === 45 && recGood.items[0].nutrition?.high === 70)
+const recNoConfidence = validateRecognitionObject({ items: [{ foodName: '苹果', category: '水果类' }] })
+ok('缺置信度不生成条目', recNoConfidence.items.length === 0 && !!recNoConfidence.error)
+const recUnknown = validateRecognitionObject({ items: [{ foodName: '神秘汤', category: '不存在的类', confidence: 0.4 }] })
+ok('未知类别落"其他"并标不确定', recUnknown.items[0]?.category === '其他' && recUnknown.items[0]?.uncertain === true)
+ok('低置信度自动标不确定', validateRecognitionObject({ items: [{ foodName: '米饭', category: '谷薯类', confidence: 0.4 }] }).items[0].uncertain === true)
+ok('混合菜标不确定', validateRecognitionObject({ items: [{ foodName: '饺子', category: '谷薯类', confidence: 0.9 }] }).items[0].uncertain === true)
+const recBadPortion = validateRecognitionObject({ items: [{ foodName: '米饭', category: '谷薯类', confidence: 0.8, portionSize: -1, portionUnit: '碗' }] })
+ok('无效份量留空而不是猜', recBadPortion.items[0]?.portionSize === undefined)
+const recBadJson = validateRecognitionText('这不是 JSON')
+ok('非 JSON 不生成记录', recBadJson.items.length === 0 && !!recBadJson.error)
+const recFenced = validateRecognitionText('```json\n{"items":[{"foodName":"香蕉","category":"水果类","confidence":0.7}]}\n```')
+ok('代码块 JSON 也能解析', recFenced.items.length === 1 && recFenced.items[0].foodName === '香蕉')
+ok('空 items 不生成记录', validateRecognitionObject({ items: [] }).items.length === 0)
 
 console.log('\n5. F05 计数状态机')
 const c = useRepCounter({ neutral: 170, bottom: 55, hysteresis: 8, minStageMs: 100, minRepMs: 700, maxStageMs: 6000, minVisibility: 0.5 })
