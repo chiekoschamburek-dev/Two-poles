@@ -4,7 +4,7 @@
       <div>
         <span class="micro kick"><i></i>Camera guided training</span>
         <h1>{{ exercise.name }} · 第 {{ displaySet }} 组</h1>
-        <p>演示模式 · 摄像头原始画面默认不上传</p>
+        <p>{{ live ? '实时摄像头 · 画面只在本机，不上传' : mode === 'camera' ? '实时摄像头 · 正在连接' : '演示回放 · 摄像头原始画面默认不上传' }}</p>
         <div class="exercise-switch">
           <button
             v-for="opt in demoExercises"
@@ -17,8 +17,10 @@
         <div class="source-switch">
           <button class="chip" :class="{ active: mode === 'demo' }" @click="switchMode('demo')">演示回放</button>
           <button class="chip" :class="{ active: mode === 'camera' }" :disabled="!store.privacy.cameraEnabled" @click="switchMode('camera')">实时摄像头</button>
+          <button v-if="pose.errorMessage.value && store.privacy.cameraEnabled" class="chip retry" @click="retryCamera">重试摄像头</button>
           <span class="cam-note" aria-live="polite">{{ sourceNote }}</span>
         </div>
+        <p v-if="pose.errorMessage.value" class="cam-error" role="alert">{{ pose.errorMessage.value }}</p>
       </div>
       <BaseButton variant="secondary" :icon="X" @click="leave">结束</BaseButton>
     </div>
@@ -152,23 +154,23 @@
                 </g>
               </svg>
             </div>
-            <div class="stage-overlay">
+            <div v-if="mode === 'demo' || live" class="stage-overlay">
               <span class="confidence-badge animate-fade-in" :class="confidenceClass" :key="confidenceClass">{{ confidenceText }}</span>
               <span class="phase-badge" :class="{ 'animate-pulse': status === 'resting' }">{{ phaseLabel }}</span>
             </div>
             <div class="frame-sheen gradient-shimmer" v-if="mode === 'demo' && !finished && !paused"></div>
-            <p class="stage-live" aria-live="polite">{{ message }}</p>
+            <p class="stage-live" aria-live="polite">{{ stageMessage }}</p>
           </div>
           <div class="stage-hint">{{ stageHint }}</div>
         </div>
         <div class="stage-controls">
-          <button class="ctrl-btn secondary" :aria-label="paused ? '继续' : '暂停'" :disabled="finished" @click="togglePause">
+          <button class="ctrl-btn secondary" :aria-label="paused ? '继续' : '暂停'" :disabled="finished || cameraConnecting" @click="togglePause">
             <Pause v-if="!paused" :size="20" /><Play v-else :size="20" />
           </button>
-          <button class="ctrl-btn secondary" aria-label="跳过本组" :disabled="finished" @click="skipSet">
+          <button class="ctrl-btn secondary" aria-label="跳过本组" :disabled="finished || cameraConnecting" @click="skipSet">
             <SkipForward :size="20" />
           </button>
-          <button class="ctrl-btn danger" aria-label="结束并记录" :disabled="finished" @click="stopAndRecord">
+          <button class="ctrl-btn danger" aria-label="结束并记录" :disabled="finished || cameraConnecting" @click="stopAndRecord">
             <Square :size="18" />
           </button>
         </div>
@@ -396,14 +398,29 @@ let confidenceCount = 0
 let recorded = false
 
 const live = computed(() => mode.value === 'camera' && pose.status.value === 'live')
+const cameraConnecting = computed(() => mode.value === 'camera' && pose.status.value === 'starting')
+const stageMessage = computed(() => {
+  if (mode.value === 'camera' && pose.status.value !== 'live') {
+    if (pose.status.value === 'starting') {
+      return pose.startingStage.value === 'camera'
+        ? '正在请求摄像头权限…'
+        : '相机已连接，正在加载姿态模型…'
+    }
+    return pose.errorMessage.value || '摄像头未就绪'
+  }
+  return message.value
+})
 const shownConfidence = computed(() => (live.value ? pose.visibility.value : confidence.value))
 const confidenceLevel = computed(() => getConfidenceLevel(shownConfidence.value))
 const confidenceClass = computed(() => confidenceLevel.value.level)
 const confidenceText = computed(() => confidenceLevel.value.text)
 
 const sourceNote = computed(() => {
-  if (pose.errorMessage.value) return pose.errorMessage.value
-  if (mode.value === 'camera' && pose.status.value === 'starting') return '正在加载端侧模型（首次约 5.5 MB，请稍候）…'
+  if (cameraConnecting.value) {
+    return pose.startingStage.value === 'camera'
+      ? '正在请求摄像头权限…'
+      : '相机已就绪，正在加载端侧姿态模型（首次约 5.5 MB）…'
+  }
   if (live.value) {
     const where = pose.runsIn.value === 'main' ? ' · 推理回落主线程' : ''
     return `${pose.fps.value} FPS · ${pose.delegate.value === 'GPU' ? 'GPU' : 'CPU'} 推理${where} · 画面只在本机，不上传`
@@ -412,6 +429,12 @@ const sourceNote = computed(() => {
   return '按预设时间线回放，不需要摄像头'
 })
 const stageHint = computed(() => {
+  if (cameraConnecting.value) {
+    return pose.startingStage.value === 'camera'
+      ? '等待摄像头授权…'
+      : '相机已连接 · 正在准备端侧姿态模型…'
+  }
+  if (mode.value === 'camera' && !live.value) return pose.errorMessage.value || '摄像头未就绪'
   if (!live.value) return '关键点示意图 · 实际使用时在本地处理'
   const c = counter.value
   if (!c) return '识别：端侧关键点 · 该动作暂无计数规则，可用手工修正'
@@ -421,22 +444,40 @@ const stageHint = computed(() => {
 async function switchMode(next: 'demo' | 'camera') {
   if (next === mode.value) return
   if (next === 'camera' && !store.privacy.cameraEnabled) return
-  mode.value = next
   if (next === 'camera') {
-    buildCounter()
-    await nextTick()
-    if (videoRef.value && canvasRef.value) {
-      await pose.start(videoRef.value, canvasRef.value)
-      if (pose.status.value !== 'live') {
-        mode.value = 'demo'
-        counter.value = null
-      }
-    }
-  } else {
-    pose.stop()
-    pose.errorMessage.value = ''
+    mode.value = 'camera'
     counter.value = null
+    await nextTick()
+    if (!videoRef.value || !canvasRef.value) {
+      mode.value = 'demo'
+      pose.errorMessage.value = '摄像头画面容器没有准备好，请重试。'
+      return
+    }
+    await pose.start(videoRef.value, canvasRef.value)
+    if (mode.value !== 'camera') return
+    if (pose.status.value === 'live') {
+      restart()
+    } else {
+      mode.value = 'demo'
+      counter.value = null
+      restart()
+    }
+    return
   }
+  pose.stop()
+  pose.errorMessage.value = ''
+  counter.value = null
+  mode.value = 'demo'
+  restart()
+}
+
+async function retryCamera() {
+  if (!store.privacy.cameraEnabled) return
+  pose.stop()
+  pose.errorMessage.value = ''
+  mode.value = 'demo'
+  await nextTick()
+  await switchMode('camera')
 }
 
 function tweenRepsTo(target: number) {
@@ -483,6 +524,11 @@ const completionLabel = computed(() => {
 })
 
 function tick(ts: number) {
+  // 相机正在授权/加载模型时不继续演示时间线，避免两套计数混在一起
+  if (mode.value === 'camera' && !live.value) {
+    if (!finished.value) rafId = requestAnimationFrame(tick)
+    return
+  }
   if (!lastTs) lastTs = ts
   // 后台标签页回来时 ts 会一次性跳大，钳制增量以免事件被成批吞掉
   const dt = Math.min(ts - lastTs, 250)
@@ -697,6 +743,8 @@ onUnmounted(() => {
 .exercise-switch{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .source-switch{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
 .cam-note{font-size:12px;color:var(--color-text-muted)}
+.chip.retry{background:var(--color-card);color:var(--color-caution);box-shadow:inset 0 0 0 1px rgba(138,90,0,.28)}
+.cam-error{margin:9px 0 0;padding:8px 11px;border-radius:8px;background:var(--color-caution-soft);color:var(--color-caution);font-size:12px;line-height:1.65}
 .cam-feed,.cam-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
 .cam-feed{background:#0d1f2c}
 .cam-overlay{pointer-events:none}
@@ -777,7 +825,7 @@ onUnmounted(() => {
 .confidence-badge.medium{color:var(--color-caution);border-left:3px solid var(--color-caution)}
 .confidence-badge.low{color:var(--color-danger);border-left:3px solid var(--color-danger)}
 .phase-badge{color:var(--color-accent);border-left:3px solid var(--color-accent)}
-.stage-live{position:absolute;left:16px;right:16px;bottom:16px;margin:0;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.9);backdrop-filter:blur(8px);font-size:13px;font-weight:600;color:var(--color-ink);text-align:center;box-shadow:var(--shadow-sm)}
+.stage-live{position:absolute;left:16px;right:16px;bottom:16px;margin:0;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);font-size:13px;font-weight:600;color:#15181b;text-align:center;box-shadow:var(--shadow-sm)}
 .stage-hint{padding:12px 24px;font-size:11px;color:var(--color-text-muted);text-align:center;background:var(--color-card);border-top:1px solid var(--color-divider)}
 .stage-controls{display:flex;justify-content:center;gap:12px;padding:20px;background:var(--color-neutral-soft)}
 .ctrl-btn{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;transition:all var(--motion-fast)}

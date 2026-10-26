@@ -102,9 +102,14 @@ async function createMainThreadEngine(paths: PoseModelPaths): Promise<PoseEngine
 }
 
 export async function createPoseEngine(paths: PoseModelPaths): Promise<PoseEngine> {
+  // Vite dev 会把 ?worker 变成 module worker，MediaPipe 的 wasm loader 在 module worker 里
+  // 会走 dynamic import，命中 /public 资源限制并弹 Vite 错误遮罩；开发时直接用主线程，
+  // 构建产物是 classic worker，继续保留 worker/GPU 路径。
+  if (import.meta.env.DEV) return createMainThreadEngine(paths)
   try {
     return await createWorkerEngine(paths)
-  } catch {
+  } catch (err) {
+    console.warn('[pose] worker unavailable, falling back to main thread:', err)
     return createMainThreadEngine(paths)
   }
 }

@@ -30,6 +30,8 @@ export function usePoseCamera() {
   /** 实际生效的后端与推理落点，供界面如实显示，不猜 */
   const delegate = ref<'GPU' | 'CPU' | null>(null)
   const runsIn = ref<'worker' | 'main' | null>(null)
+  /** starting 时区分卡在哪一步：请求相机 / 加载模型 */
+  const startingStage = ref<'camera' | 'model' | null>(null)
 
   let engine: PoseEngine | null = null
   let stream: MediaStream | null = null
@@ -42,6 +44,8 @@ export function usePoseCamera() {
   let frames = 0
   let fpsClock = 0
   let downgraded = false
+  /** start/stop 竞态保护：切回演示或关闭页面后，晚到的相机/模型不能再把链路点亮 */
+  let startSeq = 0
 
   function draw(landmarks: NormalizedLandmark[]) {
     if (!canvas) return
@@ -116,12 +120,18 @@ export function usePoseCamera() {
 
   /** 线程活着但推理出错时，先退回主线程继续跑，而不是整条链路退回演示回放 */
   async function recover(reason: string) {
+    const seq = startSeq
     if (!downgraded) {
       downgraded = true
       engine?.close()
       engine = null
       try {
-        engine = await createMainThreadPoseEngine(MODEL_PATHS)
+        const next = await createMainThreadPoseEngine(MODEL_PATHS)
+        if (seq !== startSeq) {
+          next.close()
+          return
+        }
+        engine = next
         delegate.value = engine.state.delegate
         runsIn.value = engine.state.runsIn
         return
@@ -129,6 +139,7 @@ export function usePoseCamera() {
         // 主线程也起不来，走下面的错误分支
       }
     }
+    if (seq !== startSeq) return
     errorMessage.value = `端侧推理失败：${reason}，已退回演示模式`
     stop()
     status.value = 'error'
@@ -141,6 +152,7 @@ export function usePoseCamera() {
   }
 
   function stop() {
+    startSeq++
     if (video && rvfcHandle && typeof video.cancelVideoFrameCallback === 'function') {
       video.cancelVideoFrameCallback(rvfcHandle)
     }
@@ -154,61 +166,135 @@ export function usePoseCamera() {
     fps.value = 0
     delegate.value = null
     runsIn.value = null
+    startingStage.value = null
     lastTs = 0
     busy = false
     frames = 0
     if (status.value === 'live') status.value = 'idle'
   }
 
+  async function openCameraStream(): Promise<MediaStream> {
+    const attempts: MediaStreamConstraints[] = [
+      { video: { facingMode: { ideal: 'user' }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+      { video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+      { video: true, audio: false }
+    ]
+    let lastError: unknown = null
+    for (const constraints of attempts) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints)
+      } catch (err) {
+        lastError = err
+        const name = (err as DOMException)?.name
+        if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'NotFoundError') break
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('无法打开摄像头')
+  }
+
+  async function waitForVideoMetadata(videoEl: HTMLVideoElement): Promise<void> {
+    if (videoEl.readyState >= 1) return
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        cleanup()
+        reject(new Error('摄像头没有返回画面，请检查设备是否被占用'))
+      }, 8000)
+      const done = () => { cleanup(); resolve() }
+      const fail = () => { cleanup(); reject(new Error('摄像头画面无法播放')) }
+      const cleanup = () => {
+        window.clearTimeout(timer)
+        videoEl.removeEventListener('loadedmetadata', done)
+        videoEl.removeEventListener('error', fail)
+      }
+      videoEl.addEventListener('loadedmetadata', done)
+      videoEl.addEventListener('error', fail)
+    })
+  }
+
+  function cameraErrorMessage(err: unknown): { status: PoseCameraStatus; message: string } {
+    const name = (err as DOMException)?.name
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+      return { status: 'denied', message: '摄像头权限被拒绝。请在浏览器地址栏允许摄像头，或到系统设置里检查。' }
+    }
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+      return { status: 'error', message: '没有找到可用的摄像头设备。请确认摄像头已连接并启用。' }
+    }
+    if (name === 'NotReadableError') {
+      return { status: 'error', message: '摄像头被其他应用占用，暂时无法读取。关闭占用摄像头的应用后重试。' }
+    }
+    return { status: 'error', message: `摄像头启动失败：${(err as Error)?.message || name || '未知错误'}` }
+  }
+
   async function start(videoEl: HTMLVideoElement, canvasEl: HTMLCanvasElement) {
     stop()
+    const seq = startSeq
     status.value = 'starting'
+    startingStage.value = 'camera'
     errorMessage.value = ''
     downgraded = false
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (!window.isSecureContext) {
       status.value = 'unsupported'
-      errorMessage.value = '当前浏览器或访问方式不支持摄像头（需要 https 或 localhost）'
+      errorMessage.value = '摄像头需要 https 或 localhost。当前页面不是安全上下文。'
+      startingStage.value = null
       return
     }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      status.value = 'unsupported'
+      errorMessage.value = '当前浏览器不支持摄像头，或页面没有通过 localhost / https 打开。'
+      startingStage.value = null
+      return
+    }
+
+    // 先把画面接上，权限/设备错误能立刻显示；模型加载放在后面，不占用用户手势
     try {
-      engine = await createPoseEngine(MODEL_PATHS)
+      const media = await openCameraStream()
+      if (seq !== startSeq) {
+        media.getTracks().forEach(t => t.stop())
+        return
+      }
+      stream = media
+      video = videoEl
+      canvas = canvasEl
+      videoEl.srcObject = media
+      await waitForVideoMetadata(videoEl)
+      if (seq !== startSeq) return
+      await videoEl.play()
+      if (seq !== startSeq) return
+      canvas.width = videoEl.videoWidth || 640
+      canvas.height = videoEl.videoHeight || 480
     } catch (err) {
+      if (seq !== startSeq) return
+      const mapped = cameraErrorMessage(err)
+      status.value = mapped.status
+      errorMessage.value = mapped.message
+      stop()
+      return
+    }
+
+    startingStage.value = 'model'
+    try {
+      const created = await createPoseEngine(MODEL_PATHS)
+      if (seq !== startSeq) {
+        created.close()
+        stopStream()
+        return
+      }
+      engine = created
+    } catch (err) {
+      if (seq !== startSeq) return
       status.value = 'error'
-      errorMessage.value = `端侧模型加载失败：${(err as Error)?.message || '请确认已运行 npm run camera:assets'}`
+      errorMessage.value = `相机已连接，但端侧姿态模型加载失败：${(err as Error)?.message || '请确认已运行 npm run camera:assets'}`
+      stop()
       return
     }
     delegate.value = engine.state.delegate
     runsIn.value = engine.state.runsIn
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false
-      })
-      video = videoEl
-      canvas = canvasEl
-      videoEl.srcObject = stream
-      await videoEl.play()
-      canvas.width = videoEl.videoWidth || 640
-      canvas.height = videoEl.videoHeight || 480
-      status.value = 'live'
-      lastTs = 0
-      frames = 0
-      fpsClock = performance.now()
-      schedule()
-    } catch (err) {
-      const name = (err as DOMException)?.name
-      if (name === 'NotAllowedError' || name === 'SecurityError') {
-        status.value = 'denied'
-        errorMessage.value = '摄像头权限被拒绝，已退回演示模式'
-      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-        status.value = 'error'
-        errorMessage.value = '没有可用的摄像头设备，已退回演示模式'
-      } else {
-        status.value = 'error'
-        errorMessage.value = `摄像头启动失败：${(err as Error)?.message || name || '未知错误'}`
-      }
-      stop()
-    }
+    status.value = 'live'
+    startingStage.value = null
+    lastTs = 0
+    frames = 0
+    fpsClock = performance.now()
+    schedule()
   }
 
   onUnmounted(() => {
@@ -225,6 +311,7 @@ export function usePoseCamera() {
     visibility,
     delegate,
     runsIn,
+    startingStage,
     start,
     stop
   }
