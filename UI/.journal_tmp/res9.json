@@ -1,0 +1,192 @@
+{
+ "area": "设计系统与通用组件层（src/styles/* + src/components/common/*）",
+ "purpose": "承载「两仪·TwoPoles」全部视觉语言与可复用 UI 原语：一条 CSS 变量令牌体系（浅色/深色双主题）、一套全局 reset 与排版工具类、以及 11 个跨页面复用的展示/交互组件（按钮、卡片、指标条、状态徽标、形状状态、负荷图表、两仪仪表盘、洞察卡、Toast 区域、AI 计划草稿弹窗）。这层是「大规模前端界面改版」的核心资产：换皮应当主要发生在这里，页面层只做结构调整与少量逻辑改动。当前状态是\"令牌体系已成型但组件层半成型\"——令牌定义得相当完整且有明确设计意图（编辑式仪表盘 / 纸面 + 发丝线 / 单一强调色 / 形状编码），但组件层只有 11 个原语，缺弹层、抽屉、分段控件、骨架屏、空态、表单原语等一整片；且多个视图绕开 common 层手写重复样式，导致\"换皮\"会漏。",
+ "files": [
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/tokens.css",
+   "role": "设计令牌唯一来源：:root 下的颜色/Spacing/Typography/Radius/Shadow/Z-index/Motion/Layout 全部变量，以及 html[data-theme=\"dark\"] 的整组深色覆盖（199-258 行）。深色主题能\"零感知\"生效全靠这一层。",
+   "lines": 258
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/globals.css",
+   "role": "全局 reset + 排版基线 + 5 个工具类（.container/.micro/.num/.hairline/.visually-hidden）+ 滚动条样式 + 全局 :focus-visible 焦点环。",
+   "lines": 209
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/gradients.css",
+   "role": "只剩一条 .gradient-shimmer（ExecutionView 回放扫光）。原 .gradient-navy/.glass/.skeleton 等工具类已按 grep 结论整批移除，这里是\"工具类清理\"的样板。",
+   "lines": 16
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/animations.css",
+   "role": "7 个 keyframes + 5 个 .animate-* 入场工具类 + prefers-reduced-motion 全局降级。",
+   "lines": 110
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/BaseButton.vue",
+   "role": "唯一的正规按钮原语（variant: primary/secondary/ghost/danger，size: sm/md/lg，icon）。全仓被 9 个视图/组件使用，但另有 3 处手写按钮样式绕开它。",
+   "lines": 18
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/BaseCard.vue",
+   "role": "全站两种表面的载体（default/flush 纸面 + ink 仪表面）。通过 --card-pad 变量让父组件控制内距；interactive/glass 两个 prop 是死代码。",
+   "lines": 80
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/StatStrip.vue",
+   "role": "指标条（替掉四张等宽卡）。items: StatItem[] 契约稳定，是改版中最适合整块重做的组件；StatItem 类型从 SFC 普通 script 块导出供调用方 import。",
+   "lines": 98
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/StatusBadge.vue",
+   "role": "语义状态徽标（success/warning/danger/info/neutral）。实心点=已达成、空心点=进行中，是颜色之外的第二重编码。",
+   "lines": 12
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/ShapeState.vue",
+   "role": "形状即状态（complete 实心 / partial 半填 / none 空心），纯形状编码，为色觉障碍冗余设计。",
+   "lines": 53
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/LoadChart.vue",
+   "role": "唯一的原生图表：28 天负荷柱 + CTL/ATL 均线 + ACWR 指针。SVG 手绘，数据来自 loadRules；但组件内部重算了一遍均线且口径与 service 不一致，且 6 处硬编码 rgba 导致深色主题下几乎不可见。",
+   "lines": 268
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/InsightCard.vue",
+   "role": "洞察/解释类卡片 + 展开收起。直接 useAppStore() 读折叠状态，是 common 层里展示组件耦合全局 store 的唯一实例。",
+   "lines": 53
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/TwoPoleDial.vue",
+   "role": "品牌母题：双弧仪表（右弧=训练、左弧=饮食），144° 轨道 + 12° 缺口 + 12 刻度 + 锚点圆，几何全在组件内算。首页/周报/跟练共用的核心视觉资产。",
+   "lines": 133
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/ToastRegion.vue",
+   "role": "右上角 Toast 堆叠区，绑定 store.toasts + store.dismissToast。契约稳定，是最容易整块换皮的组件。",
+   "lines": 6
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/PlanDraftDialog.vue",
+   "role": "AI 计划草稿弹窗：五态机（loading/questions/ready/error）+ 可编辑草稿。全站最重的单个 SFC（461 行），模板/业务逻辑/样式三合一，也是唯一手写完整弹层外壳的地方。",
+   "lines": 461
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/MetricCard.vue",
+   "role": "已废弃组件（文件内 @deprecated 注释自称零调用，grep 复核确认零引用），带一个从未使用的 accent prop。改版前应直接删除。",
+   "lines": 72
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/loadRules.ts",
+   "role": "负荷/强度的唯一口径来源（buildLoadSeries/loadZone/intensitySplit），LoadChart 的 props 全部来自它。改图表不得改变这里的语义。",
+   "lines": 203
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/stores/app.ts",
+   "role": "Pinia 单 store：toasts/collapsedCards/planDraftState/themePref 的持有者，localStorage 持久化（twopoles_state）。common 层里 InsightCard/ToastRegion/PlanDraftDialog 都直接依赖它。",
+   "lines": 962
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/views/DashboardView.vue",
+   "role": "组件消费面最大的页面（739 行），同时也是\"绕过 common 层手写按钮/图表/chip\"的典型样本，是改版落地验证的第一现场。",
+   "lines": 739
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/main.ts",
+   "role": "令牌入口：按 tokens → globals → animations → gradients 的顺序引入 4 个样式文件，是全站样式的唯一装配点。",
+   "lines": 21
+  }
+ ],
+ "keyComponents": [
+  "BaseButton.vue：全站唯一正规按钮。variant primary(深墨底)/secondary(白底描边)/ghost(中性底)/danger，size sm(36px)/md(44px)/lg(50px)，icon 为 lucide 组件。触控目标基线 44px 由此确立，但 size=\"sm\" 破例为 36px。",
+  "BaseCard.vue：两种表面的载体。variant default（白纸 + 1px 发丝线 + 顶亮内描边）/ flush（--card-pad:0，供自带表头的面板）/ ink（深墨 + 22px 细网格 + radial mask 渐隐）。内距由父组件通过 --card-pad 注入。",
+  "StatStrip.vue：指标条。--cols: items.length 驱动的 grid，格间竖发丝线分隔；44px Bahnschrift 等宽数字 + 14px 单位 + 11.5px hint。≤1099px 降为 2×2。",
+  "StatusBadge.vue：胶囊徽标 + 圆点。实心点=已达成/需注意/错误，空心点=进行中（info 变体），保证色觉障碍下仍可区分。",
+  "ShapeState.vue：26×7px 的小横条，实心=记录完整、半填（54% 线性渐变）=部分记录、空心=未记录。纯形状编码，aria-label 随状态自动生成。",
+  "LoadChart.vue：SVG 手绘的 28 天负荷图。灰底区标出\"尚未开始记录\"，缺 RPE 的天画 6px 斜纹短柱，CTL 实线 + ATL 虚线，下方是 ACWR 指针轨道（0.0–2.0 四档色带）。",
+  "TwoPoleDial.vue：品牌双弧仪表。220×220 viewBox，R=90 两段 144° 弧 + 12° 顶部缺口，12 根刻度，两极各一个锚点圆，中心为 slot。tone ink/paper 两套配色。",
+  "InsightCard.vue：eyebrow + 标题 + 图标 + 展开/收起。折叠状态存全局 store 并落盘（collapsedCards）。",
+  "ToastRegion.vue：右上角堆叠（fixed, top 106px, 宽 min(360px, 100vw-32px)），TransitionGroup slideInRight 进出场，左侧 4px 语义色边 + lucide 图标。",
+  "PlanDraftDialog.vue：AI 计划草稿弹层。loading(转圈+阶段文案) / error(含 warnings 列表) / questions(编号问题 + 选项按钮 + 自由输入) / ready(逐日逐项可编辑表格 + 补训练日) 四种内容态，footer 按状态切换 4 组按钮。",
+  "MetricCard.vue：已废弃，等宽四卡指标位，零调用。"
+ ],
+ "uiPatterns": [
+  "表面只有两种：纸面（白底 + 1px 发丝线 + 顶亮内描边 var(--inner-light)，不做投影）与仪表面（深墨 + 22px 细网格 + radial-gradient 遮罩渐隐）。除弹层与 Toast 外全站无投影，层级靠发丝线与纸面厚度表达。",
+  "单一强调色：--color-accent #0f766e 只用于\"交互、进度、已达成\"，主操作按钮反而走深墨 --color-ink，避免青色抢语义。第二极 --brand-pole-b #24586f 只给\"饮食\"这条数据线，两极是全站唯一允许的双色场合。",
+  "语义色永远与形状/文字同时出现（tokens.css:51 明写此约束）：ShapeState 用实心/半填/空心三种几何，StatusBadge 用实心点/空心点，保证色觉障碍下可读。",
+  "数字先行：所有\"量\"用 --font-num（Bahnschrift，Windows 自带 DIN 骨架）+ font-variant-numeric: tabular-nums + 负字距（-0.02em ~ -0.045em），保证两组数字能竖向比较。拉丁小标签用 10px + 0.17em 字距 + uppercase。",
+  "面板内距走 --card-pad 变量而非组件抢 padding（README 明列为样式约定），父子通过 scoped CSS 在子组件根节点上注入自定义属性。",
+  "进场动效一律无错位（不带 delay），仅 5 个 .animate-* 工具类；循环动效只留给加载与\"演示进行中\"。prefers-reduced-motion 在 tokens.css 与 animations.css 双处降级到 0ms。",
+  "响应式只有 3 个主断点：≥1100px 桌面（86px 图标脊 + 多列）/ 768–1099px 平板（图标脊收成抽屉，仪表改横向布局，StatStrip 转 2×2）/ ≤767px 手机（底部 4 Tab 胶囊栏 + 全单列 + 仪表缩到 132px）。StatStrip 的 2×2 补线是硬编码 nth-child(3)/(4)。",
+  "弹层统一形态：Teleport to body + 全屏 scrim + 居中卡片（宽 min(840px,100%)，max-height min(90vh,950px)），≤720px 转成底部圆角 sheet。但这是三个组件各自复制的，不是共享原语。",
+  "Toast 右上角堆叠，左侧 4px 语义色边 + 图标，5 秒自动消失可手动关闭，TransitionGroup 做滑入滑出。",
+  "仪表语言：SVG 轨道 + 描边 + 锚点圆，颜色只做冗余；轨道与进度共用一套 --brand-pole-a/-b 及其 dark 变体。",
+  "空态策略是\"文案优先 + 不画成 0\"：负荷图缺失显示\"—\"或斜纹而不是 0；未记录与没发生是两套独立表达（ShapeState 的空心 vs LoadChart 的灰底区）。",
+  "响应式处理是纯视口断点，没有容器查询；组件无法感知自身可用宽度，因此 DashboardView 必须靠 .dial/--dial-size 之类的外部覆盖来改尺寸（其中一处因内联样式而失效）。"
+ ],
+ "styleApproach": "令牌体系 100% 是 CSS 自定义属性，全仓没有任何 TS 侧的设计常量（grep \"export const.*COLOR|TOKEN|PALETTE\" 零命中），组件一律在 scoped CSS 里用 var(--x) 消费。结构上是\"三层\"：tokens.css 定义 :root 全部令牌 + html[data-theme=\"dark\"] 整组覆盖（浅色/深色两套，组件零感知）；globals.css 做 reset + 排版基线 + 5 个工具类（.container/.micro/.num/.hairline/.visually-hidden）；animations.css 提供 7 个 keyframes + 5 个 .animate-* 入场工具类；gradients.css 只剩一条 .gradient-shimmer。所有 SFC 用 <style scoped>，无 CSS-in-JS、无 CSS Modules、无 Tailwind/UnoCSS。main.ts 顺序引入这 4 个文件，是全站样式的唯一装配点。\n\n令牌覆盖有明显断层与绕过：\n1) 圆角阶梯被绕过 —— tokens.css 只定义 6/8/10/12/16/999 六档，但代码里实际出现 3/4/5/7/8/9/10/11/12/13/14/15/16/18/999 共 15 种硬编码圆角（如 PlanDraftDialog.vue:434 的 11px、InsightCard.vue:42 的 13px、ToastRegion.vue:4 的 15px）。\n2) 阴影基本闲置 —— --shadow-xs/--shadow-sm/--shadow-card 全站零引用，阴影只出现在弹层与 Toast；--shadow-accent 被 InsightCard.vue:43 引用但其值是 none，所以那半个阴影永远不显示。\n3) Spacing 令牌几乎不用 —— 组件里大量写裸值（12px/13px/15px/11.5px），--space-3/--space-12/--space-16 零引用。\n4) 死令牌 —— --gradient-brand、--gradient-hero、--shadow-hero、--hairline、--motion-instant、--easing-elastic、--space-12、--space-16 全仓 0 引用；--breakpoint-sm/md/lg/xl 注释写着 \"used in media queries\"，但 CSS 自定义属性根本不能用在 @media 条件里，实际代码用的是 1099/1279/767/720/520/1100 六个数字，与令牌毫无关系。\n5) 焦点环两套并存 —— globals.css:135 的 *:focus-visible{outline:2px solid var(--color-accent)} 与 BaseButton.vue:7 的 box-shadow:0 0 0 3px rgba(15,118,110,.32) 语义重复。\n\n可收敛的重复手写样式（每条都有明确出处）：\nA. 按钮 4 份：BaseButton.vue:4-18（正规）、DashboardView.vue:554-560（.btn/.btn.primary/.btn.ghost，Dashboard 的\"开始跟练\"根本没 import BaseButton）、PlanDraftDialog.vue:434-437、TopBar.vue:254-256。四份的圆角(10/11/8)、高度(44/42/38)与主按钮底色各不相同。\nB. 输入框 3 份：PlanDraftDialog.vue:394(.q-input)、:414-417(.n)、:418-421(.name-input,.type-input)、:427(.add-day select) —— 四套几乎一样的边框/圆角/字号。\nC. chip/badge 3 份：DashboardView.vue:579-584(.chip + .ok/.part)、StatusBadge.vue:5-11(.badge)、SettingsView.vue:177-184(手写 chip 组)；语义色/边框/圆角各写一遍。\nD. 柱状图 4 份：LoadChart.vue(SVG)、ReportView.vue:329-336(.plot)、DashboardView.vue:652-661(.bars)、ReportView.vue:60-68(.matrix 餐食格)。\nE. 弹层 3 份：PlanDraftDialog.vue:352-360、FoodCaptureDialog.vue:888、MealPhotoViewer.vue:132 —— scrim 底色 .46/.46/.72、blur 3px/3px/4px 都不一样。\nF. 空态 4 份：DashboardView.vue:218/231-233、ReportView.vue:110-116、MealPhotoViewer.vue:140。\nG. 硬编码品牌色：ReportView.vue:331 与 DashboardView.vue:654 都写了同一串 linear-gradient(180deg, #12857c, #0c655e)，绕过 --color-accent/--brand-pole-a 且不随深色主题变化。\nH. 焦点环 2 套（同上）。\nI. LoadChart.vue:177/184/187/192/193/207 共 6 处 rgba(17,22,26,α) 硬编码（发丝线/柱/基线/未知带），未用 --hair/--hair-soft/--hair-strong。\nJ. 同一个\"缺 RPE\"语义有两种编码：ReportView.vue:334 用 45° 斜纹（repeating-linear-gradient），LoadChart.vue:187 用一段 6px 的实色短柱。\nK. 星期中文有 3 份实现：utils/time.ts:1(WEEKDAYS_CN)、services/llm.ts:161(WEEKDAY)、PlanDraftDialog.vue:247(WEEKDAY)。\n\n缺失的常见 UI 原语（改版时大概率要新写）：\n- 弹层/Modal：无 BaseDialog。三处手写（PlanDraftDialog / FoodCaptureDialog / MealPhotoViewer），其中只有后两者有 Escape 键与焦点管理，PlanDraftDialog 两者皆无，也没有 body 滚动锁。\n- 抽屉/Sheet：无。AppShell 的移动导航抽屉在 SidebarNav 里自绘；PlanDraftDialog.vue:441 的窄屏底部圆角面板相当于一次性实现的 sheet。\n- 分段控件：无。主题三选（SettingsView.vue:177-184 的 chip 组）、模式切换（TopBar.vue:33-68 的 popover menu）、周切换（ReportView.vue:10-12 的三按钮）、日期区间 —— 四种形态四种实现。\n- 图表层：无通用 chart 原语，除 LoadChart 外全是 div 手写柱/格。\n- 骨架屏：无。gradients.css:1-5 的注释说原 .skeleton 工具类\"经 grep 确认无引用故整批移除\"，于是现在全站零骨架屏，PlanDraftDialog.vue:370-375 只好自己写 @keyframes spin。\n- 空态：无 EmptyState 组件，4 处各写各的。\n- 表单原语：无 Select/Input/NumberField/Switch/RadioGroup/Checkbox/Tabs/Accordion/Tooltip/Avatar/ProgressBar/Slider/DatePicker/Table。\n- Toast 原语：只有 ToastRegion 一体成型，没有独立的 BaseToast 供复用；也没有 Toast 队列 composable（调用方必须直接改 store.toasts）。",
+ "dataFlow": "令牌流：tokens.css 的 :root 变量 → 组件 scoped CSS 的 var(--x) → html[data-theme=\"dark\"] 整组覆盖（由 stores/app.ts:87 的 applyTheme() 写 document.documentElement.dataset.theme 驱动）。TS 侧没有任何设计常量副本，这是纯 CSS 令牌体系。副作用是：SVG 组件也用 var() 着色（可行），但硬编码 rgba 就成了破口（见 designDebt）。\n\n组件数据流分三类：\n1) 纯 props / slot，无 store、无 emit：BaseCard（只有 interactive/glass/variant 三个 prop + 默认 slot）、BaseButton（variant/size/disabled/icon + click emit）、StatStrip（items: StatItem[]，StatItem 从 SFC 的普通 <script lang=\"ts\"> 块导出供调用方 import）、StatusBadge、ShapeState、TwoPoleDial（training/meal/size/tone/showTicks/showInnerRing/ariaLabel + 中心 slot）、MetricCard（已废弃）。\n2) 直接读 Pinia：InsightCard.vue:36-37 用 useAppStore() 读 collapsedCards；ToastRegion.vue:2 读 store.toasts 并调 store.dismissToast(id)。展示组件因此与全局状态绑定，无法独立复用/快照测试。\n3) 容器型：PlanDraftDialog.vue:186-187 从 store.planDraftState 读五态状态机，本地用 JSON.parse(JSON.stringify(draft))（第 205 行）做可编辑副本，编辑只落在 local ref 上，确认时 cleanItem() 裁剪后调 store.acceptPlanDraft(cleaned) 入库。store 是唯一真源。\n\n数据来源分层：页面取数走 services（loadRules.buildLoadSeries / weekRules.buildWeeklyReport / mealRules.summarizeDay / planRules.buildDayPlan），组件只接收结果——LoadChart 的 8 个 props 全部来自 buildLoadSeries()，组件自己不碰 store。持久化只有一路：stores/app.ts 的 persistState() 写 localStorage key \"twopoles_state\"，字段为 mode/profile/sessions/meals/privacy/collapsed/theme/plans/planHistory/modeLog/unitGrams；LLM 配置单独一个 key；照片走 IndexedDB（services/mealPhotos.ts）。",
+ "stateModel": "本子系统有 5 套独立的状态模型，全部是\"散落在各自文件里\"的形态，没有统一的状态原语：\n\n1) PlanDraftDialog 的五态机（唯一真正复杂的一套）。定义在 services/llm.ts:145-154 的 PlanDraftState：status: 'idle' | 'loading' | 'questions' | 'ready' | 'error'，另加 loadingStage: 'questions' | 'plan' | null。实现分散在 stores/app.ts:341-530（generatePlanQuestions → generatePlanDraft → acceptPlanDraft / resetPlanDraft），组件侧只按 status 做 v-if 分支。问题：status 与 loadingStage 是两个平行字段而非判别联合，因此 status:'ready' & loadingStage:'questions' 这类非法组合在类型层面可表达；模板里 PlanDraftDialog.vue:16 又用 `state.loadingStage === 'questions' ? ... : ...` 二元判断来区分两个 loading 阶段。\n\n2) Toast 生命周期（stores/app.ts:685-711）：showToast 推入 toasts[] 并 setTimeout(duration 默认 5000) 自动 dismiss；dismissible 恒为 true（Toast 类型在 types/domain.ts:366-373，type 为 'success'|'error'|'warning'|'info'）。没有队列上限、没有去重。\n\n3) InsightCard 折叠态（stores/app.ts:66/855-864）：collapsedCards: string[] 的扁平数组，toggleCard 做 push/splice。折叠 id 是硬编码字符串（'report-quality'、'meal-rules'），没有注册表/命名空间，新增卡片必须自己保证 id 唯一且稳定。\n\n4) ShapeState 的 complete/partial/none（ShapeState.vue:18）与 StatusBadge 的 success/warning/danger/info/neutral（StatusBadge.vue:2）——两套都是\"语义枚举 + 颜色 class 名一一对应\"的隐式契约：改枚举字符串会静默丢掉样式，没有任何 TS 映射表。\n\n5) LoadChart 相关：LoadDayState = 'load'|'rest'|'missing'|'unknown'（loadRules.ts:12）、LoadZone = 'low'|'optimal'|'high'|'veryHigh'|'unknown'（loadRules.ts:142）。LoadZone 的字面量字符串直接被当作 CSS class 名用（LoadChart.vue:68、219-222），所以 service 枚举改名 = 图表静默失色。\n\n6) 主题三态（stores/app.ts:67 themePref: 'system'|'light'|'dark'）→ applyTheme() 落到 document.documentElement.dataset.theme → tokens.css:199 的 html[data-theme=\"dark\"] 整组覆盖。",
+ "coupling": "跨子系统 import（common 层 → 其它层）：\n- LoadChart.vue:82-83 → @/services/loadRules 的 LoadPoint / LoadZone / LOAD_ZONE_TEXT。图表的 class 名（.low/.optimal/.high/.veryHigh）与 LoadZone 字面量一一对应。\n- PlanDraftDialog.vue:179-183 → @/services/llm（TRAINING_TYPES、usingDefault、PlanDraft/PlanDraftDay/PlanDraftItem）、@/services/exercises（activeExercises、findExercise）、@/services/weekRules（weekDates、weekStart）、@/utils/time（toISODate）。\n- InsightCard.vue:27 / ToastRegion.vue:2 / PlanDraftDialog.vue:177 → @/stores/app（useAppStore）。common 层的展示组件直接依赖 Pinia store。\n- BaseButton.vue:2 / InsightCard.vue:25 / ToastRegion.vue:2 → lucide-vue-next 的图标组件（BaseButton 用 icon?: Component + :size 传尺寸）。\n\n隐式 CSS 契约（最容易在改版中被打断）：\n- BaseCard.vue:30 读 var(--card-pad, var(--space-6))，父组件通过 scoped CSS 给 BaseCard 根节点写 --card-pad 来控制内距（DashboardView.vue:623、:676，InsightsCard 同样）。这个变量没有 TS 类型、没有 props 声明，纯粹靠 Vue scoped CSS \"子组件根节点受父作用域影响\"的机制工作 —— 改用 CSS-in-JS、Shadow DOM 或改 BaseCard 根节点结构都会让它静默失效。\n- TwoPoleDial 的根 class 名就是 .dial，DashboardView.vue:632 与 :729 用 .dial 选择器给子组件根元素定 align-self/margin-top/--dial-size —— 父组件依赖子组件的内部 class 名，属于跨层样式耦合。\n- BaseCard 的 variant='flush' 里写 --card-pad:0（BaseCard.vue:41），靠 .card.flush 的双 class 特异性压过父组件的 .gauge/--card-pad，改 class 命名会破坏优先级。\n- StatStrip 的 StatItem 类型从 SFC 普通 script 块导出（StatStrip.vue:13-22），调用方写 import StatStrip, { type StatItem } from '...'（ReportView.vue:141、MealsView.vue:243）—— 类型定义寄生在组件文件里，无法单独复用。\n- globals.css 的 .micro / .num 是全局工具类，被所有视图直接用；DashboardView.vue:212 甚至用内联 :style 改 .micro 的颜色，说明工具类缺少变体。\n\n状态耦合：InsightCard 的折叠态经 store.collapsedCards 持久化到 localStorage 的 collapsed 字段（stores/app.ts:115/146），cardId 字符串是跨版本的持久化主键。\n\n视图层耦合：common 组件的 props 契约被 9 个视图消费，其中 DashboardView.vue:170-182 对 TwoPoleDial 的用法把\"低强度/高强度\"语义塞进了\"训练/饮食\"两个 prop（:training=\"isAthlete ? lowPct : trainingPct\"），语义随模式漂移。",
+ "designDebt": [
+  "MetricCard.vue 整个文件是已废弃的半成品：第 16-19 行 @deprecated 注释自称\"当前无任何调用\"，全仓 grep 复核确认零引用（唯一命中是它自己的注释），却仍占 72 行、还带着一个模板与样式都没用到的 accent?: string prop（第 27 行）。改版前直接删，不要在新皮肤里再造一个 \"MetricCard v2\"。",
+  "BaseCard.vue:12-20 的 interactive 与 glass 两个 prop 全仓零调用（grep \"variant=\\\"glass\\\"|:glass|interactive\" 在 src 下无命中）。其中 glass 的注释写\"保留是为了不打断现有调用\"，但根本没有任何调用需要被打断；连带 BaseCard.vue:67-79 的整套 backdrop-filter + @media (prefers-reduced-transparency) 降级逻辑是纯死代码（该媒体查询特性全站只此一处用）。",
+  "TwoPoleDial.vue:5 用内联 style 写死 --dial-size: ${size}px，而 DashboardView.vue:729 想在 ≤767px 用 .dial{--dial-size:132px} 缩小它 —— 内联样式优先级恒高于 scoped class，**移动端缩小仪表的规则从来没有生效过**（手机上仪表仍是 228px，会撑破 DashboardView.vue:727 的 132px 栅格列）。这是\"几何走 prop、尺寸走 CSS 变量\"两条路互相打架的典型样本，也是必须先解耦才能换皮的地方。",
+  "LoadChart.vue:132-146 的 polyline() 在组件里重算了一遍 CTL/ATL 移动平均，而 loadRules.ts:112-118 已经算好 ctl/atl 直接传进来了，且两套口径不一致：loadRules.ts:113 的 acutePoints 用 .filter(p => p.state==='load'||p.state==='rest') 把缺 RPE 的天剔除，LoadChart.vue:134 的 vals 却把 missing 天映射成 p.load ?? 0 = 0 并留在 7 天窗口里。结果是**图例里的 \"ATL 7 天\" 数字（来自 service）与图上 ATL 虚线末点的纵坐标可以不相等**，缺 RPE 越多偏差越大；同时组件还把窗口常量 7/28 复制了一份（loadRules 的 DEFAULT_ACUTE/DEFAULT_WINDOW）。",
+  "LoadChart.vue:229-235 的 ACWR 色带把分档阈值写成了 40% / 65% / 75%（= 0.8/2、1.3/2、1.5/2），与 loadRules.ts:144-149 loadZone() 的阈值 0.8 / 1.3 / 1.5 是同一组数字的两个副本。改任一处而漏另一处，色带就会与文案说谎。",
+  "LoadChart.vue:233 写了 var(--color-caution-soft, #f6ecd8)，但 --color-caution-soft 在 tokens.css:55 已定义且值就是 #f6ecd8 —— fallback 是复制粘贴留下的重复真值，掩盖了\"这个变量到底存不存在\"的疑问。",
+  "LoadChart.vue:177/184/187/192/193/207 共 6 处硬编码 rgba(17,22,26,α)（发丝线、柱体、基线、未知带、图例色块），没走 --hair / --hair-soft / --hair-strong。全仓没有任何组件级 dark 覆盖（grep data-theme 只命中 tokens.css:199），所以**深色主题下 LoadChart 的网格线/柱体/基线/未知带全部是深色画在深色上，几乎不可见**。这是本次改版必须先修的可见性 bug。",
+  "StatStrip.vue:89-97 的 2 列断点用硬编码 .cell:nth-child(3) 与 .cell:nth-child(4) 补上边线，而列数由 --cols: items.length 决定（第 2、36 行）。当前两个调用方（ReportView.vue:179-209、MealsView.vue:308-321）都恰好传 4 项所以没暴露；一旦传 5 项，2 列布局下第 5 格会拿到一条横跨行中间的 border-left。",
+  "StatStrip.vue:92 与 :94 重复声明了 .cell:nth-child(3)（一次加 border-top、一次清 border-left），:93 又单独声明 .cell:nth-child(4) —— 同一组断点样式被拆成三条散落规则，无法整体替换。",
+  "语义色词汇同时存在 5 套命名：tokens 里叫 caution（tokens.css:54-55）、StatusBadge 的 variant 叫 warning（StatusBadge.vue:2）、Toast 的 type 叫 error（types/domain.ts:368）而 StatusBadge 又叫 danger、StatItem.tone 叫 caution（StatStrip.vue:20）、LoadZone 叫 high/veryHigh（loadRules.ts:142）。同一个语义 5 个名字，没有一处映射表，跨组件复用时全靠人肉记忆。",
+  "按钮样式被复制 4 份且互相不一致：BaseButton.vue:4-18（正规实现，圆角 10 / 高 44）、DashboardView.vue:554-560（.btn/.btn.primary/.btn.ghost，圆角 10 / 高 42 —— Dashboard 的\"开始跟练\"与\"换一项\"根本没 import BaseButton）、PlanDraftDialog.vue:434-437（圆角 11 / 高 42）、TopBar.vue:254-256（.btn-primary/.btn-ghost，圆角 8 / 高 38）。",
+  "PlanDraftDialog.vue:143-170 的 footer 手写了 4 组按钮组合（questions / ready / error / 兜底），每组自己排一遍 ghost+primary 的顺序与 spacer，与 BaseButton 的 variant/size 契约完全脱节。",
+  "弹层没有统一原语，三份各自手写 scrim + dialog + 键盘处理：PlanDraftDialog.vue:2-4（.scrim 底色 rgba(17,22,26,.46)、blur 3px，**没有 Escape 关闭、没有焦点陷阱、没有 body 滚动锁**）、FoodCaptureDialog.vue:2-4 + :430（有 Escape、有 dlgEl ref 聚焦）、MealPhotoViewer.vue:2-4 + :56（有 Escape）。三份的 scrim 参数各不相同（.46 / .46 / .72，blur 3px / 3px / 4px），底部 sheet 的圆角处理也各不相同。",
+  "PlanDraftDialog.vue:439-460 的移动端断点用 max-width: 720px，而全站其它地方一律用 767px（AppShell.vue、TopBar.vue:285、DashboardView.vue:704、StatStrip.vue:89 用 1099）。721–767px 之间会出现\"页面已是手机布局、弹窗还是桌面布局\"的错位。",
+  "tokens.css:179-183 的 --breakpoint-sm/md/lg/xl 注释写着 \"used in media queries\"，但 CSS 自定义属性**不能用在 @media 条件里**，全仓 0 引用。代码里实际用的是 1099 / 1279 / 767 / 720 / 520 / 1100 六个数字（grep 统计 14 处媒体查询），与这四个令牌毫无关系 —— 令牌既不可用又误导。",
+  "tokens.css 里成片的死令牌：--gradient-brand、--gradient-hero、--shadow-hero、--hairline、--motion-instant、--easing-elastic、--space-12、--space-16 全仓 0 引用；--shadow-xs/--shadow-sm/--shadow-card 也近乎零引用；--shadow-accent 只有 3 处引用且值是 none，导致 InsightCard.vue:43 的 var(--shadow-accent) 那半个阴影永远不显示。",
+  "README.md:222 写 \"BaseButton 最小高度 44px\"，但 BaseButton.vue:18 的 .sm{min-height:36px} 打破了这个说法 —— 文档结论对 size=\"sm\" 不成立（README.md:227 又承认\"自绘按钮存在低于 44px 的\"，两条自相矛盾）。",
+  "BaseButton.vue 没有声明 type prop，但 PlanView.vue:38 在 <form> 里写 <BaseButton size=\"sm\" :icon=\"Plus\" type=\"submit\">保存为新版本</BaseButton> —— 靠 Vue 的 attribute fallthrough 落到根 <button> 上才生效。改版若调整模板结构（加包裹元素/换根标签），这个 submit 行为会静默丢失；且未来任何在 form 里用的 BaseButton 都会默认变成 type=\"submit\"。",
+  "StatusBadge.vue:1 给**每一个**状态徽标都挂了全局 animate-bounce-in（animations.css:85-87，400ms + spring 弹性曲线）。列表里每渲染一个徽标就弹一次，ReportView.vue:101 的周报表格一屏能弹十几个；animations.css:2 自己的注释写着\"入场一律无错位（不带 delay）\"，这条正好相反。",
+  "ShapeState.vue:27 的 TEXT 映射把三个中文状态文案硬编码在组件里，而 DashboardView.vue:484 又在调用方原样重写了一遍 '未记录' / '记录完整' / '部分记录' —— 同一组文案两份，改一处漏一处。ShapeState.vue:46 的 partial 填充比例还是裸写的 54% 魔法数。",
+  "PlanDraftDialog.vue:205 用 JSON.parse(JSON.stringify(d)) 做深拷贝生成可编辑副本 —— 会丢掉值为 undefined 的可选字段（PlanDraftItem.plannedSets/plannedReps），改版若引入 structuredClone 或新增可选字段需重新确认丢失语义。",
+  "星期中文有 3 份实现：utils/time.ts:1 的 WEEKDAYS_CN、services/llm.ts:161-166 的 WEEKDAY + weekdayOf()、PlanDraftDialog.vue:247-251 又抄一遍 WEEKDAY + weekday()。三处都要单独维护。",
+  "InsightCard.vue:36-37 直接 useAppStore()，一个展示组件耦合到全局 store（折叠状态走 store.collapsedCards），无法在别处复用、无法做视觉快照测试、也无法单独换皮而不动 store。",
+  "globals.css:142-149 的 .container 工具类全仓 0 引用；而 .micro（globals.css:152-160）与 .num（:163-167）被大量使用却没有任何变体，导致各视图各自覆写颜色 —— DashboardView.vue:212 干脆用内联 :style=\"{ color: ... }\" 改 .micro 的颜色，ReportView.vue:347-349 又另写了一套 .sw 图例色块。",
+  "空态没有原语，4 处各写各的：DashboardView.vue:218（\"接下来 7 天都没有安排训练…\"）、:231-233（\"本周还没有训练记录。负荷图显示为空，而不是 0。\"）、ReportView.vue:110-116（.empty + .empty-actions）、MealPhotoViewer.vue:140（.loading,.empty）。文案口径与操作区样式都不统一。",
+  "骨架屏没有原语：gradients.css:1-5 的注释说原 .skeleton 工具类\"经 grep 确认没有任何模板引用，故整批移除\" —— 于是现在全站零骨架屏，PlanDraftDialog.vue:370-375 只好自己写一个 @keyframes spin 转圈，ExecutionView.vue:763 的 .skeleton-overlay 只是覆盖层不是骨架。",
+  "图表有 4 套独立实现且语义编码互相打架：LoadChart.vue（SVG，缺 RPE 画 6px 实色短柱）、ReportView.vue:329-336（div 柱，缺 RPE 画 45° 斜纹）、DashboardView.vue:652-661（div 柱，缺 RPE 画斜纹）、ReportView.vue:60-68（餐食类别矩阵）。同一个\"缺 RPE\"语义在 LoadChart 与 ReportView 里是两种编码；ReportView.vue:331 与 DashboardView.vue:654 还各自硬写了同一串 linear-gradient(180deg,#12857c,#0c655e)，绕过 --color-accent/--brand-pole-a 且不随深色主题变化。",
+  "PlanDraftDialog.vue:392-394 / :414-417 / :418-421 / :427 手写了四套几乎一样的输入框与 select 样式（边框 --color-border、圆角 7-8px、字号 12-12.5px），而全站没有统一的 Input/Select 原语。",
+  "全站没有分段控件原语，同类切换用了四种形态：主题三选是 SettingsView.vue:177-184 的一排 chip（:aria-pressed 手搓），模式切换是 TopBar.vue:33-68 的 popover + role=menu，周切换是 ReportView.vue:10-12 的三个裸 button，日期区间在 ReportView 又是另一套。改版时若要做统一分段控件，需要同时收敛这四处。",
+  "焦点环两套并存：globals.css:135-139 的 *:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px;border-radius:var(--radius-sm)} 与 BaseButton.vue:7 的 .base-button:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(15,118,110,.32)} 语义重复、视觉不一致（一个 2px 外描边、一个 3px 外发光）。"
+ ],
+ "constraints": [
+  "localStorage 'twopoles_state' 的字段结构不可随意改名：stores/app.ts:105/138-152 读写 mode/profile/sessions/meals/privacy/collapsed/theme/plans/planHistory/modeLog/unitGrams，改字段名 = 丢掉用户本机已有数据。",
+  "collapsedCards 里的卡片 id 字符串是跨版本持久化主键（InsightCard.vue:29 的 cardId，实例 'report-quality'、'meal-rules'），改 id = 所有用户已折叠的卡片重新展开。",
+  "主题机制契约：stores/app.ts:87 写 document.documentElement.dataset.theme，tokens.css:199 用 html[data-theme=\"dark\"] 整组覆盖令牌。改主题实现必须同步改这两处，且所有令牌名（--color-*、--hair*、--space-*、--radius-*、--z-*）被全仓 scoped CSS 按名引用，不能随意改名而不全仓同步。",
+  "--card-pad 是 BaseCard 与父组件之间的隐式公开契约（BaseCard.vue:30 读、:41 覆盖），没有 TS 声明也没有 props，任何改动 BaseCard 根节点结构都会让所有调用方的内距静默失效。",
+  "负荷口径（loadRules.ts:99-139）不可改：没发生 ≠ 未记录（休息日按 0 参与平均）；有记录但缺 RPE 整天从窗口剔除、不按 0 补齐；首次记录之前是\"未知\"（既不是 0 也不是缺失），否则新用户第一天会被算成重度减量；ACWR = 近 7 天均 / 近 28 天均，样本不足返回 null 不给假数字；且必须先算原始值再取整（loadRules.ts:116 注释：先取整再相除会把 1.49 舍成 1.5，落错档）。图表改版不得改变这些语义。",
+  "强度分布口径（loadRules.ts:178-203）：按 RPE 分高低两段，默认阈值 RPE>=7，用时长占比而非次数（80/20 说的是时间占比）。阈值与算法口径属于调研结论，不可为了视觉分组调整。",
+  "形状即语义是硬性无障碍要求（tokens.css:51 与 ShapeState.vue:32 注释）：实心/半填/空心三种几何 + StatusBadge 的实心点/空心点是颜色之外的第二重编码，色觉障碍下必须可读 —— 颜色不能成为唯一的状态通道。",
+  "所有\"量\"必须保持等宽数字（--font-num + font-variant-numeric: tabular-nums），否则两组数字无法竖向比较，这是排版版面的基础约束。",
+  "浏览器 API 依赖：backdrop-filter（含 -webkit- 前缀，BaseCard/Toast/TopBar/FoodCaptureDialog 共 20 处）、mask-image/-webkit-mask-image（BaseCard.vue:63-64 的网格遮罩）、color-mix(in srgb, ...)（TopBar.vue:180）、text-wrap: balance（globals.css:55）、prefers-reduced-motion、prefers-reduced-transparency、:focus-visible。降级方案不能删这些属性。",
+  "z-index 阶梯 --z-modal-backdrop:1200 / --z-modal:1300 / --z-toast:1400 / --z-dropdown:1000 / --z-sticky:1100，新弹层与 Toast 必须落在这条阶梯上，否则与 PlanDraftDialog/FoodCaptureDialog/MealPhotoViewer 的 Teleport 层叠关系错乱。",
+  "lucide-vue-next 的图标组件契约：BaseButton 以 icon?: Component + :size 传尺寸，InsightCard/ToastRegion 直接 import 图标组件；替换图标库会破坏这三处。",
+  "同仓库 ExecutionView 依赖 MediaPipe (@mediapipe/tasks-vision)、getUserMedia 与 https/localhost 要求（README 已记载），与本子系统同属一次改版但技术栈独立，界面重构不应顺手改动其识别与计数逻辑。"
+ ],
+ "redesignHooks": [
+  "可以整块换掉、不动逻辑的（样式已与逻辑分离）：BaseCard 全部 80 行 —— 零业务逻辑，只有 variant/interactive/glass 三个 prop + 默认 slot，换皮只需改 BaseCard.vue:24-79 的 style 块；唯一要处理的是先删掉 interactive/glass 两个死 prop。",
+  "StatStrip：items: StatItem[] 契约稳定、StatItem 类型已从 SFC 导出给 ReportView/MealsView 使用，且 44px/34px 数字层级是版面的核心节奏 —— 改版只动 StatStrip.vue:34-97 的样式与响应式规则（把硬编码 nth-child(3)/(4) 换成基于 --cols 的解法），数据侧零改动。",
+  "ShapeState（3 状态 + width/height，零逻辑）与 StatusBadge（5 个 variant，零逻辑）：两者是纯映射表，可以整体重画形状与配色，只需保持 state/variant 字符串与 class 名一一对应的既有契约。",
+  "BaseButton：variant/size/icon 契约稳定（9 个视图在用），可整体换皮；改之前只需补一个显式 type prop 以摆脱对 attribute fallthrough 的依赖（PlanView.vue:38 正在依赖它）。",
+  "ToastRegion：只依赖 store.toasts 的 {id,type,title,message,dismissible,duration} 契约与 store.dismissToast(id)，是最容易整块换皮（甚至升级为 BaseToast 独立原语）的一个。",
+  "TwoPoleDial 的配色与描边：tone ink/paper 两套 stroke 取值集中在 TwoPoleDial.vue:112-132，换品牌色只改这里；几何部分（polar/arc/144°/12° 缺口/12 刻度）不要动，它是\"两仪\"母题的语义载体。",
+  "globals.css 的 .micro / .num 两个工具类已被所有视图消费，是最适合扩展为变体（.micro--accent / .micro--muted 等）的位置，能直接消掉 DashboardView.vue:212 一类的内联覆写。",
+  "animations.css 的 5 个 .animate-* 工具类已是全局统一入口，新增入场动效应加在这里而不是各组件 scoped 里写 animation 简写（README 已就此写过警告）。",
+  "必须先解耦、样式和逻辑揉在一起的地方（按优先级）：\n1) TwoPoleDial.vue:5 的内联 --dial-size —— 去掉 size prop 或去掉内联写法，只留一条入口，否则移动端覆盖永远失效；\n2) LoadChart.vue:132-146 的 polyline() —— 算法上移到 loadRules.ts（service 已算好 ctl/atl），组件只渲染传入的路径点数组，顺带修掉 ATL 口径不一致；\n3) LoadChart.vue:177-207 的 6 处硬编码 rgba —— 换成 var(--hair-soft)/var(--hair)/var(--color-border)，深色主题自动跟随；\n4) InsightCard.vue:36-37 的 useAppStore() —— 改成 collapsed?: boolean + emit('toggle')，让它回归纯展示组件，折叠状态由父组件或 AppShell 接到 store；\n5) PlanDraftDialog.vue:351-461 —— 461 行里模板、状态机分支、编辑逻辑、四套输入框样式、footer 四组按钮全在一起，必须先抽 <BaseDialog> 外壳 + 复用 BaseButton，再谈换皮；\n6) BaseCard 的 --card-pad —— 现在是无类型、无文档的隐式契约，应正式化成 pad?: 'none'|'sm'|'md'|'lg'|'xl' prop（或在 README 里写成公开的 CSS 变量约定）；\n7) StatStrip.vue:89-97 的硬编码 nth-child 断点 —— 换皮时必须连带重写成基于 --cols 的规则，否则加一项指标就破；\n8) LoadChart.vue:229-235 的色带百分比 —— 改成从 LoadZone 阈值派生的计算值，消除与 loadRules 的双份魔法数。",
+  "改版期间可以放心删除的死资产（零调用，已 grep 复核）：MetricCard.vue 整个文件；BaseCard 的 interactive 与 glass 两个 prop 及 .card.glass 全套样式（含 prefers-reduced-transparency 媒体查询）；TwoPoleDial 的 paper tone、showTicks、showInnerRing 三个 prop（调用方只用过 tone=\"ink\" + 默认值）；globals.css 的 .container 工具类；tokens.css 的 --breakpoint-* 四个（CSS 变量不能用于 @media）、--gradient-brand/--gradient-hero/--shadow-hero/--hairline/--motion-instant/--easing-elastic/--space-12/--space-16 八个零引用令牌；MetricCard 的 accent prop。",
+  "建议在改版中一并建立的接缝（当前没有、需要新建才能换皮）：BaseDialog（scrim + 尺寸档 + Escape + 焦点陷阱 + 滚动锁，三处手写弹层统一到它）、SegmentedControl（主题三选 / 周切换 / 模式切换 / 日期区间四处统一）、EmptyState（4 处空态统一）、Skeleton（gradients.css 已删工具类，需要重建）、Chart 基础层（4 套手写可视化统一到一套 SVG 组件）、表单原语 Input/Select/NumberField（PlanDraftDialog 里 4 套输入框样式统一）。",
+  "语义色词汇必须先统一再换皮：把 caution/warning/danger/error/accent/high 收敛成一份 Tone 枚举（建议 success | caution | danger | neutral | accent），让 StatusBadge、Toast.type、StatItem.tone、LoadZone 共用，并让 StatusBadge.vue:2 / ToastRegion.vue:4 / StatStrip.vue:20 / loadRules.ts:142 的字符串与 CSS class 名由同一份 TS 常量驱动，而不是各写各的。"
+ ]
+}

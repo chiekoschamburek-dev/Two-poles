@@ -5,7 +5,7 @@
     <Transition name="fade">
       <div v-if="mobileOpen" class="scrim" @click="mobileOpen = false"></div>
     </Transition>
-    <main class="main-content">
+    <main class="main-content" :class="{ 'main-workspace': isWorkspace }">
       <RouterView v-slot="{ Component }">
         <Transition name="page" mode="out-in">
           <component :is="Component" />
@@ -19,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from './TopBar.vue'
 import SidebarNav from './SidebarNav.vue'
@@ -31,6 +31,8 @@ import { useAppStore } from '@/stores/app'
 const mobileOpen = ref(false)
 const route = useRoute()
 const store = useAppStore()
+/** 双极工作台自己管理两栏的滚动，外壳不再让整页滚动 */
+const isWorkspace = computed(() => route.meta.workspace === true)
 
 watch(() => route.fullPath, () => {
   mobileOpen.value = false
@@ -48,12 +50,32 @@ onMounted(() => store.init())
   margin-left: var(--sidebar-width);
   padding: var(--space-2) var(--gutter) var(--space-10) var(--space-7);
 }
+/* 工作台：主区固定为视口高度减去页头，内部两栏各自滚动 */
+.main-content.main-workspace {
+  height: calc(100dvh - var(--topbar-height));
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  padding: 10px var(--gutter) 12px var(--space-7);
+}
+.main-content.main-workspace > * {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
 .scrim { position: fixed; inset: 0; background: var(--overlay); z-index: calc(var(--z-sticky) + 1); }
 .fade-enter-active, .fade-leave-active { transition: opacity var(--motion-base); }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .page-enter-active, .page-leave-active { transition: opacity var(--motion-base) var(--easing-ease-out), transform var(--motion-base) var(--easing-ease-out); }
 .page-enter-from { opacity: 0; transform: translateY(10px); }
 .page-leave-to { opacity: 0; transform: translateY(-6px); }
-@media (max-width: 1099px) { .main-content { margin-left: 0; padding: var(--space-3) var(--space-6) var(--space-8); } }
-@media (max-width: 767px) { .main-content { padding: var(--space-2) var(--space-4) calc(var(--mobile-nav-height) + var(--space-8)); } }
+@media (max-width: 1099px) {
+  .main-content { margin-left: 0; padding: var(--space-3) var(--space-6) var(--space-8); }
+  .main-content.main-workspace { padding: 8px 12px; }
+}
+@media (max-width: 767px) {
+  .main-content { padding: var(--space-2) var(--space-4) calc(var(--mobile-nav-height) + var(--space-8)); }
+  /* 手机端底栏是浮起来的胶囊：工作台把这段高度让出来，卡片不会被压住 */
+  .main-content.main-workspace { padding: 6px 10px calc(var(--mobile-nav-height) + 8px); }
+}
 </style>

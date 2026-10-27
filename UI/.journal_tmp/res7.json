@@ -1,0 +1,181 @@
+{
+ "area": "仪表盘首页（DashboardView + 今日养生卡片 DailyWellnessCard）",
+ "purpose": "仪表盘是路由 '/' 的落地页，首页承担的任务是「今天做什么」：第一屏用一个 40px 的 h1 直接写出今天的主项动作名与时长，右上角给两个动作（换一项 / 开始跟练），把用户直接推入跟练流程，而不是先讲理念。次一级任务是让训练与饮食在同一屏可比——这是产品名「两仪」的核心：左侧时间轴讲「今天怎么打发这 30 分钟」，右侧深墨双极仪表把「本周训练完成率 vs 饮食记录率」（运动员模式则换成「低强度 vs 高强度时长」）画成同一个环，底部账本再补三块信息：本周逐日负荷柱状图、今天三餐的记录完整度、以及一句「为什么是这 N 分钟」的解释。第三级任务是补足信息与信任：顶部在未建档时给一条去建档的引导，页面末尾给一条每天轮换的「今日养生」知识卡（含来源与免责声明），页脚声明「无账号 · 记录只存本机」。它同时也是模式切换的展示面——整个模板按 store.isAthleteMode 分支，模式切换换掉的是首页结构（时间轴 → 28 天负荷曲线、仪表语义、账本第一块）而不只是文案。",
+ "files": [
+  {
+   "path": "d:/桌面/project/project/UI/src/views/DashboardView.vue",
+   "role": "首页唯一视图（路由 '/'），739 行里约 270 行 template、240 行 script、220 行 scoped CSS；自己承担了「今天做什么 / 为什么这么安排 / 今天吃了什么 / 本周负荷」四件事",
+   "lines": 739
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/wellness/DailyWellnessCard.vue",
+   "role": "今日养生每日卡片，367 行；内容来自 services/wellnessCards.ts，展开态是组件内临时状态",
+   "lines": 367
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/wellnessCards.ts",
+   "role": "16 条养生文案的内容层（WellnessCard / WellnessAthleteNote 类型、pickDailyWellnessCard 按本机日期确定性取卡、WELLNESS_DISCLAIMER 免责声明常量）",
+   "lines": 548
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/BaseCard.vue",
+   "role": "全站唯一表面组件（default / flush / ink 三种 variant），首页 8 处卡片全部走它；--card-pad 由调用方覆盖",
+   "lines": 80
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/TwoPoleDial.vue",
+   "role": "双极仪表的 SVG 几何（两段 144° 弧、12 刻度、锚点）；首页仪表的唯一实现，size 用内联 --dial-size 传",
+   "lines": 133
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/ShapeState.vue",
+   "role": "形状即状态（实心=记录完整 / 半填=部分记录 / 空心=未记录），首页三餐行使用",
+   "lines": 53
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/LoadChart.vue",
+   "role": "运动员模式 28 天负荷图（SVG 柱 + CTL/ATL 均线 + ACWR 指针），全部数据以 props 传入、无取数逻辑",
+   "lines": 268
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/loadRules.ts",
+   "role": "负荷序列与强度分布的取数层：buildLoadSeries（28/7/14 天窗口、unknown/rest/missing 三态）、loadZone（0.8/1.3/1.5 分档）、intensitySplit（RPE 阈值 7）、LOAD_ZONE_TEXT",
+   "lines": 203
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/weekRules.ts",
+   "role": "周报聚合层：buildWeeklyReport（loadByDay / totalLoad / completionRate / dataQuality）、loadOf（RPE×时长）、weekStart/weekDates/WEEK_LABELS",
+   "lines": 120
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/planRules.ts",
+   "role": "计划生成单一来源 buildDayPlan（年龄/档案 gate、器材/场地/时长过滤、冲突文案），首页时间轴与「接下来」都依赖它",
+   "lines": 209
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/mealRules.ts",
+   "role": "summarizeDay（当天三餐 slots / recorded / planned）、MEAL_SLOTS（早中晚三餐与默认时间），首页三餐面板的唯一数据源",
+   "lines": 216
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/stores/app.ts",
+   "role": "Pinia 单一 store：首页读取 hasProfile / userProfile / currentMode / isAthleteMode / sessions / meals / dayPlanNotice；所有数据落 localStorage 的 twopoles_state",
+   "lines": 962
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/tokens.css",
+   "role": "设计令牌唯一来源（颜色 / 发丝线 / 圆角 / 字体 / 动效 / 断点），含深色主题整组覆盖；--breakpoint-* 已定义但全站无人使用",
+   "lines": 258
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/globals.css",
+   "role": "全局 reset + .micro / .num / .animate-* 工具类与滚动条；首页大量依赖 .micro 与 .num",
+   "lines": 199
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/StatStrip.vue",
+   "role": "指标条组件（ReportView L16、MealsView L16 在用），首页的 .tl-foot 手写了同一套三列指标条却没用它",
+   "lines": 98
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/InsightCard.vue",
+   "role": "可收起洞察卡（走 store.collapsedCards / toggleCard），ReportView 与 MealsView 在用；首页的「为什么」卡与养生卡都没接这套机制",
+   "lines": 53
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/MetricCard.vue",
+   "role": "已废弃组件（自身注释写明「当前无任何调用」），改版前应删除",
+   "lines": 73
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/views/ReportView.vue",
+   "role": "周报页，与首页共享并重复实现了 weekNo、.chip、负荷柱状图、标签 chip；是首页重构时必须同步的耦合点",
+   "lines": 413
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/layout/AppShell.vue",
+   "role": "页面外壳与栅格（--sidebar-width / --gutter / 断点 1099 与 767），首页的响应式断点必须与它对齐",
+   "lines": 59
+  }
+ ],
+ "keyComponents": [
+  "`.setup` 建档提示条（DashboardView.vue L4-11，页面最上方）：仅当 `!store.hasProfile` 时出现，是一个 RouterLink 到 /onboarding，样式为 accent-soft 底 + accent-line 边；不占首屏主位。",
+  "`header.lede` 标题区（L14-47）：三层信息。① `micro kick` = eyebrowDate + 「本周第 N 次」+ 目标/周期阶段（L352-358）；② `h1` = `mainItem.exerciseName` + 时长 + 「分钟」，无计划时写「今日休息」（L17-21）；③ `meta` 行 = 合计时长 / 场地 / 器材 / 避开项 / `notice.stale` 时的「计划由旧规则生成」警告（L22-39）。右侧是「换一项」(→ /plan) 与「开始跟练」(→ /execution?exercise=...) 两个按钮（L41-47）。",
+  "`.cluster` 主集群（L50-205，grid: minmax(0,1fr) / 356px）共 4 个互斥/并列区块：",
+  "时间轴卡（L51-91，`v-if=\"!isAthlete && timeline.length\"`）：panel-head 显示「今天的 N 段 · 合计 M 分钟」；每行 `.tl-row` 是 `时间段 00—05` | 空心/实心圆点轴 | 动作名+组次说明 | 分钟数；下面 `.tl-note` 是 gateNote + 周期锁定数；最后 `.tl-foot` 三格统计（上次同类 / 近 4 周平均 / 本周目标）。",
+  "休息日卡（L94-135，`v-else-if=\"!isAthlete\"`）：SVG 圆环静态图 + gateNote 或「未安排 ≠ 没活动」+ 冲突列表 + 「接下来」列表 + 三格 tl-foot。",
+  "运动员负荷面板（L138-157，`v-if=\"isAthlete\"`）：`LoadChart` 28 天柱 + CTL/ATL 均线 + ACWR 指针；与时间轴卡互斥。",
+  "双极仪表卡（L160-204，`BaseCard variant=\"ink\"`）：`TwoPoleDial`（`:size=\"228\"`）内嵌大数字「本周负荷 AU」+ 图例（训练/饮食 或 低/高强度）+ 三格数字 foot（场次 / 时长 / RPE 或 餐次）。",
+  "`.ledger` 底部账本（L208-261，grid: 1.15fr / 1fr / 1fr）三块：① 本周逐日负荷柱状图或「接下来 3 个训练日」（L209-234）；② 今天的三餐三行（时间 / ShapeState / 菜名 / 「改·＋记」RouterLink，L236-249）；③ 「为什么是这 N 分钟？」解释卡 + 标签行（L251-260）。",
+  "`DailyWellnessCard` 今日养生卡（L264）：折叠态一行摘要（eyebrow「今日养生 · 分类 / 主题」+ 标题 + 摘要 + 展开提示），展开态分正文列（detail 段落 + 要点列表）与侧栏（运动员补充 / 标签 / 来源 / 免责声明 / 收起按钮）。",
+  "`footer.footnote`（L266-269）：「无账号 · 记录只存本机 · 照片经同意才用于识别」与版本号 `v3 · plan-rules-v3`。"
+ ],
+ "uiPatterns": [
+  "两种表面：纸面（BaseCard default/flush = 白底 + 1px 发丝线 + `inset` 顶亮内描边，无投影）与仪表面（variant=\"ink\" = 深墨渐变 + 22px 细网格 + 径向 mask）。全页只有仪表一块深色，是刻意的视觉焦点。",
+  "发丝线分层替代投影：行分隔用 `--hair-soft`，卡片边用 `--color-border`，图表基线用 `--hair-strong`，虚线 `--color-border` 只用于「备注/元信息」区（`.tl-note`、`.upcoming`、`.w-meta`）。",
+  "单一强调色 + 语义色：teal `--color-accent` 表示进度/今天/已完成；`--color-caution` 琥珀表示部分/偏高；`--color-danger` 表示 veryHigh。语义色永远与形状或文字同时出现，不单独用颜色表意。",
+  "形状即状态（色觉障碍冗余编码）：三餐完整度用 ShapeState 的实心/半填/空心条；训练完成用 `.tl-axis` 实心圆点 vs 空心圆环；负荷柱的「未记录」用斜纹或描边而不是 0 高度。",
+  "「未记录 ≠ 0」贯穿全页：null 一律显示 '—'（`.v.dim`、`.num-big` 的 '—'），空图表用文字说明而不是画 0（`bars-empty`：「负荷图显示为空，而不是 0。」）。",
+  "数字排版：所有数值用 `--font-num`（Bahnschrift，Windows 自带 DIN 骨架）+ `font-variant-numeric: tabular-nums`；标签用 `.micro`（10px / .17em 字距 / uppercase）。",
+  "网格骨架：`.cluster` = minmax(0,1fr) / 356px；`.ledger` = 1.15fr / 1fr / 1fr；`.tl-foot` 与 `.g-foot` = repeat(3, 1fr) 竖线分隔。",
+  "`display: contents` 技巧（L626）：让 `.g-body` 不产生盒子，使环与 `.g-side` 成为 `.gauge`（flex column）的直接子项，从而在 ≥1100px 保持「环在上、图例在下」，≤1099px 再把 `.g-body` 切成 grid 变成「左环右数字」。",
+  "响应式三档：≥1280px 三列账本；1100–1279px 账本变两列 + 「为什么」跨满；768–1099px `.cluster` 单列 + 仪表转横向（236px 环 + 420px 数字）；≤767px 全部单列、内距收到 14px、`.tl-note .lock` 隐藏、`.num-note` 隐藏。",
+  "展开披露模式：DailyWellnessCard 用 `v-show` + `Transition` + `aria-controls`/`aria-expanded`，隐藏时内容不留在无障碍树；底部收起后把焦点还给头部按钮（`collapseFromBottom` → `nextTick` → `toggleBtn.focus()`）。",
+  "空态是文案而非插画：「本周还没有训练记录。负荷图显示为空，而不是 0。」「接下来 7 天都没有安排训练，可在计划页手工加一项。」",
+  "动效克制：只有 opacity + translateY(4px) 的展开过渡（motion-base 250ms / motion-fast 150ms），无缩放、无旋转、无循环动画；两个文件都写了 `prefers-reduced-motion: reduce` 降级。",
+  "说明性底色块用于「解释」而非「状态」：`.setup`（accent-soft）与 `.w-athlete`（accent-soft + accent-line 边）表示可展开的补充信息。"
+ ],
+ "styleApproach": "纯手写 scoped CSS，无任何 CSS 框架 / Tailwind / CSS-in-JS。令牌层：`src/styles/tokens.css` 定义颜色（单一强调色 + 发丝线三档 + 墨/纸两级表面 + 深色主题整组覆盖）、圆角（6/8/10/12/16）、字体（正文系统字族 + `--font-num` Bahnschrift 数字）、动效（--motion-fast/base/slow + 三条 easing）、间距（--space-1..16）；`src/styles/globals.css` 提供 reset 与 `.micro` / `.num` / `.hairline` / `.animate-*` 工具类。页面内一律 `<style scoped>`，颜色与尺寸一律走 var(--token)，但用得并不彻底：DashboardView L628-646 与 TwoPoleDial L117-123 把深色面板的白色文字写成裸 rgba(255,255,255,x)，而 tokens.css L36-39 就有 --ink-panel-on / --ink-panel-muted / --ink-panel-line 三枚对应 token（只有 --ink-panel-muted 被用到 L627）。面板内距统一走 BaseCard 的 `--card-pad` 变量而不是抢 padding（README「样式约定」明确要求，DashboardView L623/L676 用 `--card-pad` 覆盖是正确范式）。响应式断点全是裸像素（1100 / 1099 / 1279 / 767，散落在 DashboardView L327/687/691/704、DailyWellnessCard L327/349、ReportView L398/401、AppShell L57-58），tokens.css L180-183 定义的 --breakpoint-sm/md/lg/xl 全站无人使用。重复的自定义样式（未抽组件）：`.chip` 在 DashboardView L579、ReportView L321、MealsView L550 各写一遍（字号与高度 24/26px 还不一致）；负荷柱状图的 `.bar` 渐变 `linear-gradient(180deg, #12857c, #0c655e)` + `max-width: 34px` 在 DashboardView L654 与 ReportView L331 逐字重复；小标签 chip（`font-size:10.5px; padding:3px 7px; border:1px solid var(--color-border); border-radius:var(--radius-sm)`）在 DashboardView L681、DailyWellnessCard L270-277、ReportView L366 各写一遍。样式与逻辑的耦合点：DashboardView L626 的 `.g-body { display: contents }` 用 CSS 技巧编码了「环在上、图例在下」的视觉顺序；L728-729 用 `.dial { --dial-size: 132px }` 试图从父组件覆盖子组件 TwoPoleDial 的内部变量——但 TwoPoleDial L5 用内联 `:style` 写死了 `--dial-size`，内联样式永远压过样式表规则，这条 ≤767px 的规则是死的。",
+ "dataFlow": "数据源分三层，页面本身只做展示层聚合：\n① Pinia store `useAppStore`（src/stores/app.ts）——页面读取 `store.hasProfile`、`store.userProfile`、`store.currentMode`、`store.isAthleteMode`、`store.sessions`、`store.meals`，以及 `store.dayPlanNotice(now)`。store 的持久化是 localStorage 单键 `twopoles_state`（app.ts L137-167 persistState），初始化在 AppShell.vue onMounted 里 `store.init()`。首页本身不写任何 store 数据，只做读与跳转。\n② 服务层（纯函数，无 Vue 依赖）——`buildDayPlan`（planRules，含年龄/档案 gate 与冲突文案）、`buildWeeklyReport` / `loadOf` / `weekStart` / `WEEK_LABELS`（weekRules）、`buildLoadSeries` / `intensitySplit` / `loadZone`（loadRules）、`summarizeDay` / `MEAL_SLOTS`（mealRules）、`pickDailyWellnessCard`（wellnessCards）。口径全部在这一层，页面只负责显示。\n③ 视图内自算的展示派生量——`mainItem`（取 plannedDuration 最长的一段，L301-305）、`timeline`（按分钟累加出 00—05 / 05—25 区间，L312-331）、`bars` / `peak`（L440-471）、`upcoming`（未来 7 天内的训练日，L450-464）、`lastSame` / `recentAvg`（L496-508）、`avgRpe`（L430-437）、`weekNo`（ISO 周号 L343-349）、`tags` / `whyText` / `kicker`（L352-392）、`mealRows`（L474-489）。\n出向流（页面 → 路由）：`换一项` → router.push('/plan')；`开始跟练` → router.push({ path:'/execution', query:{ exercise: mainItem.exerciseName } })；三餐行与休息日卡 → RouterLink 到 /meals、/plan；建档条 → RouterLink 到 /onboarding。\nDailyWellnessCard 的数据流独立：`props.date`（由 DashboardView 传 `:date=\"now\"`）→ `pickDailyWellnessCard(date)` → 按本机日历天序号确定性取卡（不随机、不受模式影响）；`store.isAthleteMode` 只决定是否额外渲染 `card.athlete` 区块，不改变取哪张卡。`expanded` 是纯组件内 ref，刻意不落 localStorage、不走 `store.toggleCard`（见该文件 L77-79 注释）。",
+ "stateModel": "页面级状态机是隐式的，由 `isAthlete`（= store.isAthleteMode）与「今天有没有计划项」两个维度决定渲染分支：\n- 大众模式 + timeline 非空 → 时间轴卡（L51）\n- 大众模式 + timeline 为空 → 休息日卡（L94，`v-else-if=\"!isAthlete\"`）\n- 运动员模式 → 负荷面板（L138，`v-if=\"isAthlete\"`），与上面两个互斥\n- 未建档 → 顶部 `.setup` 提示条叠加（L4，`v-if=\"!store.hasProfile\"`）\n注意：条件是 `!isAthlete && timeline.length` 与 `!isAthlete`，所以运动员模式永远看不到时间轴与休息日卡，即使今天有计划项。\n`notice` = `store.dayPlanNotice(now)` 返回 `{ items, conflicts, auto, gateNote, stale }`（app.ts L305-316）：`items` 优先取已存计划，否则按档案现算；`stale` = 已有计划但既非 llm 来源、`reason` 串里也不含 `PLAN_RULES_VERSION` 时为 true，页面据此显示「计划由旧规则生成，可在计划页重生成」（L34）。\nDailyWellnessCard 的状态机只有一个布尔 `expanded`：collapsed ⇄ expanded。整卡点击 `expand()` 只在 collapsed 时切到 expanded（L102-104，头部按钮与底部「收起」按钮才双向切换）；`collapseFromBottom()` 收起后经 nextTick 把焦点还给 `toggleBtn`（L107-111）。\n其余派生状态都是无状态枚举：餐次状态 'complete' | 'partial' | 'none'（由 `meal.completeness` 推导，L483）；餐次 chip '' | 'part' | 'ok'（L490-493）；负荷分档 'low' | 'optimal' | 'high' | 'veryHigh' | 'unknown' 来自 loadRules.loadZone(acwr)，DashboardView L416-420 把它压成 ok/part/bad 三个 chip class。",
+ "coupling": "跨组件 import：BaseCard、TwoPoleDial、ShapeState、LoadChart、DailyWellnessCard + 5 个 service 模块。共享 store 字段：hasProfile / userProfile / currentMode / isAthleteMode / sessions / meals / dayPlanNotice。共享类型：PlanItem（@/types/domain）、LoadPoint/LoadZone（loadRules）、WellnessCard（wellnessCards）。模式耦合最深：整个 template 按 `store.isAthleteMode` 分支，模式切换换掉的是首页的「结构」而不只是内容（时间轴卡 → 负荷面板、账本第一块换成「接下来」、仪表语义从训练/饮食换成低/高强度、g-foot 第三格从餐次换成 RPE），因此任何版式重构都必须同时交付两套模式。与兄弟页的隐性耦合（重复而非依赖）：weekNo（DashboardView L343-349 == ReportView L164-170）、.chip（DashboardView L579 == ReportView L321 == MealsView L550）、负荷柱状图（DashboardView L652-661 == ReportView L329-338）、标签 chip（DashboardView L681 == ReportView L366）、TwoPoleDial 目前只有首页在用。DashboardView L455 的 `upcoming` 绕过 store 直接调 buildDayPlan，因此与 L297 走的 store.dayPlanNotice 不是同一口径。store.collapsedCards / toggleCard / isCardCollapsed 已存在且被 InsightCard 使用，但首页的「为什么」卡与 DailyWellnessCard 都不接。",
+ "designDebt": [
+  "DashboardView L163：`{{ isAthlete ? 'Load' : 'Load' }}` 两个分支完全相同，是遗留的空三元；仪表 eyebrow 在两种模式下没有区别。",
+  "DashboardView L166：`{{ isAthlete ? 'W2' : 'LIVE' }}` 的 'W2' 是硬编码字面量，与同页 L343 的 `weekNo` 无关——运动员模式无论第几周都显示「W2」。",
+  "DashboardView L728-729：`.dial { --dial-size: 132px; }`（≤767px）是**死规则**。TwoPoleDial.vue L5 用内联 `:style=\"{ '--dial-size': size + 'px' }\"` 写死该变量，而 DashboardView L173 传 `:size=\"228\"`；内联样式在自定义属性上永远压过样式表规则，所以手机端双极环仍是 228px。L728 的注释「窄屏只改这个变量，不动组件的 svg」是错的。",
+  "DashboardView L602-607：`.tl-foot` 手写了一个「标签 + 大数值 + 竖发丝线」的三格指标条，与 `StatStrip.vue`（ReportView L16、MealsView L16 在用）功能重复。首页是全站唯一没用 StatStrip 的数据页。",
+  "DashboardView L652-661：`.bars` 重新实现了一遍周报页 L329-338 的负荷柱状图，连 `background: linear-gradient(180deg, #12857c, #0c655e)` 与 `max-width: 34px` 都是逐字复制；但归一化口径不同（Dashboard L440 `Math.max(1, ...)` vs Report L229 `Math.max(120, ...)`），同一周在两个页面柱高不同。",
+  "DashboardView L343-349：`weekNo`（ISO-8601 周序号）与 ReportView L164-170 逐字重复。`services/weekRules.ts` 已经集中了 weekStart / weekDates / WEEK_LABELS，却唯独漏了 weekNo。",
+  "DashboardView L251-260：「为什么是这 N 分钟？」卡重新实现了一遍 `InsightCard.vue` 的结构（eyebrow + 标题 + 正文），但没有它的收起开关，用户无法收起它——而 `research/界面偏好调研.md` L108/L131 把「任何洞察/建议卡必须可隐藏、可下移、可重排」列为明确要求，且 store 里的 `collapsedCards` / `toggleCard` 就是为此存在的。",
+  "DailyWellnessCard.vue 同样问题：`expanded` 是组件内临时状态、不落盘（L77-79 注释明说），而且整张卡无法被隐藏、无法下移。这是与调研文档的直接冲突（脚本注释解释了取舍，但没有替代方案）。",
+  "DashboardView L510-513：`start()` 跳 `/execution?exercise=<mainItem.exerciseName>`，但 ExecutionView L307 走 `getDemoExercise()`，而 `demoExercises`（demoCameraService.ts L70-73）只有「坐站训练」「站姿弯举」两条，其余静默回落到 `demoExercises[0]`。运动员模式主项是「轻松跑 / 快走」（20 分钟），点「开始跟练」实际开始的是坐站训练，全程无任何提示。",
+  "DashboardView L292：`const now = new Date()` 是普通 const 不是 ref。页面跨零点不会翻篇——`today`、`week`、`timeline`、`upcoming`、养生卡全部停在昨天，必须手动刷新。ReportView 至少还有 `refDate`。",
+  "DashboardView L114-120 与 L217-223：同一份 `upcoming` 数据被渲染两遍，一处叫 `.up-row`（休息日卡），一处叫 `.next-row`（运动员账本），CSS 也各写一遍（L615-619 / L571-575）。应抽成一个组件。",
+  "DashboardView L455：`upcoming` 直接调 `buildDayPlan(d, store.userProfile, store.currentMode)`，绕过 L297 用的 `store.dayPlanNotice(d)`。所以「接下来」显示的是规则现算的模板，不是那些日子真正存下来的（可能是 LLM 生成的）计划——首页会与计划页自相矛盾。",
+  "DashboardView L465-471：`peak` 重新遍历 `week.loadByDay` 求最大值，而 L442-447 的 `bars` 已经在遍历同一个数组。同一次计算做两遍。",
+  "DashboardView L626：`.g-body { display: contents; }` 让环与 `.g-side` 隐式成为 `.gauge`（flex column）的直接子项。任何在 `.g-head` 与 `.g-body` 之间插入兄弟节点、或改动 `.gauge` 的 flex 顺序，都会静默改变视觉顺序而不改 DOM——重排版时这是最脆的一块。",
+  "DashboardView L207 注释写「一条横排，替掉四张等宽卡」，但账本实际是三卡（L649 `1.15fr 1fr 1fr`）；L159 注释写双极仪表「首页/周报/跟练共用」，实际只有首页 import TwoPoleDial（grep 确认 ReportView / ExecutionView 都没用），周报页用的是手写柱状图；L674 留下一条没有对应规则的孤立注释。三处文档与代码不一致。",
+  "DashboardView L400-403：`loadNote` 在 `week.totalLoad === null` 时一律写「RPE 未记全，暂不合计」，但 weekRules L75 里 totalLoad 只在「本周没有任何一天算出负荷」时才是 null——常见原因其实是「本周还没有记录」，文案在说谎。",
+  "负荷分档的魔法数字散落：边界 0.8 / 1.3 / 1.5 写在 `loadRules.loadZone`（L144-150），`LoadChart.vue` L73 又把 '0.8 偏低' / '1.3 偏高' 当字面量重抄一遍，L69 的 `left: (acwr/2)*100` 额外假定坐标轴是 0–2。改 loadRules 的阈值，图表刻度不会跟着变。",
+  "`loadRules.ts` L152-157 已经导出 `LOAD_ZONE_TEXT`（偏低/安全/偏高/明显过快/样本不足），DashboardView L410-415 的 `acwrChip` 却另写了一套语义（'ATL 在 CTL 上方' / 'ATL 在 CTL 下方'）。同一件事两份文案，其中一份没覆盖 unknown 分档。",
+  "`intensitySplit` 的 RPE 阈值 7（loadRules L183）从未出现在界面上：DashboardView L426-428 只显示「低 X min · 高 Y min」，不告诉用户分界线画在哪，与全项目「如实说明口径」的调性不一致。",
+  "深色仪表面板的文字色全部手写 rgba(255,255,255,x)（DashboardView L628-646、TwoPoleDial L117-123），而 tokens.css L36-39 正好定义了 `--ink-panel-on` / `--ink-panel-muted` / `--ink-panel-line` 三枚 token，只有 `--ink-panel-muted` 被用上（L627）。",
+  "响应式断点全是裸像素（DashboardView L327/687/691/704 = 1100/1279/1099/767，DailyWellnessCard L327/349 同值），而 tokens.css L180-183 定义了 `--breakpoint-sm/md/lg/xl` 却全站无人使用（grep 只命中定义行）。改版调整断点要同时改十几个文件。",
+  "`src/components/common/MetricCard.vue` 是一个完整实现但零调用点的已废弃组件（其自身注释 L16-18：「当前无任何调用；下次能改文件权限时直接删掉」）。改版前应先删掉，否则会被误当成可用积木。",
+  "DailyWellnessCard.vue L2：整张 BaseCard 带 `@click=\"expand\"` + `cursor: pointer`，内部又嵌一个真正的 `<button class=\"w-toggle\">`。整卡点击只在收起时生效（`expand()` L102-104 只会展开、不会收起），是嵌套交互语义 + 不可发现的操作。",
+  "DashboardView L163-167 与 L34 的 `notice.stale` 提示都靠手写中英文案拼接，没有走任何文案常量层；同一批文案散落在 template 字面量、computed 字符串和 service 常量三处，后续做多语言或口径统一时没有单一落点。"
+ ],
+ "constraints": [
+  "负荷口径不可改：负荷 = 实际时长 × RPE（weekRules.loadOf），当天只要有一条缺 RPE 就整天不算数、绝不按 0 补齐（weekRules L66-68 / loadRules L104-107）。'休息'(0)、'缺失'(剔除)、'未知'(早于首条记录) 三态必须保持区分，否则新用户首日会被算成重度减量。",
+  "ACWR 口径不可改：近 7 天均值 ÷ 近 28 天均值，样本不足（coveredDays ≥ 14 且急性窗口覆盖足够、ctl > 0）时必须返回 null 而不是给假数字；均值先算原始值再取整（loadRules L116-121 注释明确说「先取整再相除会把 1.49 舍成 1.5，落错档」）。",
+  "未满 18 岁不生成自动推荐（AUTO_RECOMMEND_MIN_AGE = 18），且「无解时如实返回冲突原因，不强行安排」——首页必须继续展示 gateNote 与 conflicts，不得用兜底文案掩盖。",
+  "「未记录 ≠ 没练 ≠ 0」是全项目口径：null 一律显示 '—'，缺 RPE 的天从窗口剔除而不是填 0，休息日必须显示为「未安排」而非失败。",
+  "数据只存本机（localStorage key `twopoles_state`），无账号、无后端；页脚「无账号 · 记录只存本机 · 照片经同意才用于识别」是产品承诺，改版不能引入需要登录的入口。",
+  "养生内容必须保持「一般科普」定位：每条带资料名 source、不编造论文页码外链；面向 12 岁以上用户，不写减重/断食/补剂/极端饮食方案；`WELLNESS_DISCLAIMER` 必须在展开区末尾出现。",
+  "养生卡片选择算法是确定性的（按本机日期分量算 dayIndex，健身/饮食交替），同一天多次调用与不同时刻调用必须返回同一条（selfcheck L331-332 有断言）——不能引入随机或依赖 UTC。",
+  "「运动员模式」只追加内容不换卡：同一张 WellnessCard 在两种模式下 id/内容不变，运动员补充是叠加段（wellnessCards L19 注释 + selfcheck 有断言）。",
+  "双极仪表的两极语义与几何固定：右弧 = 训练（顺时针）、左弧 = 饮食（逆时针），两段各 144°、上端留 12° 口子（TwoPoleDial L14-21、L63-72）；弧长按比例 0–1 截断。",
+  "浏览器/平台约束：颜色不能是唯一信息源（形状冗余编码，ShapeState 与训练圆点都靠形状）；需支持 `prefers-reduced-motion` 与 `prefers-reduced-transparency` 降级；`--font-num` 依赖 Windows 自带 Bahnschrift，中文需靠字族回退；触控目标 44px 级别（自绘按钮/chip 目前低于 44px 是已记录的欠账）。",
+  "双主题 + 跟随系统（`data-theme` 覆盖全部 token），深色不是半适配——改版换皮必须同时给两套。",
+  "跟练页的 demo 动作库只有「坐站训练」「站姿弯举」两条（demoCameraService L70-73），首页「开始跟练」的跳转目标必须在真实动作库与 demo 动作库之间做映射，不能假设动作名通用。"
+ ],
+ "redesignHooks": [
+  "边界最清晰、可整块换掉而不动逻辑的部分：① `.tl-row` 列表（L57-65，纯展示，输入是已算好的 timeline 数组）；② `.tl-foot` 三格（L77-90）——换成 `StatStrip` 只需把数据映射成 `StatItem[]`，样式整块丢弃；③ `.g-side` 的 legend 与 `.g-foot`（L184-202）——纯展示，可换任何组件；④ `.bars` 柱状图（L224-230）——输入是 `bars` 数组，输出是 DOM，可整块换成 SVG 或图表组件；⑤ `.meals` 三行（L241-248）——输入是 `mealRows`，`ShapeState` 已是独立组件；⑥ `.why` 卡（L251-260）——换 `InsightCard` 只需传 `cardId/eyebrow/title`，顺带获得可收起能力；⑦ `footer.footnote`（L266-269）；⑧ DailyWellnessCard 的整卡外壳与展开区——内容已由 `wellnessCards.ts` 完整供给，模板只是把 `detail/points/tags/source/athlete` 平铺出来，重排版零逻辑成本。",
+  "数据层已经是干净的 seam：DashboardView 里所有 computed 都可以原样搬进一个新的 `useDashboardData()` composable 或 store getter——`mainItem`(L301)、`totalMinutes`(L306)、`timeline`(L312)、`week`(L334)、`bars`(L442)、`peak`(L465)、`upcoming`(L450)、`mealRows`(L474)、`lastSame`(L496)、`recentAvg`(L502)、`avgRpe`(L430)、`tags`(L369)、`whyText`(L380)、`kicker`(L352) 都只依赖 store + services，没有一个读 DOM 或写 ref。把这层抽出来后，模板可以整份重写而不触碰任何口径。",
+  "services 层是现成的稳定接口，改版不应也不需要动：`pickDailyWellnessCard(date)`、`buildDayPlan`、`buildWeeklyReport`、`buildLoadSeries`、`intensitySplit`、`loadZone`、`summarizeDay`、`MEAL_SLOTS`、`WEEK_LABELS`、`loadOf`。DashboardView 已经把它们当纯函数调用。",
+  "样式与逻辑揉在一起、必须先解耦再换皮的地方：① `.g-body { display: contents }`（L626）——必须先把仪表的 DOM 结构定死（环 / 图例 / 数字三块）再谈重排；② `TwoPoleDial` 的内联 `--dial-size`（TwoPoleDial L5）——父组件无法从外部改尺寸，必须先去掉内联写法或加响应式 prop，否则任何尺寸调整都是无效的；③ `mainItem` 的选取规则（L301-305「时长最长者即主项」）与 `start()` 的跳转（L510-513）耦合在一起——换布局时要同时决定「主项是否还是最长的那段」「跟练页能不能接住这个动作名」；④ `notice.stale`（L32-35）的过期判断依赖 `plan.reason` 里是否包含 `PLAN_RULES_VERSION` 字符串（app.ts L314），这是靠字符串匹配实现的版本判定，UI 上任何「版本」展示都会牵动它；⑤ `.weekNo`（L343-349）——如果要改成别的展示口径，需要先抽到 weekRules，否则会和 ReportView 继续各算一份。",
+  "可直接复用的既有 seam：`BaseCard` 的 `--card-pad` 变量（BaseCard L30）已经是官方换肤入口，父子不抢 padding；`TwoPoleDial` 的 `tone: 'ink' | 'paper'` + `showTicks` + `showInnerRing` + `ariaLabel` 四个 prop 已经支持深浅两种表面；`ShapeState` 的 `state` 三态；`StatStrip` 的 `items` 数组（含 `unit`/`hint`/`tone`）；`InsightCard` 的 `cardId`（走 store 持久化的收起状态）；`LoadChart` 的 7 个纯 props（无取数逻辑，可整块替换）；`store.dayPlanNotice(reference)` 这一个方法已经封装了「已存计划优先、否则按档案现算」的口径。",
+  "若要把「今日养生」做成可隐藏/可下移/可重排（调研文档 L108/L131 的硬要求），现成接缝是 `store.collapsedCards` + `toggleCard(id)` + `isCardCollapsed(id)`（app.ts L66 / L855-864）——DailyWellnessCard 现在完全没用它，把 `expanded` 换成 store 状态即可获得跨页面持久化与隐藏能力。",
+  "组件拆分建议（当前全是 DashboardView 内部的裸 div）：`TimelinePanel`（时间轴 + 备注 + 三格 foot）、`RestDayPanel`、`LoadPanel`（已存在 LoadChart，只差外壳）、`GaugePanel`（仪表卡，含 legend/foot）、`WeeklyLoadBars`、`MealTodayPanel`、`WhyCard`——这七个区块的输入输出都已成形，拆出来后换皮可以逐块进行、逐块验收，不必一次性推翻整页。"
+ ]
+}

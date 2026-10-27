@@ -1,6 +1,6 @@
 <template>
   <aside class="rail" :class="{ open }" aria-label="主导航">
-    <RouterLink to="/dashboard" class="brand" aria-label="两仪·TwoPoles · 今日概览" @click="emit('close')">
+    <RouterLink to="/" class="brand" aria-label="两仪·TwoPoles · 今日两仪" @click="emit('close')">
       <svg viewBox="0 0 64 64" role="img" aria-label="两仪·TwoPoles">
         <g fill="none" stroke-width="5.4">
           <circle cx="32" cy="32" r="21.5" stroke="var(--brand-pole-ring)" />
@@ -45,14 +45,14 @@
 </template>
 
 <script setup lang="ts">
-import { CalendarDays, Dumbbell, Utensils, BarChart3, ClipboardList, Settings, UserRound } from 'lucide-vue-next'
+import { CalendarDays, Dumbbell, Utensils, CircleDot, ClipboardList, Settings, UserRound } from 'lucide-vue-next'
 
 defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 /** 脊上放短标签（86px 装不下全称），title 与移动端抽屉里给全称 */
 const items = [
-  { to: '/dashboard', label: '今日', full: '今日概览', icon: BarChart3 },
+  { to: '/', label: '两仪', full: '今日两仪 · 运动与饮食', icon: CircleDot },
   { to: '/plan', label: '计划', full: '训练计划', icon: CalendarDays },
   { to: '/execution', label: '跟练', full: '摄像头跟练', icon: Dumbbell },
   { to: '/meals', label: '饮食', full: '饮食记录', icon: Utensils },

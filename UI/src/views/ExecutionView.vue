@@ -724,7 +724,7 @@ function restart() {
 }
 
 function leave() {
-  router.push('/dashboard')
+  router.push('/')
 }
 
 onMounted(() => restart())

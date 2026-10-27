@@ -1,0 +1,165 @@
+{
+ "area": "饮食子系统（Meals / 拍照记录，Vue3 + Pinia）",
+ "purpose": "承担\"拍照→识别→确认→入库\"的完整饮食记录闭环，并向全应用输出结构化餐次数据。具体职责包括四条：①入口与引导——MealsView 提供\"拍一张，记一顿\"的主 CTA、手动补录入口、今日三餐进度 chip 与指标条；②采集——FoodCaptureDialog 负责调用摄像头 getUserMedia 或选择本地文件，生成待识别图像；③识别——把图像交给云端 LLM（`/api/llm/chat` 的 `image_url` 内容段）或本机 MediaPipe EfficientDet-Lite0，得到\"食物名 + 类别 + 置信度 + 可选份量/热量\"的候选清单，并强制校验（confidence 必填、不得臆造）；④入库与展示——确认后的 Meal 写入 Pinia `store.meals`，缩略图 data URL 落 localStorage，原图 Blob 落 IndexedDB，页面上以\"餐次卡片 + 食物行 + 类别覆盖\"展示，MealPhotoViewer 负责全屏看图。同时该子系统还是\"营养数据出口\"：`mealRules`/`foodComposition` 的常量与函数被 DashboardView、ReportView、SettingsView、weekRules 共同消费，改名或改语义会波及周报与首页。",
+ "files": [
+  {
+   "path": "d:/桌面/project/project/UI/src/views/MealsView.vue",
+   "role": "饮食页主视图（694 行）。承担 .lede 头 + StatStrip 指标条 + 拍照 hero 卡 + 今日记录列表/类别覆盖双栏 + 训练时间线 + InsightCard 的版式；内含全部派生状态（summary/records/coverageRows/mealStats/limitations/timeline）与编辑回写逻辑 onEditSave，是改版的主战场。",
+   "lines": 694
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/meals/FoodCaptureDialog.vue",
+   "role": "拍照/识别/确认弹窗（998 行，全子系统最大文件）。把相机 IO、canvas 压缩、两种识别 provider、候选编辑、缩略图生成、IndexedDB 写盘、隐私开关、body 滚动锁全部塞在一个组件里；视图状态机 capture→analyzing→result/error/manual。",
+   "lines": 998
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/meals/MealForm.vue",
+   "role": "食物条目编辑器（429 行）。当前仅被 MealsView 以 editing=true 用于\"编辑已存在餐次\"；内置单位↔克换算状态机（own/pending/demo）、单位克重记忆、内置食物目录搜索、常吃食物一键填表、逐行热量估算。",
+   "lines": 429
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/meals/MealPhotoViewer.vue",
+   "role": "全屏看原图弹窗（155 行）。photoId → getMealPhoto → URL.createObjectURL，失败时退回 props.fallback 缩略图；自带 body 滚动锁与 Esc 关闭，与 FoodCaptureDialog 的弹窗外壳重复。",
+   "lines": 155
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/foodRecognition.ts",
+   "role": "识别层（407 行）。prepareFoodPhoto 压缩、dataUrlToBlob、makeFoodThumbnail 缩略图、recognizeFoodWithModel（云端 LLM）、recognizeLocally（MediaPipe 本机）、validateRecognitionText/Object（防臆造校验），并导出 LOW_CONFIDENCE=0.6、MAX_IMAGE_EDGE=1024、MAX_INPUT_BYTES=12MB、LOCAL_CLASS_COUNT=9。",
+   "lines": 407
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/foodComposition.ts",
+   "role": "食物目录与热量估算（236 行）。UNIT_GRAMS、ESTIMATE_BAND=0.25、foodTable（60+ 条，全部 verified:false）、MIXED_FOODS、inferCategory/isMixedFood/searchFoods、estimateEnergy、unitKey/resolveUnitGrams（用户自定义克重覆盖）。",
+   "lines": 236
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/mealRules.ts",
+   "role": "餐次结构规则（237 行）。FOOD_CATEGORIES(10) / 私有 EXPECTED_CATEGORIES(8)、MEAL_SLOTS(3)、MEAL_TYPE_LABELS/OPTIONS、MEAL_TIME_WINDOWS（早/午/晚时间窗）、inferMealType、analyzeMeal、deriveCompleteness、summarizeDay、frequentFoods、buildLimitations。是 Dashboard/Report 的公共依赖，改动波及面最大。",
+   "lines": 237
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/mealPhotos.ts",
+   "role": "IndexedDB 照片层（88 行）。DB 'twopoles_meal_photos' v1、object store 'photos'、key=photoId、value=Blob；saveMealPhoto/getMealPhoto/deleteMealPhoto/clearMealPhotos，indexedDB 不可用时全部退化为 no-op。",
+   "lines": 88
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/stores/app.ts",
+   "role": "耦合中枢（962 行）。addMeal 负责建 Meal、算 completeness/analysis/estimateRefs 并 persistState + toast；removeMeal 联动 deleteMealPhoto；rememberUnitGrams/forgetUnitGrams；privacy.showEnergyEstimate / privacy.saveFoodPhotoLocally；unitGrams 覆盖表持久化。",
+   "lines": 962
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/types/domain.ts",
+   "role": "领域类型定义（373 行）。Meal / MealItem / MealDraft / MealAnalysis / ModelEnergyEstimate / EnergyEstimateRef / PrivacySettings / FoodCategory / MealType。改版若换结构需同步 localStorage 里的历史数据。",
+   "lines": 373
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/tokens.css",
+   "role": "设计 token（258 行）。明暗双主题变量、--breakpoint-sm/md/lg/xl（定义了但全项目零引用，实际断点散落在各组件的 @media 里）。",
+   "lines": 258
+  }
+ ],
+ "keyComponents": [
+  "MealsView.vue:6-14 `.lede` 页头：「记录饮食，拍一张就好」标题 + 右侧 `recordedSlots/3` 进度 chip（0 条时无 class，1-2 条 .part，3 条 .ok）。",
+  "MealsView.vue:17 `<StatStrip :items=\"mealStats\">` 指标条，4 项（已记录餐次、类别覆盖 x/8、热量估算状态、待确认项）。",
+  "MealsView.vue:21-32 `.capture-hero` BaseCard：主 CTA「拍一张，记一顿」打开 FoodCaptureDialog，次要链接「手动补录」以 initialView='manual' 打开同一弹窗。",
+  "MealsView.vue:35-95 `.day-grid`（grid-template-columns:1.9fr .8fr）：左侧 `.today-card`（BaseCard variant=\"flush\"）是当日餐次卡片列表，每张卡头含餐次类型下拉（原生 select）+ 时间 + 展开箭头，展开后是食物行 + 热量摘要 + 编辑/删除；右侧 `.side-col` 依次是「今日类别覆盖」和「一餐只要三步」howto 卡。",
+  "MealsView.vue:97-120 训练时间线 BaseCard（仅运动员模式显示）：把 meals 与 sessions 合并成按时间排序的时间线；session 时间用 `s.createdAt.slice(11,16)`。",
+  "MealsView.vue:122-127 `<InsightCard card-id=\"meal-rules\" :limitations>`：规则说明卡，折叠状态存 store.collapsedCards。",
+  "MealsView.vue:1-4 `<FoodCaptureDialog>` 与 `<MealPhotoViewer>` 两个 Teleport 弹窗宿主，页面本身只是挂载点。",
+  "FoodCaptureDialog.vue:1-60 弹窗外壳：scrim + 卡片头（标题 + 关闭「✕」）+ 底部（保存说明 + 「保存这一餐」/「重试」按钮）。",
+  "FoodCaptureDialog.vue:61-120 拍摄区（view='capture'）：三选一——开启摄像头（`cameraActive` 内嵌 <video> + 「拍照」按钮）、选择文件（<input type=file>）、「手动补录」。拍摄区是固定深色舞台（#0d1114）。",
+  "FoodCaptureDialog.vue:121-160 分析中（view='analyzing'）：两段式进度文案（processingStage='reading' 读图 / 'model' 跑模型），配 `.spin` 动画。",
+  "FoodCaptureDialog.vue:161-260 结果区（view='result' 与 view='manual' 共用同一模板分支）：识别出的食物候选列表（每行含名称输入、类别下拉、份量输入+单位下拉、置信度标签、热量、uncertain 标记）+ 「再加一项」+ 识别模式切换（本机/云端）+ 同意上传勾选 + 隐私开关「只在本机保存照片」。",
+  "FoodCaptureDialog.vue:261-300 错误区（view='error'）：展示 FoodRecognitionError 的中文文案 + 「重试」/「改用手动」两个出口。",
+  "FoodCaptureDialog.vue 底部 action bar：「保存这一餐」（主按钮，saving 时禁用并显示「保存中…」）。",
+  "MealForm.vue:1-120 编辑表单：`label` 标题 + 时间输入（<input type=time>）+ 若干 `.row` 食物行（名称/类别/份量/单位/热量/删除）+ 「添加一项」+ 内置目录搜索结果面板 + 常吃食物快捷 chip。",
+  "MealForm.vue 底部 `.form-actions`：「取消」+「保存修改」。",
+  "MealPhotoViewer.vue:1-33 全屏看图：`.photo-stage` 深色底居中放原图，底部 caption 区分「本机原图 · 仅存于这台设备」/「本机缩略图（原图未保存）」。"
+ ],
+ "uiPatterns": [
+  "页面骨架是「单列纵向流 + 局部双栏」：.lede 头 → StatStrip → 全宽 hero 卡 → .day-grid(1.9fr/.8fr) → 时间线 → InsightCard。移动端（max-width:767px）把双栏塌成单列、指标条换行。",
+  "卡片层级完全依赖 BaseCard：默认卡（带标题栏）、variant=\"flush\"（无内边距，用于贴边列表）、ink 变体。子组件里没有第二套卡片实现。",
+  "状态呈现方式不统一：同一页里同时存在 StatStrip 数值指标、.chip 药丸标签（ok/part 两态）、.f-conf 置信度条（high/low 两色）、.badge-photo 徽标、InsightCard 的折叠说明。徽标与 chip 全部用各组件自写的 scoped CSS，没有共享的 Badge 组件（common/StatusBadge.vue 只服务别处）。",
+  "交互模式：列表项用「单击展开/收起」的单开手风琴（expandedId 单值），编辑用「行内展开一个 MealForm」（editingId 单值）；两层互斥状态各用一个 ref 控制，没有统一 selection 状态机。",
+  "弹窗模式：scrim + 居中卡片 + header(标题/✕) + 内容区 + 底部 action bar，移动端（max-width:640px）变成全屏 100vh、圆角归零。FoodCaptureDialog 与 MealPhotoViewer 各写了一套几乎相同的壳与 body 滚动锁。",
+  "加载态：.spin 圆环（FoodCaptureDialog:922 与 MealPhotoViewer:143 各定义一份同名 keyframes）+ 文案；错误态用 .analysisError / .cameraError 段落内嵌；空态用 .empty（MealPhotoViewer）与 MealsView 的手写空态文案。",
+  "响应式断点散落且互不一致：MealsView 用 1099/767，FoodCaptureDialog 与 MealPhotoViewer 用 640，MealForm 用 520，StatStrip 用 1099，ToastRegion 用 767，PlanDraftDialog 用 720；tokens.css 里定义了 --breakpoint-sm/md/lg/xl 却零引用。",
+  "相机预览区是固定深色舞台（#0d1114），与浅色卡片形成强对比；这导致该区块必须写死浅色文字（#cbd5dc、#e8edf1），无法直接套用主题 token。",
+  "图标基本不用组件库：关闭用字符「✕」，其余靠文字与色块区分。"
+ ],
+ "styleApproach": "全部是 Vue SFC + `<style scoped>`，没有 CSS-in-JS、没有 Tailwind/UnoCSS。样式写法是「混合体」：能用 token 的地方用 var(--color-card)/var(--color-border)/var(--radius-xl)/var(--font-num)/var(--motion-fast)/var(--z-modal-backdrop) 这类 tokens.css 变量；不能用 token 的地方直接写死 rgba()/hex。具体坏味道：① 大量硬编码浅色值不随暗色主题变化——MealsView 的 `.chip.part{border-color:rgba(138,90,0,.26);color:#8a5a00}`、FoodCaptureDialog 的 `.badge-photo{background:rgba(15,118,110,.16)}`、`.privacy.upload{border-color:rgba(138,90,0,.25)}`、MealPhotoViewer 与 dialog 的 `.photo-stage{background:#0d1114}` 与 `.loading{color:#cbd5dc}`；其中 FoodCaptureDialog 的 `.candidate li{border:1px solid rgba(220,229,237,.85)}` 是近白色边框硬编码在白卡上，暗色主题下会变成刺眼白框。② 组件间重复实现同一视觉：`.spin` 关键帧在 FoodCaptureDialog:922 与 MealPhotoViewer:143 各写一份；`.empty`/`.loading` 空态样式各写一份；MealsView 与 ReportView 都手写「/ 8 类」的进度条；MealsView 的 `.row`、MealForm 的 `.edit-row`、FoodCaptureDialog 的 `.edit-row` 是三份互不复用的食物行布局。③ 缺口：没有共享的 Select 组件，MealsView 的餐次类型切换用原生 <select> 直接内联样式，视觉上与 BaseButton/BaseCard 体系脱节；没有共享的 Badge 组件，.chip/.f-conf/.badge-photo 三个徽标各写各的。④ 重复的自定义样式族：`.micro`/`.num` 已在 globals.css 里，但各组件仍在 scoped 里重复写 .micro{font-size:11px;letter-spacing:.08em} 类规则。改版时这些是主要返工点。",
+ "dataFlow": "【数据来源】① 照片输入：<input type=\"file\"> 的 File（Blob）或 getUserMedia 摄像头 canvas 导出的 data URL 字符串，两者在组件内以 `originalPhoto: Blob | string | null` 统一承载。② 识别结果：云端走 `recognizeFoodWithModel`（src/services/llm.ts 的 callLlmChat → POST /api/llm/chat，消息体里带 image_url 段），本机走 `recognizeLocally`（@mediapipe/tasks-vision ObjectDetector，模型 /mediapipe/models/efficientdet_lite0.tflite，wasm 在 /mediapipe/wasm，scoreThreshold 0.35、maxResults 16、9 个本地类）。③ 食物目录与热量：foodComposition.foodTable + UNIT_GRAMS + 用户覆盖表 store.unitGrams。④ 规则：mealRules.analyzeMeal / deriveCompleteness / summarizeDay / inferMealType。⑤ 全局状态：Pinia `useAppStore`（src/stores/app.ts），其中 meals、unitGrams、privacy 三块与本子系统直接相关。⑥ 浏览器存储：localStorage key `twopoles_state`（整个 app state，含 meals 数组、unitGrams、privacy、collapsedCards）与 `twopoles_llm`（模型配置，独立 key）；IndexedDB DB `twopoles_meal_photos` v1 / store `photos` / key=photoId / value=Blob。\n\n【完整链路：拍照→识别→确认→入库】（FoodCaptureDialog.vue）1) 选路：view='capture'，可开摄像头或选文件或直接进 view='manual'。2) 归一化：文件走 `prepareFoodPhoto`（createImageBitmap → canvas → JPEG data URL，最长边 1024，MAX_INPUT_BYTES 12MB 校验）；摄像头走 `captureFrame()`（canvas 缩放到最长边 1280 → toDataURL('image/jpeg',0.85)），这条路径不经过 prepareFoodPhoto。3) 识别：`recognizeFoodWithModel` 或 `recognizeLocally`，view 切到 'analyzing'，processingStage 区分 'reading'（读图）与 'model'（跑模型）；有 runId 计数 + AbortController + withTimeout（识别 120s、prepareFoodPhoto 20s）防竞态与超时。4) 校验：`validateRecognitionObject` 强制 confidence 必填、items ≤12、按小写名去重取高置信、energy 限 0..5000、portion 限 0<s≤5000 且 unit ∈ UNIT_GRAMS，并按 `row.uncertain===true || confidence<LOW_CONFIDENCE(0.6) || category==='其他' || isMixed(name)` 打 uncertain 标记。失败抛 FoodRecognitionError（code: image/network/not_configured/upstream/invalid_output/empty），view 切 'error'。5) 确认：view='result'（'manual' 共用同一模板），用户可改名称/类别/份量/单位；改名称会清掉 nutrition 与 confidence。6) 入库（save()，顺序是硬约束）：先 validate → 组装 normalized items → `makeFoodThumbnail(prepared)`（最长边 256、JPEG q0.7，5s 超时，长度上限 120_000 字符）→ `store.addMeal({date, mealType, time, items, photoThumb, photoId})` → addMeal 成功之后才 `saveMealPhoto(photoId, blob)`（摄像头 data URL 需先 `dataUrlToBlob`，10s 超时）→ toast 警告 → emit('saved') + emit('close')。关键点：`const photoId = photoThumb && originalPhoto.value ? newId() : undefined`（FoodCaptureDialog.vue:840）——原图是否落 IndexedDB 取决于缩略图是否生成成功，缩略图失败/超限时原图也被丢弃。7) 展示：MealsView 的 records 按 date 过滤、按 time+createdAt 排序；`openPhotoViewer` 打开 MealPhotoViewer，用 photoId 从 IndexedDB 取 Blob，失败时退回 meal.photoThumb（localStorage 里的 data URL）。8) 删除/清空：store.removeMeal 调 deleteMealPhoto；store.clearAllData 调 clearMealPhotos。\n\n【照片存储机制：两级】\n- 缩略图：JPEG data URL（最长边 256、q0.7），存在 `meal.photoThumb` 字段里，随整个 app state 一起序列化进 localStorage `twopoles_state`。它吃 localStorage 配额——store.persistState 已捕获 QuotaExceededError 并提示「可能是饮食照片缩略图占满了浏览器存储」。\n- 原图：Blob 存 IndexedDB（DB `twopoles_meal_photos`，store `photos`，key=photoId），meal 上只留 `meal.photoId` 字符串指针。`privacy.saveFoodPhotoLocally` 控制是否写原图（FoodCaptureDialog 里用 writable computed `saveThumb` 绑到 store.privacy.saveFoodPhotoLocally，勾选框的取值直接读写全局偏好并即时持久化），默认值 true。\n- 导出：SettingsView 的 JSON 导出剥掉 photoId（Blob 导不出），CSV 不含照片；因此导出后原图彻底不可达。\n\n【数据流方向】MealsView → FoodCaptureDialog（props: open/date/initialView；emits: close/saved）→ store.addMeal → localStorage + IndexedDB；MealsView → MealPhotoViewer（props: open/photoId/fallback/label；emits: close）→ IndexedDB 读 → objectURL。视图层不直接写 IndexedDB，也不直接写 localStorage，全部经 store / service。",
+ "stateModel": "【FoodCaptureDialog 视图状态机】type View = 'capture' | 'analyzing' | 'result' | 'error' | 'manual'（'manual' 与 'result' 共用同一模板分支，仅靠 isManual 区分文案）；mode: 'cloud' | 'local'（初始 'local'，loadStatus() 检测到已配置模型后切成 'cloud'，云端需勾选同意才可触发）；processingStage: 'reading' | 'model'。主链路 capture → analyzing → result（失败则 error，error 可重试回 analyzing 或改手动）；manual 直接进结果模板；保存成功后 emit('saved')+emit('close')，父组件把 open 置 false，watch 触发 cleanup() 清空 prepared/items/result/photo 并 abort 在途请求。\n\n【MealsView 视图状态机】expandedId: string | null（单开手风琴，展开某张餐次卡）；editingId: string | null（单开编辑态，展开 MealForm）；photoViewer: {photoId?, fallback?, label?} | null；captureOpen: boolean；captureInitialView: 'capture' | 'manual'。onEditSave 完成后 editingId=null 且 expandedId 设为新 meal.id。\n\n【领域状态枚举】MealType = breakfast | lunch | dinner | snack；Meal.completeness = 'complete' | 'partial' | 'unknown'（deriveCompleteness 要求每项 i.confirmed && i.portionSize !== undefined）；FoodCategory 10 值；MealItem.source = 'photo' | 'manual'；MealItem.uncertain = boolean；识别置信度分档：confidence ≥ LOW_CONFIDENCE(0.6) 为高，<0.6 为低。\n\n【规则状态】MEAL_TIME_WINDOWS 按当前本地时间推断餐次：05:00–10:29 早餐、10:30–14:59 午餐、15:00–21:00 晚餐、其余为加餐；MEAL_SLOTS 只有早/午/晚三个槽（defaultTime 08:00/12:00/18:30），加餐不在槽位体系内。\n\n【持久化状态机】app.ts 的 meals 数组是唯一真源；store.addMeal 会重算 completeness/analyzeMeal/estimateRefs 后 push 并 persistState；store.removeMeal 同时删 IndexedDB 照片；clearAllData 清 meals + unitGrams + privacy + clearMealPhotos。",
+ "coupling": "【跨组件 import】MealsView → FoodCaptureDialog、MealPhotoViewer、BaseCard/BaseButton/StatStrip/InsightCard、store(app.ts)、mealRules、foodComposition、foodRecognition。FoodCaptureDialog → foodRecognition（prepareFoodPhoto/makeFoodThumbnail/recognizeFoodWithModel/recognizeLocally/dataUrlToBlob/validateRecognitionObject/LOW_CONFIDENCE/LOCAL_CLASS_COUNT）、foodComposition（UNIT_GRAMS/FOOD_CATEGORIES/estimateEnergy）、mealRules（MEAL_TYPE_OPTIONS/FOOD_CATEGORIES/mealTypeLabel）、mealPhotos（saveMealPhoto）、store。MealForm → foodComposition（UNIT_GRAMS/foodTable/searchFoods/frequentFoods/estimateEnergy/unitKey/resolveUnitGrams）、mealRules（suggestCategory）、store（rememberUnitGrams/forgetUnitGrams）。\n\n【跨视图共享 service 常量（改版时最易踩雷）】mealRules.FOOD_CATEGORIES 被 MealsView、FoodCaptureDialog、ReportView、weekRules 消费；mealRules.RULE_VERSION 被 weekRules 消费；mealRules.MEAL_SLOTS 被 DashboardView 消费；mealRules.summarizeDay 被 MealsView 与 DashboardView 消费；foodComposition.FOOD_SOURCE_LABEL 与 estimateEnergy 的 basis 字符串被 UI 直接渲染成免责声明文案。\n\n【共享 store 字段】store.meals（MealsView、MealForm、FoodCaptureDialog 全部直接读写数组）、store.privacy.showEnergyEstimate（决定 addMeal 是否写 estimateRefs，UI 也据此显示热量）、store.privacy.saveFoodPhotoLocally（决定原图是否落 IndexedDB）、store.unitGrams（单位克重覆盖表，被 MealsView/FoodCaptureDialog/MealForm 共用）、store.collapsedCards（InsightCard 的 meal-rules 折叠态）。\n\n【共享类型】src/types/domain.ts 的 Meal/MealItem/MealDraft/MealAnalysis/PrivacySettings/FoodCategory/MealType 贯穿全链路；MealDraft 与 MealItem 的差异（draft 无 source/photoConfidence/uncertain/modelEnergy/confirmed）正是 MealsView.onEditSave 里手写字段搬运的原因。\n\n【隐性耦合（无 import 但强依赖）】① localStorage key `twopoles_state` 的 JSON 结构与 src/stores/app.ts 里的 persist/load 逻辑强绑定，改 Meal 字段名会让历史数据反序列化出 undefined。② MealsView 用 `document.getElementById('meal-'+meal.id)` 滚动定位到新记录，DOM id 与 meal.id 强耦合。③ MealsView 的 `limitations` 计算用字符串匹配 `l.includes('hasNutritionEstimate = false')` 过滤 mealRules 生成的文案，规则文案一改就失效。④ 拍摄/保存链路依赖 vite dev/preview 代理的 `/api/llm/chat`（body 上限 6,000,000 字节），与图片体积策略耦合。",
+ "designDebt": [
+  "MealsView.vue:519-527（onEditSave）：编辑保存不是更新，而是「先删后建」——`store.meals = store.meals.filter(m => m.id !== meal.id)` 直接改 store 数组（绕过 store.removeMeal，因此也绕过了 deleteMealPhoto，照片才得以幸存），再走 store.addMeal 重建。结果是每次编辑都换新 meal.id、createdAt 被重置、analysis/limitations/estimateRefs 全部重算，旧 id 引用的展开态、DOM id、潜在外部链接全部失效。改版应改成 store.updateMeal(id, patch) 原位更新，保留 id 与 createdAt。",
+  "FoodCaptureDialog.vue:840：`const photoId = photoThumb && originalPhoto.value ? newId() : undefined` —— 原图是否落盘取决于缩略图是否生成成功。makeFoodThumbnail 超时（5s）或结果超过 120_000 字符时，photoId 为 undefined，saveMealPhoto 永不执行，IndexedDB 里没有原图，用户拍的原片直接丢失。缩略图与原图应当各自独立决定是否持久化。",
+  "MealsView.vue:359：`time: s.createdAt.slice(11, 16)` —— createdAt 是 `new Date().toISOString()` 的 UTC 字符串，切片取的是 UTC 时分，而同页的餐次时间用的是本地 clockTime()。在 UTC+8 下训练时间线会整体差 8 小时。",
+  "foodRecognition.ts:69 的 JSDoc 写「把用户选/拍的照片缩到最长边 1280」，实际常量是 MAX_IMAGE_EDGE = 1024（同文件 :16）。文档与代码不一致。",
+  "FoodCaptureDialog.vue:640 与 :681 —— 摄像头路径单独用 1280 缩放并直接 toDataURL('image/jpeg',0.85)，完全绕过 prepareFoodPhoto：不做 EXIF 方向纠正、不做白底合成、不做 12MB 输入校验、不受 MAX_IMAGE_EDGE 约束。文件路径 1024、相机路径 1280，两条压缩策略不一致。",
+  "mealRules.ts:116 `export const LIMITATIONS = buildLimitations(false)` 与 foodComposition.ts:226 `export function summarizeEnergy(...)` 全项目零引用（已 grep 确认），是死导出。",
+  "mealRules.ts:8 `suggestCategory` 只是 foodComposition.ts:167 `inferCategory` 的转发；mealRules.ts 的 `isMixed` 是 foodComposition.ts:139 `isMixedFood` 的别名。两个「规则层」实际是「目录层」的转发壳，调用方却从不同模块引入，读者会误以为是两套口径。",
+  "「8 类」这个数字被复制了 5 处：MealsView.vue:167（`/ 8 类` 文案）、:289（`FOOD_CATEGORIES.slice(0, 8)`）、:313（`${s.coverage.length} / 8`）、FoodCaptureDialog.vue:413（`FOOD_CATEGORIES.slice(0, 8)`）、ReportView.vue:247/249/255。而 mealRules.ts:28 里真正的 8 类清单 EXPECTED_CATEGORIES 是 private 的，谁也拿不到。FOOD_CATEGORIES 一旦调整顺序（比如把「油脂类」提前），三处 slice(0,8) 全部会取错类别，且不会有编译错误。",
+  "「3 餐」也被复制：MealsView.vue:10 `recordedSlots === 3`，以及 mealRules.MEAL_SLOTS 隐含的 3。summary 里其实已经能拿到槽位数（MEAL_SLOTS.length），却用字面量 3。",
+  "「餐次槽位」有三套并存的定义：mealRules.MEAL_SLOTS（3 个，defaultTime 08:00/12:00/18:30）、MEAL_TYPE_LABELS/MEAL_TYPE_OPTIONS（4 个含 snack）、MEAL_TIME_WINDOWS（3 个时间窗）。MealsView 额外在组件内自己又列了一遍 ['breakfast','lunch','dinner','snack']。DashboardView 用 MEAL_SLOTS、MealsView 用 OPTIONS、推断用 WINDOWS，三者时间语义还不同（槽位给的是建议时间，窗口给的是边界）。",
+  "MealsView.vue:334：`base.filter(l => !l.includes('hasNutritionEstimate = false'))` —— 用字符串匹配去剔除 mealRules 生成的某条 limitation 文案。mealRules.ts 的文案一改措辞，这里就静默失效（多显示一条或多删一条），无类型保护。",
+  "MealForm.vue:147 `const UNITS = ['碗','盘','份','个','杯','片','克','把']` 与 FoodCaptureDialog.vue:318 `const UNIT_OPTIONS = Object.keys(UNIT_GRAMS)` —— 两份单位清单，来源不同（一个写死一个来自 UNIT_GRAMS），顺序也不同（把/克位置相反）。同一个 app 里两个下拉框选同一个单位，写入 store.unitGrams 的 key 却是 `unitKey(name, unit)`，其中 unit 字符串必须完全一致，这里靠巧合对齐。",
+  "食物行编辑器有三份互不复用的实现：MealForm.vue 的 `.row`（flex：名称/类别/份量/单位/热量/删除）、FoodCaptureDialog.vue 的 `.edit-row`（grid，无单位换算与目录搜索）、MealsView.vue 内联的编辑区。FoodCaptureDialog 的编辑器没有 MealForm 的单位↔克换算、常吃食物、目录搜索能力；MealForm 的编辑器没有 FoodCaptureDialog 的置信度/uncertain 展示。改版必须先合并成一份。",
+  "「不确定」的判定逻辑被复制三份：foodRecognition.ts 的 validateRecognitionObject（写 uncertain 标记）、FoodCaptureDialog.vue 的 uncertainNames（渲染标记）、MealsView.vue 的 itemIsUncertain（读时再判一次，含 category==='其他' / isMixed / photoConfidence 低）。三处的阈值与分类规则各写各的，很容易出现「保存时不确定、显示时不不确定」。",
+  "MealsView.vue:466 附近 `仅\"其他/油脂\"，未落入 8 类` 的兜底文案里硬编码了类别名，与 FOOD_CATEGORIES 常量脱钩。",
+  "FoodCaptureDialog.vue:580 `function clockTime(d: Date)` 重新实现了 HH:MM 格式化，而 src/utils/time.ts 里已有 pad+HH:MM 辅助（只是未导出、未被复用）。三方各写一份时间格式化。",
+  "FoodCaptureDialog.vue 与 MealPhotoViewer.vue 各写了一份完全相同的 body 滚动锁（前者 :419-420/:446/:451-452，后者 :59-68/:122）——包括保存/恢复 previousOverflow 的逻辑。两者可同时打开（MealsView 里从记录卡打开看图与从按钮打开拍照弹窗不冲突，但 Modal 层数一旦增加就会互相覆盖 overflow）。应抽成统一的 BaseDialog/ModalShell。",
+  "`.spin` 旋转动画在 FoodCaptureDialog.vue:922 与 MealPhotoViewer.vue:143 各定义一份同名 keyframes（颜色还不同）；`.empty`/`.loading` 空态样式同样各写一份。",
+  "暗色主题破洞：FoodCaptureDialog 的 `.candidate li{border:1px solid rgba(220,229,237,.85)}` 是近白色边框硬编码在白卡上，暗色主题下变成刺眼白框；MealsView 的 `.chip.part` 用 rgba(138,90,0,.26)/#8a5a00 写死琥珀色、FoodCaptureDialog 的 `.badge-photo` 用 rgba(15,118,110,.16) 写死青色，都不随 html[data-theme=\"dark\"] 变化。",
+  "MealForm 的「换算状态」是个自造状态机：convOf 返回 own/pending/demo 三态，rememberPer/forgetPer 直接写 store.rememberUnitGrams/forgetUnitGrams，且 submit() 因为存在 pending 换算而直接禁止保存。用户改了份量单位但没点「记住」就无法保存，这是一条没有提示、极易造成「保存按钮点不动」的隐式规则。",
+  "MealForm 模板里对同一行重复调用 convOf(row) / rowEstimate(row) 四五次，convOf 内部做 findFood + resolveUnitGrams，无缓存；formEstimate 又对每行再算一次 estimateEnergy（内部再走一次目录查找）。行数一多就是明显的重复计算。",
+  "MealForm 用 `ref=\"nameEls\"` / `ref=\"sizeEls\"` 收集 v-for 里的 DOM，再靠 `items.value.indexOf(row)` 去索引 nameEls[sizeEls] —— Vue 3 里 v-for 中的 ref 数组不保证与源数组同序，靠 indexOf 兜底也只对当前数组有效；一旦 items 被过滤/重排就会取到错误的输入框。",
+  "MealForm 编辑时不清理随食物名变化的派生字段：改名称后原来的 photoConfidence / uncertain / modelEnergy 仍原样回写（FoodCaptureDialog 的 onName 反而会清掉 nutrition 与 confidence）。同一份数据在两条编辑路径上语义相反——把「米饭」改成「牛肉面」还会留着原来那碗米饭的模型热量。",
+  "MealsView 里的 structureText 在有 analysis.categoryCoverage 时用快照、无则用 FOOD_CATEGORIES.filter 现场算 —— 两条兜底路径的类别集合不同（分析只含 EXPECTED_CATEGORIES 8 类，兜底会包含油脂类/其他），同一餐次可能显示出不同口径。",
+  "MealsView 里的 `date` 是模块初始化时的 const now = new Date()，没有日期切换能力；FoodCaptureDialog 的 `date` prop 也永远是「今天」。想加「补记昨天」得先改这一层。",
+  "MealsView 的餐次类型切换用的是原生 <select> 直接写样式，与 BaseButton/BaseCard 体系脱节；MealForm 的类别与单位下拉同样是裸 select。全项目没有 Select 组件，是当前改版最直接要补的缺口。",
+  "MealsView 的 `store.meals` 被视图层直接赋值（第 519 行），绕过了 store 的 action 层，破坏「只有 store 能改状态」的约定，也让 removeMeal 里附带的 deleteMealPhoto 副作用被无声跳过（此处是幸运，若将来补上该副作用就会误删照片）。",
+  "MealsView 用 `document.getElementById('meal-' + meal.id)` 滚动定位新记录，DOM id 命名与数据 id 绑定，模板重排时容易漏改。",
+  "store.addMeal 只在 `privacy.showEnergyEstimate` 为真时才写 analysis.estimateRefs —— 热量估算是写入时快照，不是读取时计算。用户后来打开设置开关，历史的餐次依然没有热量，热量区块不会回填。",
+  "食物行是 `<img :src=\"meal.photoThumb\">` 直接内联 data URL，缩略图 data URL 会被复制进每一次 localStorage 序列化；store.persistState 已经因此捕获过 QuotaExceededError（提示「可能是饮食照片缩略图占满了浏览器存储」）。数据量上去后 localStorage 必然是瓶颈。",
+  "types/domain.ts:228 的 MealItem.foodId（`${category}-${foodName}`，app.ts:766 生成）全项目无人读取，是写了但没接上的半成品字段。",
+  "交付说明.md:495 描述端侧识别用的是 `composables/useFoodPhoto.ts`，但 src/composables/ 下只有 pose 相关的 6 个文件，该文件已不存在（说明文档自己标注「已被第二十一轮取代」）；而 research/界面偏好调研.md:56 仍以 `useFoodPhoto.ts` 为依据断言「候选 + 区间 + 默认关闭 + 照片不落盘」设计与证据一致、要保留——这与现状完全相反：现在默认 saveFoodPhotoLocally=true，缩略图落 localStorage、原图落 IndexedDB。改版前应先订正这处调研结论，否则会按一个已废弃的设计做决策。",
+  "调研文档还主张「照片不上传」作为首页文案与导出区卖点（research/界面偏好调研.md:107），而现状是云端识别必然上传图片（需用户勾选同意）。这条约束当前被事实打破，需要在改版文案中明确区分「本机保存」与「云端识别需上传」两件事。"
+ ],
+ "constraints": [
+  "IndexedDB 存储契约不能改：DB 名 `twopoles_meal_photos`、版本 1、object store `photos`、key 为 photoId 字符串、value 为 Blob。改库名/版本/store 名/值类型后，已有用户设备上保存的原图将无法被 getMealPhoto 找回（且当前没有迁移代码）。photoId 与 localStorage 里 meal.photoId 的对应关系必须保持。",
+  "localStorage 键与结构不能改：`twopoles_state`（整个 app state，含 meals 数组、unitGrams、privacy、collapsedCards）与 `twopoles_llm`（模型配置，独立 key）。Meal/MealItem 字段名（photoThumb/photoId/items/analysis/createdAt 等）被持久化读取，改名会让历史数据反序列化为 undefined。",
+  "导出格式不能改：SettingsView 的 JSON 导出（剥掉 photoId）与 CSV 导出，字段名与列顺序被外部流程依赖。",
+  "餐次推断口径不能改：MEAL_TIME_WINDOWS 边界 05:00–10:29 / 10:30–14:59 / 15:00–21:00，其余为加餐；EXPECTED_CATEGORIES 的 8 类与 FOOD_CATEGORIES 的 10 类之间的差集（油脂类、其他）是「不算覆盖」的业务定义，不是显示偏好。",
+  "热量估算口径不能改：ESTIMATE_BAND=0.25（±25%）、只在食物命中 foodTable、非混合菜、有份量、unit ∈ UNIT_GRAMS 时才给值、basis 字符串必须带单位克重与「own/demo」来源标注、FOOD_SOURCE_LABEL='内置演示参考值（未与权威成分表逐项核对）' 必须随 UI 一起呈现、foodTable 全部条目 verified:false——这些是反臆造的产品底线，改版时不能因为版式需要而隐藏或软化免责声明。",
+  "置信度口径不能改：LOW_CONFIDENCE=0.6 是 uncertain 判定阈值；识别结果必须带 confidence，不允许无置信度入库；≤12 项、按名称去重取高置信、energy 限 0..5000、portion 限 0<s≤5000。",
+  "图片体积与格式约束：MAX_IMAGE_EDGE=1024（file 路径）、MAX_INPUT_BYTES=12MB、缩略图最长边 256 且 JPEG q0.7、缩略图 data URL ≤120_000 字符；`/api/llm/chat` 代理 body 上限 6,000,000 字节。改版若改用新上传通道，需重新核对这三个上限的先后关系。",
+  "硬件/浏览器 API：navigator.mediaDevices.getUserMedia 需要 HTTPS 或 localhost（file:// 或 http 局域网下摄像头不可用，UI 必须保留「选择文件」兜底路径）；canvas.toDataURL('image/jpeg') 与 createImageBitmap 的可用性；MediaPipe 资产路径 `/mediapipe/wasm` 与 `/mediapipe/models/efficientdet_lite0.tflite`（vite 静态资源路径，改 base 或部署路径会断）；ObjectDetector 参数 scoreThreshold 0.35、maxResults 16、9 个本地类不可随意改，否则识别行为变化。",
+  "本机识别路径不得上传图片、必须显式获得用户同意后才走云端（consent 勾选），这是隐私硬约束，不能为了「一键拍完就出结果」而默认开启云端。",
+  "识别模型服务契约：/api/llm/chat 的 image_url 内容段与 FOOD_RECOGNITION_SYSTEM 规定的 JSON 结构（items[] 字段 foodName/category/confidence/uncertain/portion/energy），以及 LLM 输出禁止推断餐次类型、禁止给营养建议的提示词约束。",
+  "本地识别的模型只认 9 类，识别结果必须允许用户改名、改类别；UI 不能假设模型给出的类别一定属于 10 类 FoodCategory。",
+  "newId() 依赖 crypto.randomUUID 并带降级方案（src/utils/id.ts），photoId 生成不能改成自增或时间戳（会与 IndexedDB key 语义冲突）。",
+  "indexedDB 不可用时（隐私模式等）mealPhotos 的 API 退化为 no-op，UI 必须能容忍「有缩略图但无原图」的状态（MealPhotoViewer 的 isOriginal=false 分支）。"
+ ],
+ "redesignHooks": [
+  "【清晰边界，可整块换掉】四个 service 层（foodRecognition / foodComposition / mealRules / mealPhotos）是纯函数 + 纯 IO，没有 Vue 依赖，换皮期间完全不用碰；它们的常量（LOW_CONFIDENCE、UNIT_GRAMS、MEAL_TIME_WINDOWS、FOOD_CATEGORIES、ESTIMATE_BAND）已被视图层引用，替换视图时保持常量不变即可。",
+  "【清晰边界，可整块换掉】通用展示原语 BaseCard / BaseButton / StatStrip(+StatItem 类型) / InsightCard / StatusBadge / ToastRegion 已是稳定的 API 面（props 少、variant 枚举清晰），新页面直接复用即可；饮食页的自定义 chip/f-conf/badge 都可以换成 StatusBadge。",
+  "【清晰边界，可整块换掉】基础样式层 tokens.css（明暗双主题变量）与 globals.css（.micro/.num）已就位，新版只要用 token 就不必再调色。",
+  "【清晰边界，可整块换掉】MealPhotoViewer 是独立自洽的弹窗（只依赖 props.open/photoId/fallback/label 与 emits.close），可以整体保留或整体替换为新的 BaseDialog 变体，不影响数据链路。",
+  "【清晰边界，可整块换掉】store 的 action 面（addMeal/removeMeal/updateMealType/rememberUnitGrams/forgetUnitGrams/toggleCard/updatePrivacy/showToast）已经是清晰的写入口，视图层新代码只要走 action 就不破坏持久化。",
+  "【清晰边界，可整块换掉】src/types/domain.ts 的领域模型是稳定的契约层，界面上换布局不需要动它。",
+  "【清晰边界，可整块换掉】FoodCaptureDialog 的 props/emits 契约（open/date/initialView → close/saved）足够稳定，换皮时保持这个契约，就能让 MealsView 只改版式不改逻辑。",
+  "【必须先解耦】FoodCaptureDialog.vue（998 行）是最大的纠缠点：一个文件里同时有 (a) 相机/文件 IO（getUserMedia、captureFrame、canvas 压缩）、(b) 识别 provider 调度（云端/本机、AbortController、runId、withTimeout）、(c) 校验后的候选数据模型、(d) 候选编辑 UI、(e) 缩略图/原图持久化、(f) 隐私开关、(g) 弹窗外壳与 body 滚动锁、(h) 约 120 行 scoped CSS。改版前应拆成 useFoodCamera / useFoodRecognizer / useMealPhotoStorage 三个 composable + 4 个纯展示子视图（CaptureView / AnalyzingView / ResultView / ManualView），把 view 状态机提为显式的状态对象；否则任何视觉调整都会碰到 IO 与持久化代码。",
+  "【必须先解耦】MealForm.vue（429 行）把「单位↔克换算状态机（own/pending/demo）+ 单位克重记忆 + 内置目录搜索 + 常吃食物 + 逐行实时热量」与表单版式耦合在一起，且自带一份与 FoodCaptureDialog 不同的单位清单和第三份食物行布局。改版前应先抽 foodRowEditor 组件 + useUnitGrams composable，两条编辑路径共用。",
+  "【必须先解耦】MealsView.vue（694 行）把全部 view-model 派生（summary/records/coverageRows/mealStats/limitations/timeline/itemIsUncertain/structureText/localEnergyText/modelEnergyText…）与 300+ 行模板/CSS 写在一个 SFC 里；改版前应把派生逻辑抽成 useMealsViewModel()（纯 computed 组合式函数），让模板只负责渲染——这同时能顺手修掉第 334 行那种字符串匹配过滤 limitation 的脆弱写法。",
+  "【必须先解耦】三处 body 滚动锁（FoodCaptureDialog、MealPhotoViewer、PlanDraftDialog）与三处 modal 外壳（scrim+header+✕+action bar）应统一成一个 BaseDialog 组件（提供 open/scroll-lock/Esc/焦点管理/响应式全屏），这是换皮收益最高的一步。",
+  "【必须先解耦】「食物行编辑器」有三份重复实现（MealForm 的 .row、FoodCaptureDialog 的 .edit-row、MealsView 内联），必须先合并成单一 FoodRowEditor（可配置是否显示置信度/单位换算/热量），再谈视觉统一。",
+  "【必须先解耦】「餐次槽位」三套定义（MEAL_SLOTS / MEAL_TYPE_OPTIONS / MEAL_TIME_WINDOWS）应先合并为单一模型（并导出 EXPECTED_CATEGORIES 供视图用），否则新版布局里「今日 3 餐进度」和「类别覆盖 8 类」两个模块会继续各写各的字面量。",
+  "【可作为重排支点的接缝】`<FoodCaptureDialog :open :date :initial-view @saved @close>` —— 换皮时可把它整体换成新弹窗，只要保持 emits.saved(meal) 语义。",
+  "【可作为重排支点的接缝】`<StatStrip :items>` —— 新版顶部指标条可继续用它，或按同一 StatItem 结构做新皮肤。",
+  "【可作为重排支点的接缝】`<InsightCard card-id=\"meal-rules\" :limitations>` —— 规则说明区是独立卡片，折叠态已在 store，换版可自由重排位置。",
+  "【可作为重排支点的接缝】store.meals 是唯一真源且每条 Meal 自带 analysis/limitations/estimateRefs 快照 —— 新版可以只做「读」渲染而不重算，这给新布局极大自由度（但要注意 estimateRefs 是写入时快照，后台重算逻辑不能省）。",
+  "【可作为重排支点的接缝】meal.photoThumb（内联 data URL）与 meal.photoId（IndexedDB 指针）分离，意味着新版可以自由决定卡片用哪一张图，甚至换成 <picture>/懒加载而不动存储层。",
+  "【可作为重排支点的接缝】mealRules.summarizeDay / foodComposition.searchFoods / foodComposition.frequentFoods 都是可直接驱动新组件的服务函数。"
+ ]
+}

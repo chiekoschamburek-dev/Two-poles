@@ -8,11 +8,11 @@
 
 | 范围 | 状态 |
 |------|------|
-| 页面视图 | **7 / 7 都有实际界面**（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）。计数已与识别联动、计划版本与调整确认在本机落地；没有账号后端，模型请求经同源 Vite 代理转发 |
+| 页面视图 | **双极工作台 + 6 个下钻页都有实际界面**（`/` 今日两仪 / Onboarding / Plan / Execution / Meals / Report / Settings；旧 `/dashboard` 重定向到 `/`）。首屏左运动、右饮食，底部同期对照；手机端叠卡切换。计数已与识别联动、计划版本与调整确认在本机落地；没有账号后端，模型请求经同源 Vite 代理转发 |
 | 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好都存在 localStorage；开启照片保存时，餐食记录带一张 256px JPEG 缩略图，原图另存本机 IndexedDB。可从设置页导出 JSON/CSV（JSON 含缩略图、不含原图，CSV 不含图片）或一键清除 |
 | 训练反馈 | ✅ 跟练结束可填 RPE（**0–10**，或留空=未记录）、不适、部分完成原因与备注，写回该条 session 并持久化 |
 | 建档 | ✅ 三步表单写入 `store.updateProfile()`，含场地多选；12–17 岁与勾选孕期/伤病限制者只保留记录与手工录入，不生成自动推荐 |
-| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **237 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
+| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **272 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘，以及**第 12 节双极同期对照**）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
 | 摄像头 | **真联动 + 未实测**：实时摄像头分支由 MediaPipe 关键点角度驱动 `useRepCounter` 状态机计数（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），支持机位校准与手工修正，模型计数与修正值分别保留。**未在任何真机上验证过计数准确率**，90% 误差指标待隔离测试集实测；权限被拒、无设备或非安全上下文时自动退回"演示回放"，界面明确标注计数来源。取帧用 `requestVideoFrameCallback` 的真实帧时间戳，推理默认在经典 worker 内跑 **GPU delegate**（构建后实测生效），两者任一不可用则自动回落主线程 / CPU，状态文案如实显示实际后端 |
 | 记录入口（调研 P1-6） | ✅ 饮食页只有一个主入口「记录饮食」：拍照/选图 → 项目已有模型（设置页或服务端默认，需支持图片输入；无模型时走端侧 EfficientDet 9 类）→ 按拍摄时间自动判餐次 → 默认直接保存。结果页不展示完整表单，低置信度/待确认项明确标出，想改再展开；保存后的记录仍保留查看、编辑、删除与常吃/搜索/单位↔克数换算。模型识别要求在拍照前勾选发送同意，原图不保存；失败不生成记录。 |
 | 内容库 | 动作库 `services/exercises.ts` 27 条（含 1 条停用）带器材/场地/时长/强度/限制门槛与来源标注；食物目录 `services/foodComposition.ts` 56 条 + 22 种混合菜，全部 `verified: false` |
@@ -24,13 +24,13 @@
 
 ## 🎨 设计特性
 
-- **纸面 + 单一强调色**（UI 3.0）：底 `#f2f1ec` 中性纸面 + 白卡 + 1px 发丝线，圆角收到 6–16px；强调色只有 `#0f766e` 一种，第二极 `#24586f` 只给"饮食"这条数据线。状态一律**形状 + 文字双编码**（实心＝完整 / 半填＝部分 / 空心＝未记录），不靠颜色单独传达。7 条路由实测 0 项 WCAG AA 失败
+- **纸面 + 单一强调色**（UI 3.0）：底 `#f2f1ec` 中性纸面 + 白卡 + 1px 发丝线，圆角收到 6–16px；强调色只有 `#0f766e` 一种，第二极 `#24586f` 给"饮食"这条数据线。本轮把两极显式成 `--pole-movement*`（青，左栏运动）与 `--pole-nutrition*`（蓝，右栏饮食），只用于身份条、栏顶细线、联动按钮与图标。状态一律**形状 + 文字双编码**（实心＝完整 / 半填＝部分 / 空心＝未记录），不靠颜色单独传达
 - **数字是第一主角**：数字单独一套 `--font-num`（Bahnschrift → DIN 骨架），44–64px 等宽字；小标签统一 `.micro`（10px + `.17em` 大写）。指标从"四张等宽卡"改成一条 `StatStrip` 指标条，数字竖着能比
 - **克制的表面**：全站只有两种表面——纸面（`BaseCard` 的 `default` / `flush`）与仪表面（`variant="ink"`，只给首页的双极环）。`body` 一层颗粒纹理（opacity .018，深色 .05）；悬停只交换边框色，不做位移、不做图标旋转
 - **克制的动效**（按调研 P0-3 收敛）：无常驻循环动画、无入场错位延时；动效只在一次性入场与操作之后出现。仅两处循环且都在"操作进行中"才存在——演示回放边框扫光、休息阶段徽标呼吸。`prefers-reduced-motion` 全量降级（实测：概览等 6 页常驻无限动画 0，跟练页 1）
-- **响应式设计**: 断点已定义（移动/平板/桌面），未在真实设备上逐一验证
+- **双极布局**: ≥1024px 左右两栏并排、各自滚动；<1024px 两张卡片上下叠放，下面那张只露出 88px 摘要条，点击交换位置。两栏之间由 `services/bridgeRules.ts` 给出"今日 + 本周"的同期对照，只并排事实、不推断因果。断点已在 1440 / 1024 / 768 / 390 四个宽度截图核对，但仍未在真实设备上逐一验证
 - **双模式支持**: ✅ **页头模式芯片**与设置页切换都先展示差异与未完成计划、确认后才生效；运动员模式已接入距离/时长与 session-RPE 负荷、四周周期视图与训练日用餐时间线（周期计划的跨端录入仍待后端）
-- **无障碍**: ⚠️ 布局与关键控件带 ARIA（抽屉 `aria-expanded`、模式菜单 `role=menu`、演示播报 `aria-live`），但"完整键盘导航"未整体核对
+- **无障碍**: ⚠️ 布局与关键控件带 ARIA（抽屉 `aria-expanded`、模式菜单 `role=menu`、演示播报 `aria-live`；双极视图切换用 `role=tablist` + 方向键，手机端后卡 `inert` / `aria-hidden`，交换后焦点移到新前卡并 `aria-live` 播报），但"完整键盘导航"未整体核对
 - **跟练计数**: 实时摄像头分支由端侧关键点状态机驱动计数（含机位校准、遮挡冻结与手工修正）；另有预设时间线的"演示回放"供无设备时讲解，界面标注当前计数来源
 
 ## 🚀 快速开始
@@ -75,16 +75,18 @@ UI/
 │   ├── components/
 │   │   ├── common/          # BaseButton / BaseCard / StatusBadge / InsightCard / ToastRegion
 │   │   │                    # + TwoPoleDial（双极环）/ StatStrip（指标条）/ ShapeState（三态形状）
+│   │   ├── poles/           # PoleShell / PoleTabs / PoleMark / MovementPole / NutritionPole
+│   │   │                    # + BridgeBand（底部同期对照）/ BridgeDialog（完整协同弹层）
 │   │   ├── meals/           # FoodCaptureDialog（拍照/同意/识别结果/轻量修改）+ MealForm（保存后的可选编辑）
 │   │   └── layout/          # AppShell / TopBar（58px 纸面页头，含模式芯片）/ SidebarNav（86px 图标脊）/ MobileNav
 │   ├── composables/         # usePoseCamera.ts + poseEngine.ts + poseInference.worker.ts（端侧姿态识别：worker/GPU 推理、骨架、可见度、关节角）· useRepCounter.ts（计数状态机）
-│   ├── views/               # 7 个页面均有实际界面（Onboarding / Dashboard / Plan / Execution / Meals / Report / Settings）
+│   ├── views/               # TwoPolesView（首屏双极）+ Onboarding / Plan / Execution / Meals / Report / Settings
 │   ├── stores/              # app.ts（mode、profile、sessions、meals、privacy、toast）
-│   ├── services/            # foodRecognition（云端/本机可替换识别）、mealRules（结构规则与餐次时间窗）、foodComposition（目录/估算）、llm（计划模型与代理）、planRules、weekRules、loadRules 等
+│   ├── services/            # bridgeRules（运动×饮食同期对照）、foodRecognition（云端/本机可替换识别）、mealRules（结构规则与餐次时间窗）、foodComposition（目录/估算）、llm（计划模型与代理）、planRules、weekRules、loadRules 等
 │   ├── types/               # domain.ts
 │   ├── utils/               # id.ts（非安全上下文 ID 兜底）、time.ts（日期/问候/日历偏移）
 │   ├── styles/              # tokens.css（UI 3.0 令牌）/ globals.css（.micro .num .hairline）/ animations.css / gradients.css（只剩回放扫光）
-│   ├── router/              # index.ts（7 条路由，全部懒加载）
+│   ├── router/              # index.ts（首屏 + 6 个下钻页，旧 /dashboard 重定向）
 │   ├── App.vue
 │   └── main.ts
 ├── index.html
@@ -98,6 +100,15 @@ UI/
 ## 🎯 核心功能
 
 以下逐项标注真实状态。✅ 已实现 · ⚠️ 部分实现 · ❌ 未实现（仅设计目标）
+
+### 0. 双极工作台（首屏）
+- ✅ 桌面左栏运动、右栏饮食，两栏各有「今日 / 本周 / 记录」三个视图，独立滚动
+- ✅ 手机端两张卡片叠放，下面一张露出摘要条；点摘要条或「切换」交换位置，前卡有焦点环与 `aria-live`
+- ✅ 运动栏：今日计划、开始跟练、本周完成/时长/负荷、每日负荷柱、近 28 天强度分布、最近训练记录、未建档引导
+- ✅ 饮食栏：今日三餐、记录饮食/手动补录、类别覆盖、完整/部分/加餐统计、本周记录分布与类别出现次数、最近餐食与照片
+- ✅ 两仪联动：今日训练与餐食缺失、只有一极、两边都记、本周训练日与无训练日类别覆盖差、不适安全提示；一律"同期出现，不代表因果"
+- ✅ 底部「合」区：双极环（本周有记录天数占比）、今日数字、最多两条联动提示、「展开协同」完整弹层
+- ✅ 跨栏脚注：「去看看」在桌面高亮另一栏、手机交换卡片；两栏身份条的「协同」直接打开弹层
 
 ### 1. 双模式系统
 - ✅ **页头右侧的模式芯片**可切换（UI 3.0 从侧栏迁来），切换前先列差异与未完成计划，确认后写入 localStorage 并弹 Toast
@@ -207,7 +218,7 @@ UI/
 
 ## 📱 响应式断点
 
-- **Mobile**: < 768px - 底部 4 Tab（今日 / 记录 / 图表 / 我的，选中项带 `aria-current`，触控目标实测 64×57px）+ 汉堡抽屉（计划、跟练等完整导航仍在抽屉里；遮罩可关闭，选中导航项自动收起），垂直堆叠卡片
+- **Mobile**: < 768px - 底部 4 Tab（两仪 / 记录 / 图表 / 我的，选中项带 `aria-current`）+ 汉堡抽屉（计划、跟练等完整导航仍在抽屉里；遮罩可关闭，选中导航项自动收起）；首屏是前后叠放的两极卡片，前后交换而不是纵向堆叠
 - **Tablet**: 768–1099px - 图标脊收起为 **244px 抽屉**；汉堡按钮与抽屉**同档出现**（这是第十八轮修掉的旧 bug：此前 768–1099 之间没有任何导航入口）
 - **Desktop**: ≥ 1100px - 固定 **86px 图标脊**（文字标签 10px，`title` 给全称），内容区多列布局
 
@@ -218,7 +229,7 @@ UI/
 - ✅ 布局组件带 `aria-label` / `aria-live`（TopBar、AppShell、SidebarNav、MobileNav、ToastRegion）
 - ✅ 汉堡按钮有 `aria-expanded`，模式菜单用 `role=menu` / `role=menuitem`，日历 tab 用 `role=tab` + `aria-selected`
 - ✅ Execution 的提示语位于 `aria-live="polite"` 区域；控件按钮有 `aria-label`，禁用态用 `disabled`
-- ✅ Dashboard 的"记录这一餐"改为 `RouterLink`，可聚焦可回车
+- ✅ 双极工作台的"记录这一餐 / 完整计划 / 去看看"都是 `RouterLink` 或 `button`，可聚焦可回车；视图切换是 `role=tablist` + 方向键；手机端后卡 `inert` + `aria-hidden`，交换后焦点移到新前卡
 - ✅ `globals.css` 有 `:focus-visible` 焦点环；`BaseButton` 最小高度 44px
 - ✅ `prefers-reduced-motion` 在 `tokens.css` 与 `animations.css` 中均有降级处理
 
@@ -294,6 +305,7 @@ npm run camera:assets
 
 > 2026-10-16 那轮在浏览器里逐项目测过的标 ✅；未跑过的保持 [ ]。**深色模式已经实现（第十六轮，三态：跟随系统/浅色/深色）**，第十八轮又跟着新令牌重新取值。
 
+- [x] 双极工作台：1440 两栏 / 390 叠卡交换 / 768 平板 / 深色 / 空档案 / 协同弹层（无头截图；横向溢出 0）
 - [x] 建档三步流程（校验、回顾、写入 localStorage）
 - [x] 模式切换生效并落盘（含运动员模式展示分支）
 - [x] 跟练：跳过 / 结束记录 / 手动修正 / RPE 反馈 / 结果落盘
@@ -324,8 +336,8 @@ npm run camera:assets
 
 ---
 
-**注意**: 这是一个无后端的本机演示前端。7 个页面都有实际界面；档案、模式、训练与反馈、餐食记录、隐私偏好都存在 localStorage。
-视觉为 UI 3.0（纸面 + 单一强调色 + 双极仪表），静态外观以 `../redesign-shots/` 的真机截图为唯一事实来源。
+**注意**: 这是一个无后端的本机演示前端。首屏是双极工作台（左运动、右饮食，手机端叠卡切换），另有 6 个下钻页都有实际界面；档案、模式、训练与反馈、餐食记录、隐私偏好都存在 localStorage。
+视觉为 UI 3.0（纸面 + 单一强调色 + 双极仪表 + 左右两极身份色），静态外观以 `../redesign-shots/` 的真机截图为唯一事实来源。
 主要缺口：
 
 1. **真机摄像头未验证**——姿态识别与计数**已经联动**（`useRepCounter` 由关节角驱动），但没有在任何真机上量过计数准确率。

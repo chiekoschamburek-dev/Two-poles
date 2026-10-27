@@ -1,0 +1,165 @@
+{
+ "area": "应用外壳与全局导航（AppShell / TopBar / SidebarNav / MobileNav / 路由）",
+ "purpose": "这一层负责把 7 个业务页面装进一个统一的「左图标脊 + 顶页头 + 内容列 + 移动端底栏」外壳里，并承载三类**全局上下文**（而非页面级内容）：① 当前模式（大众/运动员）的切换入口与切换前确认；② 全局导航信息架构（桌面图标脊 / 平板抽屉 / 手机胶囊底栏三套形态指向同一批路由）；③ 全局浮层宿主（Toast 通知区、AI 计划草稿对话框）。它同时是**响应式形态切换的总闸**——断点选择（1099px 抽屉化、767px 底栏化）直接决定三套导航组件各自的显示形态。文件分层上它刻意做得很薄：App.vue 只渲染 AppShell，AppShell 只做「装配 + 抽屉开合 + 路由出口 + store.init()」，几乎不含业务逻辑，因此它是前端改版中**最容易整块替换**的一块；但它同时也是**布局契约的源头**（侧栏宽度、z-index 层级、页头高度），任何视觉改动都会外溢到 Toast 定位、抽屉遮挡、移动端底栏等下游依赖。",
+ "files": [
+  {
+   "path": "d:/桌面/project/project/UI/src/App.vue",
+   "role": "应用根，3 行。唯一职责是渲染 <AppShell />；不含 router-view、不含 provider、不做 store 初始化",
+   "lines": 3
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/layout/AppShell.vue",
+   "role": "外壳装配层：TopBar + SidebarNav + scrim + main>RouterView + MobileNav + 两个全局浮层；持有唯一的布局状态 mobileOpen；onMounted 调 store.init()；定义 .main-content 的让位与三档响应式",
+   "lines": 59
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/layout/TopBar.vue",
+   "role": "58px sticky 页头：汉堡按钮、品牌 lockup（含内联 SVG）、模式芯片 + 切换确认 popover、日期、头像。含本页最多的交互逻辑（点击外部关闭 composedPath、Esc、焦点归还 nextTick、cycleWeek 计算）",
+   "lines": 293
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/layout/SidebarNav.vue",
+   "role": "导航脊：≥1100px 为 86px 固定图标脊；≤1099px 变成 244px 左侧抽屉。内含品牌 SVG、5 项主导航、底部 2 项（档案/设置）",
+   "lines": 157
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/layout/MobileNav.vue",
+   "role": "≤767px 的浮动胶囊底栏，4 个 tab + owns 子路由归属。模板/脚本/样式各自压成单行，整个文件仅 10 行",
+   "lines": 10
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/router/index.ts",
+   "role": "7 条路由全部懒加载 + 根路径重定向到 /dashboard；scrollBehavior 恒回顶部；afterEach 用 meta.title 写 document.title",
+   "lines": 73
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/tokens.css",
+   "role": "设计令牌唯一来源：颜色/间距/圆角/动效/z-index/布局尺寸（--sidebar-width 86px、--topbar-height 58px、--mobile-nav-height 64px、--gutter、--content-max-width）+ html[data-theme=dark] 深色整组覆盖",
+   "lines": 259
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/globals.css",
+   "role": "reset、body 纸面底 + 颗粒层（body::before z-index:-1）、全局排版、.micro/.num/.hairline/.visually-hidden 工具类、focus-visible 焦点环",
+   "lines": 211
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/stores/app.ts",
+   "role": "外壳唯一的上游依赖：currentMode / isAthleteMode / switchPreview / requestModeSwitch / confirmModeSwitch / cancelModeSwitch / userProfile；init() 从 localStorage 读 twopoles_state，persistState() 写回",
+   "lines": 963
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/ToastRegion.vue",
+   "role": "全局 Toast 宿主（fixed 右上），直接读 store.toasts；被 AppShell 挂载",
+   "lines": 6
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/PlanDraftDialog.vue",
+   "role": "全局 AI 计划草稿对话框（Teleport to body），由 store.planDraftState.status 驱动；被 AppShell 挂载",
+   "lines": 461
+  },
+  {
+   "path": "d:/桌面/project/project/UI/index.html",
+   "role": "首帧前的深色主题预置脚本（第 9-19 行），逻辑与 stores/app.ts 的 applyTheme() 重复",
+   "lines": 26
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/BaseCard.vue",
+   "role": "全站唯一两种表面的实现（default/flush 纸面 + ink 仪表面），--card-pad 变量控制内距；改版换卡片语言的中心接缝",
+   "lines": 80
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/BaseButton.vue",
+   "role": "标准按钮（primary/secondary/ghost/danger × sm/md/lg，min-height 44px）；TopBar 与 DashboardView 各自绕过它自绘了一套",
+   "lines": 18
+  }
+ ],
+ "keyComponents": [
+  "AppShell 第 2–19 行模板：`.shell` 是唯一根节点，内含 6 个并列区块 —— TopBar（顶）、SidebarNav（左侧 fixed 贯穿整屏）、`.scrim`（抽屉遮罩，v-if=mobileOpen）、`main.main-content`（唯一的内容出口）、MobileNav（底部）、PlanDraftDialog + ToastRegion（两个全局浮层）",
+  "AppShell `.main-content`（第 46–50 行）：内容区唯一容器，用 `margin-left: var(--sidebar-width)` 让出导航脊，内距为 `var(--space-2) var(--gutter) var(--space-10) var(--space-7)`；其内是 `<RouterView v-slot>` + `<Transition name=\"page\" mode=\"out-in\">`",
+  "AppShell `.scrim`（第 6 行 / 样式 51 行）：抽屉打开时的遮罩，z-index = calc(var(--z-sticky)+1) = 1101，点击关闭抽屉",
+  "TopBar `.topbar`（第 2–75 行）：sticky top:0、height 58px、自身也带 `margin-left: var(--sidebar-width)`；内部从左到右是 `.menu-btn`（仅 ≤1099px 显示）→ `.lockup` 品牌 → `.right`（模式芯片 + 日期 + 头像）",
+  "TopBar `.mode-wrap`（第 24–70 行）：模式芯片 + 下拉 popover，是全站唯一的「模式切换确认」入口；popover 内部分两态——`!preview` 时列 2 个模式选项，`preview` 时切成「变化/保持不变 + 确认/取消」双栏",
+  "TopBar `.avatar`（第 73 行）：30px 圆形头像，点击 router.push('/settings')；初始字母取自 store.userProfile.nickname 首字符，缺省 '我'",
+  "SidebarNav `.rail`（第 2–44 行 / 样式 65–121）：桌面为 86px 图标脊（position:fixed，left:0，top:0，bottom:0，z-index=--z-sticky）；≤1099px 变 244px 抽屉，transform: translateX(-100%) → .open 时 translateX(0)，z-index 升到 calc(--z-sticky+3)",
+  "SidebarNav 品牌位 `.brand`（第 3–15 行）：RouterLink 到 /dashboard，内联 64×64 SVG 太极双极标记",
+  "SidebarNav `nav > .nav-item`（第 17–30 行）：5 项主导航，每项同时渲染 `.short`（10px 短标签）与 `.full`（全称）两个 span，桌面只显示 short、抽屉里只显示 full",
+  "SidebarNav `.rail-foot`（第 32–43 行）：底部两项（档案 → /onboarding、个人设置 → /settings），未纳入 items 数组，是模板里手写的两个 RouterLink",
+  "MobileNav `.mobile-nav`（第 1 行模板）：≤767px 才 display:flex，fixed 于 bottom:10px、左右各留 10px 的胶囊条，内含 4 个 tab（今日/记录/图表/我的），选中态用 accent 色 + accent-soft 底 + bold",
+  "router/index.ts 第 3–50 行：7 条路由（onboarding/dashboard/plan/execution/meals/report/settings），全部 `() => import(...)` 懒加载，每条带 `meta.title` 中文标题",
+  "router/index.ts 第 64–71 行 afterEach：document.title = `${meta.title} - 两仪·TwoPoles`，是全站唯一的路由元数据消费点"
+ ],
+ "uiPatterns": [
+  "布局骨架是「三区固定外壳」：左侧 86px fixed 图标脊（贯穿整屏）+ 顶部 58px sticky 页头 + 右侧内容列。页头是 sticky 不是 fixed，因此内容列不需要额外 top 偏移，AppShell 第 45–46 行有明确注释说明这一点",
+  "内容宽度不由外壳控制，而是每个视图自己收口：4 个视图用 var(--content-max-width)（1440px），OnboardingView 硬编码 760px、SettingsView 硬编码 860px、ExecutionView 硬编码 1400px。外壳只给内容列加 padding（--gutter + --space-7 左内距）",
+  "响应式分三档，且断点是写死的 px 字面量而非令牌：≥1100px 桌面图标脊；768–1099px 脊变 244px 抽屉（带 translateX 滑入）+ TopBar 出现汉堡按钮（两处同一档出现，README 注明是修过的旧 bug）；≤767px 追加浮动胶囊底栏，同时抽屉入口仍保留",
+  "卡片语言只有两种表面：纸面（BaseCard default/flush，白底 + 1px 发丝线 + inset 顶亮内描边，无投影）与仪表面（variant=\"ink\"，深墨渐变 + 22px 细网格遮罩），投影只留给浮层（弹层/Toast）",
+  "激活态的表达方式因组件而异：SidebarNav 用「白底 + 1px 边 + inset 2px 左侧强调条 + font-weight 600」（不靠颜色面积）；MobileNav 用「强调色文字 + accent-soft 底 + bold」；TopBar 模式芯片用「6px 圆点 + 文字 + 可选 W{n} 徽标」",
+  "导航项在桌面与抽屉是两套 DOM：同一份 items 渲染 .short（10px 短标签）与 .full（全称）两个 span，靠 CSS 显隐切换（第 118 行 display:none / 148–149 行 display:inline）",
+  "浮层玻璃化：rail/topbar/toast/mobile-nav 都用 backdrop-filter: blur() + saturate()，配 --surface-glass / --surface-glass-strong 两种半透明底",
+  "动效克制：页面级统一 <Transition name=\"page\" mode=\"out-in\">（opacity + translateY 10px→-6px，250ms）；遮罩 fade 250ms；模式 popover pop（translateY -4px，150ms）；Toast 用 TransitionGroup slideInRight + bounceIn 图标",
+  "空态与加载态：外壳层没有任何空态/加载态（store.init() 是同步读 localStorage，无 loading）；页面级空态在 DashboardView 内自带（.bars-empty 逐日负荷为空、.rest-body 休息日说明、.upcoming 接下来 3 个训练日）",
+  "焦点管理有明确意图：模式切换确认后用 nextTick 把焦点还给触发它的模式按钮（第 129–131 行），选择后自动把焦点交给「确认切换」（第 139–143 行）；onDocClick 用 e.composedPath() 而非 closest('.mode-wrap')，因为重渲染会让被点按钮脱离 DOM 导致 closest 误判",
+  "状态一律「形状 + 文字」双编码，不靠颜色单独传达（ShapeState 实心/半填/空心、StatusBadge 实心/空心圆点）",
+  "深色主题整组覆盖同名 CSS 变量，组件零感知；首帧前由 index.html 内联脚本预置 data-theme，避免刷新白闪"
+ ],
+ "styleApproach": "全部是 Vue SFC 的 `<style scoped>`，无预处理器、无 CSS-in-JS、无原子类框架；颜色/间距/圆角/动效/z-index 一律走 src/styles/tokens.css 的 CSS 自定义属性，浅色在 :root、深色在 html[data-theme=\"dark\"] 整组覆盖同名变量，因此换肤改令牌即可、不必动组件。排版原子放在 globals.css：`.micro`（10px + .17em 大写字距，页面节奏的来源）、`.num`（Bahnschrift 等宽数字）、`.hairline`、`.visually-hidden`；BaseCard 额外约定内距走 `--card-pad` 变量，避免父子组件抢 padding 选择器。布局尺寸也做成了令牌（--sidebar-width 86px、--topbar-height 58px、--mobile-nav-height 64px、--gutter、--content-max-width），但**只在一半的地方被真正引用**。重复的自定义样式主要有四类：① 布局偏移在 AppShell.vue:48 与 TopBar.vue:175 两处各写一遍 var(--sidebar-width)，并在 AppShell.vue:57 / TopBar.vue:280 / SidebarNav.vue:123 / SidebarNav.vue:136 四处用 1099px/767px 媒体查询各自重置，改宽度要动 6 个位置；② 品牌 SVG 在 SidebarNav.vue:4–14 与 TopBar.vue:8–18 逐字重复（同一段 64×64 viewBox 路径，仅 stroke-width 5.4/5.6 与尺寸不同）；③ 按钮绕开 BaseButton 另起炉灶：TopBar.vue:254–256 自写 .btn-primary/.btn-ghost（min-height 38px、radius 8px、无 focus-visible 定制），DashboardView.vue:554–560 又自写 .btn/.btn.primary/.btn.ghost（42px），加上 BaseButton.vue:9/13 的 .primary/.ghost（44px、radius-md、自带 focus ring）共三套；④ 模式切换确认 UI 在 TopBar.vue:32–69（.popover 预览分支）与 SettingsView.vue:29–40（.switch-confirm）各写一遍，渲染同一个 store.switchPreview，文案结构一致。绕过令牌直接写死的有：StatusBadge.vue:5 的 border-radius:999px（未用 --radius-pill）、ToastRegion.vue:4 的 border-radius:15px 与 top:106px、ExecutionView.vue:738 的 max-width:1400px、OnboardingView.vue:439 的 760px、SettingsView.vue:413 的 860px、BaseButton.vue:7 的 rgba(15,118,110,.32) 焦点环、PlanDraftDialog.vue:353 与 FoodCaptureDialog.vue:888 的 rgba(17,22,26,.46) 遮罩。**死令牌**：tokens.css:180–183 定义的 --breakpoint-sm/md/lg/xl（640/768/1024/1280）全仓无引用（CSS 变量本就无法用于 media query），且数值与实际使用的 767/1099 对不上；globals.css:142–148 的 .container 工具类无任何调用方。**死代码**：src/components/journey、src/components/reports、src/components/training、src/data 四个目录全空，全仓（src/ + README + 脚本）grep 无任何 import 引用；README.md:96 已注明\"那是早期交付文档设想的规划结构，未落地\"，但 README.md:271 的\"添加新组件\"仍在指导把组件放进 common/journey/training。",
+ "dataFlow": "props/emits 是外壳与子组件之间的**唯一**通信方式，没有任何 provide/inject、没有全局事件总线：AppShell → TopBar 传 `:menu-open=\"mobileOpen\"` 并接 `@toggle-menu`；AppShell → SidebarNav 传 `:open=\"mobileOpen\"` 并接 `@close`；SidebarNav 内部每个 RouterLink 点击时额外调 `emit('close')` 关闭抽屉（TopBar.vue:3 用 `$emit` 而脚本里用 `defineEmits` 声明，两处一致）；MobileNav 无 props/emits，自行 useRoute() 读 route.path。AppShell 的 script 只有 3 行逻辑：mobileOpen ref、watch(() => route.fullPath) 关闭抽屉、onMounted 调 store.init()。Pinia 是唯一状态来源：AppShell 与 TopBar 都直接 `useAppStore()`，TopBar 消费 currentMode / isAthleteMode / switchPreview / userProfile 以及 requestModeSwitch / confirmModeSwitch / cancelModeSwitch 三个动作；MobileNav 只依赖 vue-router。**服务层（src/services/*）在这条链路上完全没有参与**——布局层不碰 planRules/loadRules/weekRules/llm，唯一的服务层调用是 TopBar.vue:83 的 utils/time.shortDate() 格式化日期。持久化只有一条路径：store.init() 读 localStorage['twopoles_state']（JSON，字段 mode/profile/sessions/meals/privacy/collapsed/theme/plans/planHistory/modeLog/unitGrams），store.persistState() 写回；主题另有一路写 document.documentElement.dataset.theme，且 index.html:9–19 的首帧脚本用**同样的判断逻辑**再实现了一遍（读 saved.theme → 判 system/dark → 设 data-theme），与 stores/app.ts:85–88 的 applyTheme() 重复。路由数据流：router → 视图懒加载，视图不用 route.params，只有一处 query 传参——DashboardView.vue:512 的 router.push({ path: '/execution', query: { exercise: mainItem.value.exerciseName } })。",
+ "stateModel": "外壳层只有一个状态位：AppShell.vue:31 的 `const mobileOpen = ref(false)`，语义是「平板抽屉是否展开」。它的三个关闭路径互相重叠——① TopBar 汉堡按钮 toggle-menu 取反；② SidebarNav 每个导航项点击 emit('close')；③ AppShell.vue:35–37 的 watch(() => route.fullPath) 在任何路由变化时置 false（与 ② 重复）；④ scrim 点击置 false。抽屉开启时 SidebarNav 的 .rail 加 `.open` 类（transform: translateX(0)），同时 AppShell 渲染 .scrim 遮罩。真正的业务状态机都在 store 里：**模式切换三段式**——requestModeSwitch(target) 置 pendingSwitch（若 target===currentMode 直接返回 null）→ switchPreview computed 基于 pendingSwitch/from/openPlans 生成 { fromLabel, toLabel, differences[], keeps[], openPlanCount, openPlanNote } → 用户 confirmModeSwitch()（写 currentMode、同步 userProfile.mode + modeChangedAt、push modeLog、persistState、弹 Toast）或 cancelModeSwitch()（清 pendingSwitch）。注意 switchPreview 里的 differences/keeps/openPlanNote 是**写死在 store 里中文字符串**（app.ts:189–199），不是数据。**模式枚举** Mode = 'public' | 'athlete'，两套模式标签文案又各写了一份：TopBar.vue:97–100（label/note：'大众模式 · 轻量推荐 · 自动计数 · 简单餐次确认'）与 SettingsView.vue:245–246（label/desc：'按器材与时长过滤的一周安排…'），措辞不同。另有建档专用的旁路 commitMode(target)（app.ts:233–243），跳过确认直接落地，仅 OnboardingView.vue:423 调用。**主题三态** themePref = 'system' | 'light' | 'dark'，applyTheme() 解析成 html[data-theme] 的 'light'|'dark'，同时监听 matchMedia('(prefers-color-scheme: dark)') 的 change 事件（app.ts:68/104），支持系统跟随。**计划草稿状态机**（驱动全局 PlanDraftDialog，由 store 持有、组件只渲染）：planDraftState.status = 'idle' → 'loading'(loadingStage: 'questions'|'plan') → 'questions' → 'ready' | 'error'，每个状态还带 error / warnings / answers / draft 字段；PlanDraftDialog.vue:187 用 `open = computed(() => state.value.status !== 'idle')` 把它映射成弹层的显隐——**弹层开关与 store 状态强耦合，没有独立的 open/close 状态**，close() 只能靠 resetPlanDraft() 把 status 打回 idle。",
+ "coupling": "① 外壳 → store：AppShell.vue:29/39 与 TopBar.vue:82 都 `useAppStore()`，直接读 currentMode / isAthleteMode / switchPreview / userProfile 并直接调 requestModeSwitch / confirmModeSwitch / cancelModeSwitch 三个 action；外壳不引入任何自己的 store。② 外壳 → 路由：AppShell.vue:9 用 RouterView v-slot + Transition；MobileNav.vue:2-3 用 useRoute() 读 route.path 做选中判定；TopBar.vue:81 用 useRouter() 做 router.push('/settings')。③ 外壳 → 视图：router/index.ts 的 7 条懒加载路由是外壳与页面层唯一的耦合面，视图本身不知道外壳存在——但反过来，视图**隐式依赖**外壳的左让位（各自再收口 max-width 并 margin:auto）。④ 外壳 → 公共组件：AppShell.vue:27-28 引入 ToastRegion 与 PlanDraftDialog，两者都是全局单例、靠 store 状态驱动（store.toasts / store.planDraftState），与页面无关，因此换布局时必须继续在根部挂载。⑤ 外壳 → 样式层：AppShell/SidebarNav/TopBar/MobileNav 共同消费 tokens.css 的 --sidebar-width、--topbar-height、--mobile-nav-height、--gutter、--space-*、--z-sticky/-dropdown/-modal*/-toast、--overlay、--surface-glass/-strong、--color-border/-divider/-card/-ink/-accent*、--radius-*、--motion-*、--easing-*。⑥ 外壳 → utils：TopBar.vue:83 只用到 utils/time.shortDate()。⑦ 导航信息架构跨三处重复且互不同步：router/index.ts（7 条路由的 to/meta.title）、SidebarNav.vue:54-60（5 项 items）、MobileNav.vue:4（4 项 items + owns 子路由归属），三套标签文案各不相同（周报/图表、饮食/记录、我的/个人设置）。⑧ 模式元数据与文案跨四处重复：TopBar.vue:97-100 的 modes、SettingsView.vue:245-246 的 modes、TopBar.vue:102 的 currentLabel、store/app.ts:189-199 的 switchPreview 中文清单。⑨ 跨组件共享的 DOM 资产：品牌 SVG 在 SidebarNav 与 TopBar 各内联一份。⑩ z-index 层级靠相对 calc 手工协调：AppShell.scrim=--z-sticky+1、SidebarNav 抽屉=--z-sticky+3、TopBar=--z-sticky、MobileNav=--z-sticky、ToastRegion=--z-toast、PlanDraftDialog/FoodCaptureDialog 遮罩=--z-modal-backdrop，彼此没有统一的层级语义表。",
+ "designDebt": [
+  "【导航 IA 三处重复且命名不一致】router/index.ts 的 7 条路由、SidebarNav.vue:54-60 的 items（今日/计划/跟练/饮食/周报）、MobileNav.vue:4 的 items（今日/记录/图表/我的 + owns 映射）是三张互不同步的导航表。改版时漏改一处就会出现「桌面叫周报、移动叫图表」「桌面叫跟练、底栏没有跟练」这类割裂。",
+  "【品牌 SVG 逐字重复】SidebarNav.vue:4-14 与 TopBar.vue:8-18 是同一段 64×64 viewBox 路径（circle r=21.5 + 两条 22.2 弧 + 两颗 r=3.1 圆点 + stroke-linecap=round），只有 stroke-width 5.4 / 5.6 与尺寸 30px / 20px 不同。换 logo 必须同时改两处，应抽成 BrandMark.vue（用 currentColor / CSS 变量控色）。",
+  "【侧栏让位写死在 6 个位置】AppShell.vue:48 `.main-content { margin-left: var(--sidebar-width) }` 与 TopBar.vue:175 `.topbar { margin-left: var(--sidebar-width) }` 各一处，另在 AppShell.vue:57、TopBar.vue:280、SidebarNav.vue:123（宽度改 244px + transform 抽屉）、SidebarNav.vue:136（brand align-self）四处用 1099px/767px 媒体查询各自重置。把图标脊换成可折叠侧栏或浮层时，这 6 处会一起失效。",
+  "【模式切换确认 UI 写了两遍】TopBar.vue:32-69 的 .popover 预览分支（pop-title / pop-lead / pop-cols「变化·保持不变」/ pop-actions）与 SettingsView.vue:29-40 的 .switch-confirm（sw-lead / sw-cols / actions）渲染的是同一个 store.switchPreview，结构一一对应，只有类名和文案标签（「变化」vs「会变化」）不同。换皮必须改两处，且长期会漂移。",
+  "【全站三套按钮】TopBar.vue:254-256 自写 .btn-primary/.btn-ghost（min-height 38px、radius var(--radius-base) 8px、无自定义 focus-visible）；DashboardView.vue:554-560 自写 .btn/.btn.primary/.btn.ghost（min-height 42px、.primary:hover 写死 #000）；BaseButton.vue:4-18 是标准件（min-height 44px、radius-md、focus-visible 用 box-shadow 3px ring）。改版换按钮语言时三处都要动，且新页面会继续长出第四套。",
+  "【模式文案散落四处且措辞不一致】TopBar.vue:97-100 的 modes（note:'轻量推荐 · 自动计数 · 简单餐次确认'）、SettingsView.vue:245-246 的 modes（desc:'按器材与时长过滤的一周安排、摄像头计数、简单餐次确认'）、store/app.ts:189-199 switchPreview 里硬编码的 differences/keeps 中文清单、TopBar.vue:102 的 currentLabel 再判一次模式名。重写文案需要同时改 store 与三个视图。",
+  "【业务算法写在视图里】TopBar.vue:107-115 的 cycleWeek 直接在组件内算周期周数：`new Date(`${start}T00:00:00`).getTime()` → `Math.floor((Date.now()-t)/86400000)` → `Math.floor(days/7)+1`。没有进 services/，.selfcheck.mjs 里也没有任何 cycle 相关断言覆盖（该文件共 0 处涉及 router/SidebarNav/TopBar/MobileNav/AppShell）。周期口径变更时没有测试网兜底。",
+  "【TopBar 的 dateLabel 不刷新】TopBar.vue:94 `const dateLabel = shortDate(new Date())` 在 setup 时求值一次且非响应式；应用跨零点常驻时页头日期会停在昨天。相邻的 cycleWeek（第 107–115 行）虽是 computed，但只依赖 store.userProfile.cycleStartDate 这一个响应式源，Date.now() 不可追踪，所以长会话内跨周也不会更新——两处都是「看起来是 computed 其实不会重算」的坑。",
+  "【断点散落且与令牌对不上】代码里实际用了 520 / 560 / 640 / 720 / 767 / 900 / 1024 / 1099 / 1100(min) / 1279 共 10 个 px 断点；tokens.css:180-183 定义的 --breakpoint-sm/md/lg/xl (640/768/1024/1280) 一个都没被引用（CSS 变量本就无法用于 media query），且数值与真实断点（767 / 1099）不一致。改版调整断点要全仓搜 10 个字面量。",
+  "【页面容器类名与宽度六套并存】DashboardView.vue:517 用 .page（1440）、ReportView.vue:280 用 .page（1440）、MealsView.vue:543 用 .page-wrap（1440）、PlanView.vue:423 用 .page-wrap（1440）、OnboardingView.vue:439 用 .page-wrap（760）、SettingsView.vue:413 用 .page-wrap（860）、ExecutionView.vue:738 用 .execution-page（1400 硬编码，未用令牌）。globals.css:142-148 的 .container 工具类完全没有调用方。",
+  "【页头区块重复实现 4 遍】OnboardingView.vue:440-443、SettingsView.vue:414-417、PlanView.vue:427-429、ExecutionView.vue:739-742 各自写一套 flex 页头 + eyebrow + h1 + p，h1 字号分别是 28 / 28 / 36 / 28px；其中 .eyebrow::before 的菱形点样式（6px 旋转 45deg 方块 + accent 色）在 OnboardingView.vue:441 与 SettingsView.vue:415 是**逐字相同的两行 CSS**，各写一遍。",
+  "【抽屉打开时页头整体不可点】SidebarNav 抽屉 z-index = calc(--z-sticky+3) = 1103，AppShell.scrim = 1101，TopBar = 1100。抽屉在 768–1099 档铺满左侧 244px，正好盖住 TopBar 左端的汉堡按钮（topbar padding var(--space-6)=24px，按钮 margin-left:-8px，落在 16–48px），该按钮的 aria-expanded 因此无法被点击来回切换，只能靠遮罩或导航项关闭；同时模式芯片与头像在抽屉打开期间也被 scrim 盖住不可用。",
+  "【reduced-transparency 只做了一半】SidebarNav.vue:154-156 与 BaseCard.vue:73-79 有 @media (prefers-reduced-transparency: reduce) 降级为不透明底；但 TopBar.vue:180-182（blur 10px）、MobileNav.vue:10（blur 16px）、ToastRegion.vue:4（blur 14px）都用了 backdrop-filter 却没有对应降级。",
+  "【ToastRegion 定位是魔法数字】ToastRegion.vue:4 `.toasts{position:fixed;right:24px;top:106px}` —— 106 = 58px 页头 + 48px 猜测，无 token、无注释；移动端又改成 82px（同样无依据）。页头高度一改，Toast 就会压到页头或离得太远。",
+  "【RouterView 缺 :key】AppShell.vue:9-13 的 `<component :is=\"Component\" />` 没有绑定 :key。当前 7 条路由各对应不同组件，切换能正常触发 out-in 过渡；但改版中只要把路由拆成同组件多参数（如 /report/:tab），过渡会退化为原地 patch，页面不会重新挂载。vue-router 4 的 RouterView 本身不会给组件加 key（已在 node_modules/vue-router/dist/vue-router.mjs:1106 核实）。",
+  "【抽屉关闭逻辑三处重复】AppShell.vue:35-37 的 watch(() => route.fullPath) 置 false，与 SidebarNav 每个 RouterLink 上的 @click=\"emit('close')\"、scrim 的 @click 是同一意图的三份实现，前者是冗余兜底。",
+  "【SidebarNav 底部两项游离在数据之外】档案 / 个人设置（第 33、38 行）是模板里手写的两个 RouterLink，没有进 items 数组，因此不参与 items.map 渲染、也无法统一配置 active 态逻辑（靠 .rail-foot .nav-item 单独改字号）。",
+  "【四个空目录是纯遗留】src/components/journey、src/components/reports、src/components/training、src/data 四个目录全空；对 src/、README、scripts 全仓 grep 无任何 import 引用，Vite/tsc 也不会报错。README.md:96 已注明「仍不存在——那是早期交付文档设想的规划结构，未落地」，但 README.md:271「添加新组件」仍在建议把组件放进 common/journey/training。可直接删除，不影响任何构建。",
+  "【文档与实现不一致（README.md）】① 第 279 行称 store 有 `switchMode()` 并被「侧边栏模式菜单」调用——store 里根本没有 switchMode，只有 requestModeSwitch / confirmModeSwitch / cancelModeSwitch / commitMode；README 提到的 ExecutionView 的 switchMode 是「演示回放 / 实时摄像头」，同名不同义。② 第 96 行说 components/meals 不存在，但 components/meals 现在有 FoodCaptureDialog / MealForm / MealPhotoViewer 三个文件。③ 第 259 行说 services 只有四个模块，实际有 13 个（新增 llm / foodRecognition / loadRules / planRules / mealPhotos / wellnessCards / profileRules / foodComposition / exercises 等）。④ 第 281 行说「展示用的训练/饮食数字仍是视图内的硬编码常量」，但 DashboardView 已全部改走 weekRules / loadRules / planRules。⑤ 第 218 行称 AppShell 带 aria-live，实际 AppShell.vue 全文没有任何 aria-live。⑥ 第 210 行称移动 tab 触控目标「实测 64×57px」，MobileNav.vue:10 实际是 min-width:60px; min-height:46px。⑦ 第 74–87 行的项目结构树漏掉 components/profile/ 与 components/wellness/ 两个目录。",
+  "【MobileNav 整文件压成单行】MobileNav.vue 只有 10 行，模板 1 行、script 2 行、style 1 行（2000+ 字符），与项目其余组件多行可读风格完全相反，改版时无法做行级 diff 或局部 patch，review 成本极高。",
+  "【外壳未承担页面级职责，也未提供页面级接缝】AppShell 只提供 .main-content 一个容器，页面最大宽度、页头样式、空态/加载态全部由各视图各自实现（见上述六套容器与四套页头），外壳层没有任何可复用的「页面骨架」组件（如 PageHeader / PageShell），改版要统一页面语言必须逐页改。"
+ ],
+ "constraints": [
+  "localStorage 持久化契约：键名固定为 'twopoles_state'，JSON 字段名固定为 mode / profile / sessions / meals / privacy / collapsed / theme / plans / planHistory / modeLog / unitGrams（stores/app.ts:137-150 写、99-132 读）。index.html:12 的首帧脚本也要读 `saved.theme`。改版不得改键名或字段名，否则老用户数据读不出来；privacy.showEnergyEstimate 直接决定是否跑热量估算链路（app.ts:773-777）。",
+  "深色主题的实现机制是「html[data-theme=\"dark\"] 整组覆盖同名 CSS 变量」（tokens.css:199-258），落地点在三处且必须同步：index.html:9-19 的首帧脚本、stores/app.ts:85-88 的 applyTheme()、tokens.css:199 的选择器本身。改版换主题机制（如改用 class 或 prefers-color-scheme 直接生效）必须三处一起改，否则深色用户刷新会白闪。",
+  "路由路径与路径语义不得变更：/dashboard /plan /execution /meals /report /onboarding /settings 被 SidebarNav、MobileNav、DashboardView、ReportView、TopBar 头像等处硬编码跳转；'/execution?exercise=<name>' 是 DashboardView 进入跟练页的唯一传参方式（DashboardView.vue:512），改版换 query 参数名会断掉这条链路。",
+  "vue-router 使用 createWebHistory（非 hash 模式），生产部署需要服务器把未知路径回退到 index.html，否则直接访问 /report 会 404；index.html 的 title 依赖 router.afterEach 写入 document.title（router/index.ts:64-71）。",
+  "安全上下文要求不可放宽：navigator.mediaDevices 只在 https 或 localhost 存在，否则跟练页必须退回演示回放；crypto.randomUUID 在非安全上下文不可用时 utils/id.ts 会退到时间戳+随机数（id.ts）。改版不能引入比这更严格的环境要求（如必须 WebCrypto、必须 Worker 模块化、必须 SharedArrayBuffer）。",
+  "浏览器 API 依赖与降级链路：跟练取帧依赖 video.requestVideoFrameCallback（不可用时回落 rAF + video.currentTime 去重），推理依赖 OffscreenCanvas + WebGL2 GPU delegate（不可用时回落 CPU），推理落点在 module worker（worker 起不来或单次推理超 2 秒时回落主线程）。这些边界固化在 composables/usePoseCamera.ts 与 composables/poseInference.worker.ts，改版不能把这些 API 调用挪出该边界或删掉降级分支。",
+  "照片存储分层不能合并：餐食原图存 IndexedDB（services/mealPhotos.ts，键为 photoId），缩略图（256px JPEG）存 localStorage。store.persistState 的配额失败只提示一次（quotaWarned，app.ts:75/156-165）。改版不得把更多二进制塞进 twopoles_state，否则会撑爆浏览器存储。",
+  "状态必须保持「形状 + 文字」双编码（ShapeState 的实心/半填/空心、StatusBadge 的实心/空心圆点），不能退回纯颜色传达——这是 README 声称的 7 条路由 0 项 WCAG AA 失败的前提。",
+  "模型密钥的边界：服务端默认模型的密钥只从 LLM_DEFAULT_* 读取（README:21），用户在设置页自填的 baseUrl / apiKey / model 只存本机且不随导出 JSON/CSV 带走（app.ts:338 loadLlmConfig、app.ts:137-150 的 persistState 不含 llmConfig）。改版不得把这些字段打进构建产物或导出包。",
+  "构建校验路径受环境限制：npm run build 在受限沙箱下会因 esbuild 子进程 spawn EPERM 失败（README:15），因此改版的验证应以 npm run typecheck + npm run selfcheck（237 项纯逻辑断言）为准，浏览器渲染需另在正常本机跑。",
+  "无后端账号体系：全部数据只落本机，不存在服务端会话/鉴权；改版不能引入需要登录或服务端持久化的界面流程。"
+ ],
+ "redesignHooks": [
+  "【可直接整块替换：AppShell 的模板层（AppShell.vue:2-19）】这是纯装配层，script 只有 3 行逻辑（mobileOpen ref、watch、store.init()）。改布局骨架时可以整块重写，但要保留 4 条契约：① TopBar 仍接收 menu-open 并 emit toggle-menu；② SidebarNav 仍接收 open 并 emit close；③ main 内仍是 RouterView 出口；④ PlanDraftDialog 与 ToastRegion 必须继续被挂载（它们是全局单例，靠 store 状态驱动，与页面无关）。",
+  "【可直接整块替换：SidebarNav 的 items 数据（SidebarNav.vue:54-60）】是一个纯数据数组 {to, label, full, icon}，icon 是组件引用。改导航结构或换图标只改这一个数组，模板不用动；但必须同步 MobileNav.vue:4 的那张表。",
+  "【可直接整块替换：TopBar 的模式弹层（TopBar.vue:24-70）】确认/取消分支完全由 store.switchPreview 驱动，TopBar 只负责渲染与焦点管理。把 popover 换成 Drawer / Dialog / 独立页面都不需要碰 store。",
+  "【逻辑边界清晰可复用：store 的模式切换三段式】requestModeSwitch / confirmModeSwitch / cancelModeSwitch + switchPreview computed 构成干净的契约——UI 只读 switchPreview、只调这三个方法。改版换任何确认交互形态都不需要动 store 逻辑。",
+  "【换肤接缝：CSS 变量令牌】tokens.css 的 :root 与 html[data-theme=\"dark\"] 两组覆盖了颜色/间距/圆角/动效/z-index/布局尺寸。改配色与质感只需改令牌、不必动组件——但 --sidebar-width 这类布局尺寸被 AppShell 与 TopBar 同时引用，改宽度必须同时动这两处。",
+  "【换卡片语言的接缝：BaseCard 的三个 variant 契约（BaseCard.vue:12-19）】全站只有 default / flush（纸面）与 ink（仪表面）两种表面，所有卡片内距统一走 --card-pad。改版换卡片质感只需改 BaseCard 这一个文件 + 令牌，不用逐页改。",
+  "【可复用的既有原语】StatStrip（指标条）、ShapeState（三态形状）、StatusBadge（状态徽标）、MetricCard、InsightCard、TwoPoleDial（双极环）、LoadChart 已经是成型的积木，DashboardView 已经把它们当积木用；改版可直接复用而不必重写。",
+  "【可复用的排版原子】globals.css 的 .micro（10px + .17em 大写字距）与 .num（Bahnschrift 等宽数字）是全站节奏的来源，改版可以继续以它们为契约；globals.css 的 .container 目前无调用方，可作为新页面的收口工具或直接删掉。",
+  "【必须先解耦 1：TopBar 的焦点与外部点击管理（第 146-166 行）】onDocClick 用 e.composedPath().some(node => node.classList.contains('mode-wrap')) 判断「点在外部」，onEsc 关闭，confirm/cancel 后 nextTick 把焦点还给模式按钮——这套逻辑与 TopBar 的视觉完全无关但被写在同一文件。改皮前应抽成独立 composable（如 useDismissable/useFocusReturn），否则换任何形态的弹层都要重新抄一遍这段有注释解释微妙 bug 的代码。",
+  "【必须先解耦 2：TopBar 的 cycleWeek 算法（第 107-115 行）】纯业务逻辑（周期起始日 → 第几周）写在视图组件里，没有进 services/、没有断言覆盖。改版要把它挪到 services/weekRules.ts 一类的纯函数里，才能在改版中安全地调整周期口径。",
+  "【必须先解耦 3：按钮体系】TopBar.vue:254-256 的 .btn-primary/.btn-ghost 与 DashboardView.vue:554-560 的 .btn 系列各自绕过 BaseButton。改版换按钮语言前，必须先把 TopBar 与 DashboardView 收敛到 BaseButton（同时能修掉 TopBar 按钮缺 focus-visible 定制、低于 44px 的问题），否则新界面只会继续复制。",
+  "【必须先解耦 4：SidebarNav 的 short/full 双标签机制】同一份导航渲染成两种形态靠 .short / .full 两个 span + 第 118、148-149 行的 display 规则 + 1099px 媒体查询里的整段重排共同实现。改成抽屉形态时必须同时理解这四段 CSS；建议先改成单一 DOM + CSS 控制显隐，或直接拆成 RailNav / DrawerNav 两个组件，让形态差异变成组件差异而不是媒体查询差异。",
+  "【必须先解耦 5：内容让位契约】AppShell.vue:46-58 的 .main-content（margin-left + padding + 三档媒体查询）与 TopBar.vue:175 的 margin-left 共同构成「内容区让出导航」的隐式约定，分散在两个文件。改版要重排栅格时，应先把它收敛成单一来源（例如 shell 统一出一个 --content-offset，或改用 grid-template-areas），否则三处（AppShell / TopBar / SidebarNav）会不一致。",
+  "【必须先解耦 6：模式切换确认 UI 的两份实现】TopBar.vue:32-69 的 .popover 预览分支与 SettingsView.vue:29-40 的 .switch-confirm 必须先合并成一个共享组件（放到 components/common/），再谈重新设计它的外观，否则改版后两份实现会立刻分叉。",
+  "【必须先解耦 7：文案数据的归属】store/app.ts:189-199 的 switchPreview 把中文差异清单硬编码在 store 里，TopBar.vue:97-100 与 SettingsView.vue:245-246 又各写一份模式描述。改版若要重写文案，需先把这些文案抽成 services/ 或 constants/ 的数据表，让 store 只负责取数、视图只负责渲染。",
+  "【必须先解耦 8：全局浮层的层级与定位】ToastRegion.vue:4 的 top:106px 是按 58px 页头算的魔法数字；抽屉 1103 / scrim 1101 / topbar 1100 / bottom-nav 1100 是手写 calc 出来的相对值，没有层级语义表。改版调整页头高度或层级体系时，应先建立一张 z-index 与偏移的语义表（或改成由布局常量统一计算），否则「抽屉盖住汉堡按钮」和「Toast 压页头」这类问题会在新布局里复现。",
+  "【必须先解耦 9：MobileNav 的文件形态与 owns 关系】整文件压成单行（10 行），且 owns 归属（/plan 与 /execution 归「今日」、/onboarding 归「我的」）是信息架构决策写在模板文件里。改版要动底栏时，先把它格式化、把 owns 关系提到与 SidebarNav 共用的一份 nav 配置（建议从 router 的 meta 派生），再做视觉调整。",
+  "【顺手的清理项】四个空目录 src/components/{journey,reports,training} 与 src/data 可直接删除（全仓零引用，README:96 已注明未落地）；globals.css:142-148 的 .container 与 tokens.css:180-183 的 --breakpoint-* 是死代码可删，但后者若要改造成真实断点表需注意 CSS 变量无法用于 media query，只能靠构建期常量或 PostCSS 之类方案。"
+ ]
+}

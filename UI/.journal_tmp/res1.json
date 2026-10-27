@@ -1,0 +1,159 @@
+{
+ "area": "建档流程（Onboarding）+ 档案规则（profileRules）",
+ "purpose": "这是「两仪·TwoPoles」的用户准入与个人档案子系统，负责两件事：(1) 用一个三步向导把用户的身份、训练条件、专项目标采集成 `UserProfile`，写回 Pinia store 并落到 localStorage；(2) 把档案里「可计算」的部分（身体数据区间、成绩解析、当前 PB、周期起止、目标摘要）抽成纯函数，供页面展示与 `scripts/selfcheck.ts` 断言。档案不是只读的展示层，它同时是整个推荐引擎的输入：器材/场地/时长/「需要避开的」四个维度在 `planRules.ts` 里被翻译成动作筛选条件，年龄 <18 或命中「孕期或产后 / 伤病或遵医嘱限制」时整个自动推荐被关掉（降级为只记录 + 手工录入）。建档完成后还会串起两个后续动作：若已配置大模型则先让模型「问几个问题」再生成计划（`store.generatePlanQuestions()`，弹窗挂在 `AppShell` 全局），若是在编辑已有档案则明确重算本周计划（旧版本进 `planHistory`）。因此它是「数据采集 → 规则筛选 → 计划生成」这条链的入口，改版时不能当成纯表单页处理。",
+ "files": [
+  {
+   "path": "d:/桌面/project/project/UI/src/views/OnboardingView.vue",
+   "role": "建档向导页：单文件承载三步模板分支、全部表单 ref、校验、模式切换提交、档案落库与后续动作触发（495 行，其中模板 235 行、scoped CSS 57 行）",
+   "lines": 495
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/profileRules.ts",
+   "role": "档案的纯函数层：HEIGHT_RANGE/WEIGHT_RANGE、TRACK_EVENTS/FIELD_EVENTS/LIFT_PRESETS、parseResult、eventBests、isCurrentBest、bodyErrors、cycleRangeError、goalSummary、formatCnDate、normalizeProfile、gymRecordLabel。无 Vue 依赖、无 store 依赖，被 selfcheck 断言",
+   "lines": 156
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/profile/PbList.vue",
+   "role": "PB 子表单：`v-model`（modelValue/update:modelValue）叶组件，内部做新增/编辑/删除与成绩合法性校验（parseResult），并用 isCurrentBest 打「当前 PB」标",
+   "lines": 214
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/profile/GymList.vue",
+   "role": "健身房极限数据子表单：与 PbList 几乎同构的双胞胎组件，同样是 v-model 叶组件，kind 区分 1rm/working",
+   "lines": 192
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/planRules.ts",
+   "role": "档案的下游消费者：按年龄门槛与 gateReason 决定 auto/gateNote，按器材/场地/时长/需要避开的筛动作库。ARCHIVED 的「档案条件变了要重算」由 store.regenerateWeekPlan 触发本文件重建",
+   "lines": 209
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/exercises.ts",
+   "role": "档案选项的另一端：Venue 类型、RESTRICTION_KEYS、GATE_RESTRICTIONS、gateReason()、passesRestrictions()、hasEquipment() —— 建档页的选项文案与这里的字符串逐字对齐",
+   "lines": 128
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/stores/app.ts",
+   "role": "档案的读写边界：updateProfile()、commitMode()、normalizeProfile() 调用点、regenerateWeekPlan()、generatePlanQuestions()、persistState()（localStorage key twopoles_state）、switchPreview（模式切换差异文案）",
+   "lines": 962
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/types/domain.ts",
+   "role": "UserProfile / PersonalBest / GymRecord / GoalType / Mode 的类型定义，是 localStorage 里的持久化数据格式",
+   "lines": 373
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/views/SettingsView.vue",
+   "role": "档案的第二处渲染：模式切换卡（含 switchPreview 确认）、profileLine/goalLine 摘要、modes 选项数组（与建档页重复）、导出 JSON/CSV 与清库",
+   "lines": 483
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/llm.ts",
+   "role": "profileSnapshot() 把档案序列化成中文键 JSON 喂给模型；建档 finish() 会调用它所在的 store 流程",
+   "lines": 522
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/PlanDraftDialog.vue",
+   "role": "建档完成后弹出的全局「模型先问再生成」弹窗，挂在 AppShell，跨页面共享",
+   "lines": 461
+  },
+  {
+   "path": "d:/桌面/project/project/UI/scripts/selfcheck.ts",
+   "role": "纯函数层的回归护栏：已断言 profileRules 的 9 个导出（parseResult 6 条、eventBests 3 条、bodyErrors 5 条、cycleRangeError 3 条、goalSummary 3 条、formatCnDate、normalizeProfile、gymRecordLabel）",
+   "lines": 472
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/tokens.css",
+   "role": "设计令牌唯一来源：色板、间距、圆角、字体（Bahnschrift 数字体）、motion 变量与深色主题覆盖",
+   "lines": 258
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/globals.css",
+   "role": "全局 reset 与 .micro/.num/.visually-hidden 等工具类；注意：不包含任何表单/芯片原语，所以 .field/.chip/.choice 在各视图里各自复制",
+   "lines": 210
+  }
+ ],
+ "keyComponents": [
+  "页头 page-head（OnboardingView.vue:3-10）：左侧 eyebrow「PROFILE · 第 N / 3 步」+ h1（新建时「先花一分钟，认识一下你」/ 编辑时「更新你的档案」）+ 副标题 stepTitles[step-1]；右侧 dots 三个进度条（i <= step 时高亮）。",
+  "第 1 步「你想怎么用这个助手？」（OnboardingView.vue:13-30）：两张 choice 卡（大众模式 / 运动员模式），每张含 strong 标题、small 描述、em 附注（大众＝「轻量推荐 · 摄像头计数」，运动员＝「周期计划 · 负荷记录（部分功能开发中）」）；底部 note 说明侧栏可随时切换。",
+  "第 2 步「基本情况」（OnboardingView.vue:32-110）：两行 grid2 表单（昵称 / 年龄，身高 / 体重）→ body-note 免责说明 → 5 组 chips 多选/单选（主要目标、运动经验、每次能用的时间、可用器材、常训练的场地）+ 2 组 warn 芯片（需要避开的、特殊情况）；特殊情况下方是 blocked 门槛提示或 fine 说明。",
+  "第 3 步（athlete）「专项信息」（OnboardingView.vue:112-201）：主项 chips（含「其他」+ 自由输入 other-input）→ 目标类型 seg 二选一 → competition 分支（赛事名称/比赛日期/目标成绩/对应项目只读）or cycle 分支（周期阶段 chips / 阶段重点 / 周期开始 / 周期结束）→ goal-summary 当前目标条 → 两个 details.sec 折叠区（PB 成绩、健身房极限数据），summary 右侧显示条数。",
+  "第 3 步（public）「看一下你的档案」（OnboardingView.vue:203-222）：14 行 review 列表（模式/称呼/年龄/身高体重/目标/经验/可用时间/器材/场地/需要避开/自动推荐），值为空时统一回落为「—」或「未填写」。",
+  "错误条 error（OnboardingView.vue:224）：role=\"alert\"，红色软底圆角块，出现在整个卡片底部（表单之后、导航之前）。",
+  "导航条 nav（OnboardingView.vue:226-230）：上一步（ghost，第 1 步禁用）/ 下一步 / 完成建档（带 Check 图标；编辑模式文案变「保存修改」）。",
+  "隐私脚注 privacy（OnboardingView.vue:233）：「档案与训练记录都只存在这台设备的浏览器里（localStorage），不会上传。」",
+  "PbList.vue 内部：新增/编辑表单（项目 select + 自定义项目名 + 径赛/田赛 seg + 成绩 + 日期 + 备注）+ rows 列表（项目/类别标、成绩数字、日期备注、「当前 PB」/「历史」徽章、改/删）+ 空态文案。",
+  "GymList.vue 内部：新增/编辑表单（动作 input + datalist 深蹲/硬拉/卧推、重量 kg、次数、日期、1RM/训练最高 seg）+ rows 列表 + 空态文案。"
+ ],
+ "uiPatterns": [
+  "三步线性向导：单一 BaseCard（class=\"panel\"）承载全部步骤内容，步骤切换靠模板里 v-if / v-else-if / v-else 链（step===1 → step===2 → mode==='athlete' → 回顾问），无过渡动画，靠 dots 进度条指示。",
+  "选择型控件统一为「胶囊 chip」：所有多选/单选（目标、经验、时间、器材、场地、限制、门槛项、周期阶段、主项）都是 button.chip + :class=\"{active}\" + :aria-pressed，无原生 radio/checkbox。选中态为实心强调色（--color-accent / --color-on-accent），warn 变体选中后转 caution 色。",
+  "模式选择用「卡片式 choice」（两列 grid），与 chip 是两套不同控件；目标类型用「分段 seg」（两枚按钮），第三种形态。三种选择控件并存。",
+  "表单结构统一为 label.field > span.field-label + input（单列或 grid2 双列），提示文案用 small.fine（灰）或 small.fine.err（红），字段级错误贴在被控字段正下方。",
+  "长表单用 details.sec 原生折叠（PB / 极限数据）收进「专项信息」步，summary 右侧用 em 显示条数，避免把建档页拉长。",
+  "回顾页用「标签—值」分隔线列表（ul.review > li，flex space-between，底部 1px hairline），与 Dashboard 的卡片式统计不同。",
+  "底部主按钮右对齐（nav flex-end），移动端（≤640px）翻转为 column-reverse 全宽按钮；choices/grid2 在 ≤640px 塌成单列。",
+  "提示层级靠语义色 + 文案语气区分：note（灰）/ fine（更灰小字）/ gate（黄底 caution，role=\"status\"）/ error（红底 danger，role=\"alert\"）；免责与「不据此判断动作是否安全」这类话术一律走 fine/note 而不是警示色。",
+  "空态：PB 与极限数据用一句非评判式的灰字（「没有记录不等于没有成绩，只是这里还没填」）。",
+  "无 loading 态：建档全程同步；但 finish() 会异步触发模型提问，全局弹窗由 PlanDraftDialog 承担加载态。"
+ ],
+ "styleApproach": "全部为 `<style scoped>`（OnboardingView 438-494 行，PbList 161-214，GymList 146-192），不依赖任何 CSS 框架。样式完全走 `src/styles/tokens.css` 的 CSS 变量：颜色用 --color-ink / --color-text-secondary / --color-text-muted / --color-accent / --color-accent-soft / --color-accent-line / --color-caution-soft / --color-danger-soft / --surface-field / --color-neutral-soft / --color-border / --color-divider，形状用 --radius-lg(12) / --radius-md(10) / 999px，节奏用 --motion-fast(150ms) / --motion-base(250ms) / --easing-ease-out，数字字族用 --font-num(Bahnschrift)，小标签字距用 --tracking-eyebrow(0.16em)。但「组件级原语」没有抽象层：.eyebrow / .field / .field-label / .chips / .chip / .choices / .choice / .note / .fine 这些类在 OnboardingView、SettingsView、ExecutionView、PlanView、MealsView、MealForm、FoodCaptureDialog、InsightCard 八个文件里各写一遍（scoped 使其互不共享），其中 .eyebrow、.field、.field-label、.chips、.chip 在 OnboardingView 与 SettingsView 中几乎逐字相同。BaseCard 提供 --card-pad 变量让调用方调内距，但 OnboardingView 没用它，而是用 .panel{padding:26px} 直接覆盖，绕开了组件提供的接缝。全局只提供 .micro / .num / .visually-hidden / .hairline 四个工具类。深色主题靠 html[data-theme] 覆盖令牌，组件零感知——这一点对换皮友好。",
+ "dataFlow": "读：store.userProfile（localStorage 键 twopoles_state 里的 profile，store.init() 时经 normalizeProfile() 补齐 personalBests/gymRecords 空数组）→ 在 setup 里被拆成 20 多个独立 ref（OnboardingView 278-304）→ 模板双向绑定。纯函数读：bodyErrors(height, weight)、cycleRangeError(start, end)、goalSummary({...})、isCurrentBest(pb, list)、parseResult(raw, track)（由 PbList 调用）。外部只读依赖：planRules 的 AUTO_RECOMMEND_MIN_AGE(18)、exercises 的 gateReason(restrictions)。写：finish() 组装一个 23 字段的 Partial<UserProfile> 交给 store.updateProfile()（首次建档时 store 用默认值 age:25/goal:''/experience:''/availableTimes:[]/equipment:[]/restrictions:[] 打底并生成 id），随后 store.persistState() 序列化整个 state 到 localStorage。模式：updateProfile 之后再调 store.commitMode(mode)（绕过 switchPreview 确认弹窗）。副产物：store.generatePlanQuestions()（把档案经 llm.profileSnapshot() 序列化成中文键 JSON 发给模型）、store.regenerateWeekPlan(new Date())（编辑模式才调，旧计划进 planHistory）。子组件写回：PbList/GymList 通过 `v-model` 的 update:modelValue 事件把新数组 emit 给父级的 personalBests/gymRecords ref（父级再整体传给 store）。所有勾选项都是中文字符串（如 '10 分钟'、'宿舍或家'、'无器材'），不是枚举 ID——这正是与下游规则服务之间的隐式数据契约。",
+ "stateModel": "页面状态是一个由 `step`(ref<number>，1..3) 驱动的三态向导机，没有显式状态枚举：step===1 选模式 → step===2 基本情况 → step===3 分支渲染（mode==='athlete' 走专项信息，否则走回顾页）。切换规则：back() 只做 step--（第 1 步禁用）；next() 先跑第 2 步校验（age/goal/experience），通过才 step++；finish() 在第 3 步执行落库。表单状态是 20+ 个彼此独立的 ref（nickname/age/goal/experience/availableTimes/equipment/availableVenues/restrictions/discipline/cyclePhase/cycleStartDate/cycleEndDate/targetEvent/height/weight/goalType/targetEventDate/targetResult/cycleFocus/personalBests/gymRecords），彼此不联动——例如 goalType 切换不清空另一分支内容，mode 切换不重置任何已填字段（注释明确写「切换不会丢掉另一类已填的内容」「运动员字段切到大众模式保存时也原样带回」）。独立的派生状态有 5 个 computed：bodyError（身体数据错误）、athleteDraft（模板类型收窄的绕行别名）、bodyLabel（回顾页展示串）、cycleError（周期起止）、summary（goalSummary 的结果），以及 blocked（自动推荐是否被关：年龄 < 18 或命中 GATE_RESTRICTIONS）。编辑态由 store.hasProfile 派生（editing = computed(() => store.hasProfile)），已有档案时所有 ref 用 `profile?.xxx ?? 默认值` 回填，personalBests/gymRecords 每次复制一份浅拷贝，避免编辑中途污染 store。",
+ "coupling": "跨组件 import：OnboardingView → BaseCard、BaseButton（common）、PbList、GymList（profile）、useAppStore、types/domain、planRules.AUTO_RECOMMEND_MIN_AGE、exercises.gateReason、profileRules 的 4 个导出；PbList/GymList → profileRules（parseResult/isCurrentBest/formatCnDate/TRACK_EVENTS/FIELD_EVENTS/LIFT_PRESETS）+ utils/id.newId；SettingsView → profileRules.goalSummary（与建档页共享同一句口径）；stores/app.ts → profileRules.normalizeProfile。共享 store 字段：userProfile、currentMode、hasProfile、planLlmReady、pendingSwitch/modeLog（模式切换历史由 confirmModeSwitch/commitMode 写），建档页的 commitMode 会往 modeLog 里追加一条记录。共享类型：UserProfile、PersonalBest、GymRecord、GoalType、Mode 直接来自 types/domain，且是 localStorage 里的持久化格式。跨子系统的语义耦合最强的一处是「选项字符串」：建档页写进 profile 的 availableTimes / availableVenues / equipment / restrictions 全部是中文字符串，planRules 用 parseInt('10 分钟') 取时长、用 VENUE_LABELS 映射场地、用 hasEquipment 的 includes 比对器材、用 passesRestrictions 的 === 比对四条限制文案；改一个字面量就静默失效。另一处是 llm.profileSnapshot() 会把 profile 的中文键快照发给第三方模型接口，因此档案字段的语义同时是提示词契约（提示词要求模型「不要重复档案里已有的年龄、目标、经验、器材、场地、回避条件」）。",
+ "designDebt": [
+  "OnboardingView.vue 第 112 行 `v-else-if=\"mode === 'athlete'\"` 与第 203 行 `v-else` 回顾问构成互斥分支，而第 7 行 `stepTitles[step-1]` 对第 3 步固定写死「确认无误就可以开始了。」——运动员模式下第 3 步其实是「专项信息」填写页，永远走不到回顾页。因此运动员用户的流程里没有复核确认环节，而文案和 dots 进度都宣称这是最后确认步。交付说明.md:475 记录了早期 `total = athlete ? 3 : 2` 的版本 bug，改成常量 3 之后这个语义错位被留下了。",
+  "第 211-213 行 `<li v-if=\"athleteDraft\">` 三条（主项/训练目标/PB·极限数据）在回顾问里是死代码：回顾问只在 public 模式渲染，而 athleteDraft 只在 mode==='athlete' 时为真，两个条件互斥。",
+  "年龄区间 12–90 写死在三处且没有常量：输入框属性 `min=\"12\" max=\"90\"`（第 41 行）、next() 里的字面量比较 `age.value < 12 || age.value > 90`（第 358 行）、以及错误文案「请填写 12–90 之间的年龄」（第 359 行）。profileRules.ts 只为身高/体重导出了 HEIGHT_RANGE/WEIGHT_RANGE，年龄没有对应出口。",
+  "身高/体重的 HTML 属性是硬编码字符串，和导出的常量脱钩：第 49 行 `min=\"100\" max=\"250\"`、第 54 行 `min=\"25\" max=\"200\"` 与 profileRules.ts:6-8 的 HEIGHT_RANGE/WEIGHT_RANGE 数值相同但没有任何绑定关系，改常量不会改输入框。",
+  "`v-model.number` 的字符串洞：Vue 的 number 修饰符对无法 parseFloat 的输入保留原字符串，用户在年龄框输入 'abc' 后 `!age.value` 为 false、`'abc' < 12` 与 `'abc' > 90` 都为 false，next() 的校验直接放行，'abc' 被原样写进 `profile.age`。profileRules.ts 里有 bodyErrors 用 Number.isFinite 兜住 height/weight，却没有任何 ageErrors 对应物（脚本自检也只覆盖 bodyErrors/cycleRangeError）。",
+  "选项列表在视图与规则引擎之间重复定义且未共享：restrictionOptions（第 273 行）逐字等于 exercises.ts:91 的 RESTRICTION_KEYS；venueOptions（第 272 行）等于 exercises.ts:11 的 Venue 与 planRules.ts:24-28 的 VENUE_LABELS；timeOptions（第 270 行）的 '10 分钟' 文本格式被 planRules.budgetMinutes 用 parseInt(t,10) 解析。视图没有 import 任何一个，改字面量即静默失配。",
+  "equipmentOptions（第 271 行）里有两个死选项：'单杠' 在整个 src/ 里只出现在这一行，'跑步机' 只作为 ex-easy-run 的 reason 文案出现，从未出现在任何 exercise.equipment 数组里——勾选它们对筛选结果零影响。'无器材' 语义冗余：exercises.ts:28 注释已说明 `equipment: []` 就代表「不需要器材」，hasEquipment 对空数组直接返回 true，所以 '无器材' 实际是靠「不匹配任何具体器材名」这个副作用生效的。",
+  "「特殊情况」与「需要避开的」共用同一个 restrictions 数组：第 98 行与第 105 行都调用 toggle(restrictions, ...)，把动作过滤器（无跳跃/膝部负担小/腰部负担小/低强度起步）与自动推荐开关（孕期或产后/伤病或遵医嘱限制）混在同一个持久化字段里。两者语义完全不同，文件自己在第 274 行加了注释说明「这几项不是动作过滤器」，全靠 gateReason() 里的 GATE_RESTRICTIONS.includes 过滤来区分。改版时一旦「顺手」拆成两个数组，profile.restrictions 的持久化格式与 passesRestrictions/gateReason 的查找都会失效。",
+  "同一个 mode 在三处有三套不同描述：OnboardingView 第 264-265 行的 modeChoices（'每天一小段，跟着计数做完就行' / '按周期安排，关注负荷与完成质量'）、SettingsView 第 244-247 行的 modes（'按器材与时长过滤的一周安排、摄像头计数、简单餐次确认' / '周期与锁定训练、距离时长与 RPE 负荷、训练日用餐时间线'）、以及 stores/app.ts:191-199 的 switchPreview.differences（4 条差异文案）。",
+  "blocked（第 375-381 行）在视图里重新实现了一遍 planRules.ts:109-122 的门槛逻辑，且判定约定不同（视图返回 string|null，planRules 返回 auto:boolean+gateNote）；视图版还多一条 `!Number.isFinite(age.value) → return null`，意味着年龄非法时静默显示「可自动推荐」。",
+  "PbList.vue 与 GymList.vue 是近乎逐字复制的双胞胎：CSS（PbList 161-214 / GymList 146-192，.rec/.rec-head/.hint/.add/.form/.grid/.f/.seg/.form-actions/.btn/.rows/.row/.ev/.res/.meta/.acts/.empty）与脚本结构（open/editingId/error/draft/reset/startNew/startEdit/cancel/save/remove）几乎一致，只差字段名。两份约 200 行、共 406 行代码维护同一套皮肤，改版时视觉要改两遍。",
+  "表单原语在 8 个文件里各写一遍：.eyebrow（OnboardingView 441 行与 SettingsView 415 行逐字相同）、.field/.field-label（457-458 vs 448-449 逐字相同）、.chips/.chip（460-465 vs 451-454 逐字相同）。globals.css 里没有任何表单/芯片原语，全局只提供 .micro/.num/.visually-hidden/.hairline。",
+  "第 322 行 `const athleteDraft = computed(() => mode.value === 'athlete')` 带注释「模板里 mode 会被 v-else 收窄，用一个 computed 绕开这个收窄」——这是为绕过 vue-tsc 类型收窄而留在生产代码里的语义别名，改版拆分组件后即可消失。",
+  "字段到模型的映射是手写清单：finish() 第 398-422 行逐字段列出 23 个键，并各自带一条 '空值转 undefined' 规则（如 `height.value === '' ? undefined : Number(height.value)`、`nickname.value.trim() || undefined`）。新增一个档案字段需要同时改：第 278-304 行的 ref、finish() 的映射、以及回顾页第 205-220 行的一行展示——三处且容易漏。",
+  "finish()（第 383-435 行）一个函数里塞了五件事：校验身体数据与周期区间 → store.updateProfile → store.commitMode → 触发模型提问 → 触发本周计划重算 → 弹 toast → router.push。校验、保存、保存后的副作用、导航四层没有分界，改成「先预览再保存」或「保存后进下一步」需要重写整个函数而不是替换其中一段。",
+  "错误提示位置离出错字段太远：`<p v-if=\"error\" class=\"error\" role=\"alert\">` 在第 224 行，卡片底部；而第 2 步有约 10 个字段（昵称/年龄/身高/体重/5 组 chips），在窄屏下错误条会落在视口之外，也没有 focus 或 scrollIntoView。第 42 行的年龄未成年提示倒是就地显示的，说明同一页里存在两套错误呈现方式。",
+  "profileRules.ts:147 有一条只剩注释没有代码的悬空行（「// 身高/体重保持\"没填就是没填\"，不塞默认值，也不改写已有体重」），是删代码后没清理的残留；normalizeProfile 的注释说「补齐新增字段」，但 height/weight 实际未做任何补齐。",
+  "TRACK_EVENTS/FIELD_EVENTS 的拼接散落三处：OnboardingView 第 306 行 eventOptions、PbList 模板第 17 行的选项循环、PbList 脚本第 115 行的 startEdit 反查。profileRules.ts 没有导出合并后的 ALL_EVENTS 常量。",
+  "stepTitles 与 total 分离：第 256-260 行写了三条标题，第 261 行 `const total = 3`，第 7 行用 `stepTitles[step - 1]` 取值，但 next()（第 357 行）里又硬编码 `if (step.value === 2)` 来决定校验第 2 步。加一步要同时改模板分支链、stepTitles、total 和 next() 里的魔数 2。",
+  "编辑模式下会连弹两个 toast：store.regenerateWeekPlan 内部弹「本周计划已按新条件重生成」，finish() 末尾再弹「档案已更新」。",
+  "无障碍缺口：五组 chips（第 62/69/76/83/90/97/104 行）都是裸 div，没有 role=\"group\" 与 aria-label（对比 SettingsView 第 176 行的 `<div class=\"chips\" role=\"group\" aria-label=\"主题\">`）；目标类型的 seg（第 140 行）同样缺分组语义；第 161 行「对应项目」是一个 disabled input，键盘不可聚焦，屏幕阅读器读到的是个不可编辑字段。"
+ ],
+ "constraints": [
+  "年龄门槛常量 AUTO_RECOMMEND_MIN_AGE = 18（planRules.ts:22）同时决定建档页的门槛提示文案、回顾页「自动推荐」一行、以及 buildDayPlan 的 auto/gateNote。UI 不得再写死 18，必须继续引用这个常量，否则三处口径会分叉。",
+  "门槛项（孕期或产后 / 伤病或遵医嘱限制）是「适用范围开关」而不是「动作过滤器」，产品口径固定：建档页第 58 行「身体数据只用于记录与展示，不据此给出 BMI 或健康结论」、第 108 行「系统不据此判断动作是否安全」、第 221 行「系统不会据此判断动作是否安全」这三句免责话术不可删改或弱化。",
+  "profile 的四个数组字段存的是中文字符串而非 ID，与下游规则逐字比对：availableTimes 必须是 'N 分钟'（planRules.budgetMinutes 用 parseInt(t,10) 取值）、availableVenues 必须是 '宿舍或家'/'健身房'/'户外'（planRules.VENUE_LABELS 只映射这三个）、equipment 必须与 exercises.ts 各动作的 equipment 数组元素同名（hasEquipment 用 includes）、restrictions 中的四条过滤项必须是 '无跳跃'/'膝部负担小'/'腰部负担小'/'低强度起步'（passesRestrictions 用 ===）。改文案等于改算法。",
+  "localStorage 持久化格式不能随意改：键名固定为 twopoles_state（app.ts:151）与 twopoles_llm（llm.ts:19）；UserProfile 的 JSON 形状即数据格式，旧档案缺 personalBests/gymRecords，由 normalizeProfile() 补齐——字段改名必须写迁移，不能直接改键名。",
+  "profile.restrictions 必须继续同时承载「动作过滤器」和「自动推荐门槛」两类字符串（当前两者同数组），除非同步修改 exercises.gateReason/passesRestrictions 与 UserProfile 类型并做数据迁移，否则老档案的门槛项会被当成动作过滤条件处理。",
+  "PersonalBest.result 存用户输入原文，比较时用 parseResult 解析（'2:05.3' 解析成 125.3 秒，'6.85 m' 解析成 6.85 米）；解析不出来的记录不参与 PB 比较但必须仍留在列表里；PB 是追加式历史，eventBests 只「标出当前 PB，不删除也不合并历史记录」。界面不能表达成「新增会覆盖旧成绩」。",
+  "parseResult 的负号护栏（/^[-−]/ 必须在数字清洗前判断）不能删：否则 '-3' 会被正则削成 '3'，把无效输入变成有效成绩；田赛成绩带冒号一律判非法。",
+  "GymRecord.kind 区分 '1rm'（实测 1RM）与 'working'（训练最高重量），两者不互相反推、不派生建议重量（gymRecordLabel 的注释与文案明确）；1RM 与训练最高重量的措辞不能混用。",
+  "cycleRangeError 只在起止两端都填了才校验，且按 ISO 字符串比较 start > end；日期输入是原生 type=\"date\"，持久化格式是 'YYYY-MM-DD'（formatCnDate 只用正则 /^(\\d{4})-(\\d{2})-(\\d{2})/ 解析，解析不了原样返回）。不能改成 Date 对象或本地化日期串。",
+  "身体数据区间口径固定在 profileRules 的 HEIGHT_RANGE(100–250cm) / WEIGHT_RANGE(25–200kg)，且「留空即未填写」——finish() 用 `=== '' ? undefined : Number(...)` 写入，不允许把空值写成 0。",
+  "档案快照会发给第三方模型：llm.profileSnapshot() 把 mode/age/goal/experience/availableTimes/equipment/availableVenues/restrictions/height/weight（athlete 还加 discipline/cycle/比赛目标/PB/极限重量）序列化成中文键 JSON，经本机 Vite 代理 /api/llm/chat 转发到外部 base_url。因此「档案不上传」这句承诺（OnboardingView 第 233 行）在已配置模型时不成立——改版要么修正文案，要么保证不外发。这是硬约束，不是建议。",
+  "模型提示词契约：buildPlanQuestionMessages 要求「最多 3 问、必须包含每周训练次数、不要重复档案里已有的年龄/目标/经验/器材/场地/回避条件、不问医疗诊断与体重评价」。改档案字段的含义会改变模型被问什么；档案字段名改动会改变 prompt 内容（profileSnapshot 用中文键）。",
+  "建档完成后的两个后续动作有顺序依赖：store.generatePlanQuestions() 必须在此之前触发（它读的是已写入的 userProfile），而 store.regenerateWeekPlan() 只在编辑已有档案时执行（否则会覆盖新建档当周的计划版本）。",
+  "浏览器约束：档案与所有记录共用 localStorage 同一 key，quota 满时 store 弹「本机存储写入失败」并提示关闭照片缩略图——改版不要把大体积数据（如 base64 图片）塞进 profile，否则会挤爆同一配额。",
+  "可访问性下限已存在的语义不能丢：选择型控件是 button + aria-pressed，进度点是 aria-hidden 的 <i>，门槛提示 role=\"status\"、错误提示 role=\"alert\"，禁用输入用 :disabled 而非 readonly。"
+ ],
+ "redesignHooks": [
+  "profileRules.ts 是最干净的接缝：零 Vue 依赖、零 store 依赖、零 DOM 的纯函数层，且 scripts/selfcheck.ts 已经对它 9 个导出做了断言。所有新增校验（年龄区间、器材合法性、场地枚举）都应该先在这里加一个纯函数 + 一条 selfcheck 断言，再由页面调用——这是改版时最省事、风险最低的扩展点。",
+  "PbList.vue / GymList.vue 是标准的 v-model 叶组件（props: modelValue / emits: update:modelValue），不碰 store、不碰 router、不直接操作父级状态，只要保持 emit 出的数组形状不变（PersonalBest[] / GymRecord[]），两个组件的整块模板与样式可以整体替换而不动任何逻辑。",
+  "store.updateProfile(partial) + store.commitMode(mode) + store.regenerateWeekPlan(date) 已经是完整的写边界：建档页只应调这三个 action，不该直接改 userProfile 或 currentMode。换皮时保持这条边界即可完全不碰 store。",
+  "BaseCard 暴露了 `--card-pad` 变量和 variant('default'|'flush'|'ink')，BaseButton 暴露了 variant/size/icon/disabled —— 它们是现成的替换点。但 OnboardingView 目前用 `.panel{padding:26px}` 绕开了 --card-pad，改版时把它换成 style=\"--card-pad:26px\" 就能让卡片内距跟随新皮肤，而不必写 :deep() 覆盖。",
+  "goalSummary() 已经被 SettingsView 与 OnboardingView 共用，是「文案口径」的单一来源——重写文案时必须同时改 profileRules.ts 这一处，否则两个页面会各说各话（注释里已明确这个意图）。",
+  "normalizeProfile() 是老档案迁移的唯一切口（当前只补 personalBests/gymRecords 空数组）。改版若要给档案加字段（如训练偏好、体脂率），在这里做版本化补齐即可，不必在每个读档案的地方写 `?? []`。",
+  "step / total / stepTitles 这个三元组可以整体抽成一个描述数组或 useOnboardingSteps() composable：把 { id, title, canEnter, validate } 声明化，模板就只剩一个 <component :is>，新增/重排步骤不用碰 next() 里的魔数 2。",
+  "模式选择器（modeChoices）、目标类型二选一（seg）、主项 chips 与「其他」自由输入（otherPicked/otherSport/pickEvent/pickOtherSport）各自是一个自洽的小交互，可以各自替换成新的控件组件而不影响其余部分；「其他」用独立开关而不是占用 discipline ref，这个设计解耦值得保留。",
+  "必须先解耦再动的三处：(1) 20+ 个独立 ref 组成的表单模型 → 先合并成单个 reactive draft 对象，再谈重排布局；(2) 模板里 v-if/v-else-if/v-else 的步骤分支链 → 先拆成 StepMode/StepBasics/StepAthlete/StepReview 四个子组件，页面退化成单分支渲染；(3) finish() 里校验/保存/副作用/导航四层混写 → 先拆成 validateDraft() / saveDraft() / afterSave() 三个函数，才谈得上「保存并下一步」这类新流程。",
+  "回顾页的 14 行 ul.review 应先改成描述符数组 [{ label, value }]，才能从「单列分隔线列表」换到双列摘要卡/分组摘要；目前它是硬编码 markup，与 SettingsView 的 profileLine/goalLine 属于同一份数据的第三种呈现。",
+  "blocked 需要先从「一个 string|null」拆成 { ageBlocked, gateBlocked }，才能让「年龄门槛」显示在年龄字段旁、「孕期/伤病门槛」显示在对应 chip 下方——目前两者被压成同一句文案，贴在特殊情况那一组的下方。",
+  "FormField / ChipGroup / ChoiceCard / SegmentedControl 这四个原语目前不存在于 src/components/common/；把 OnboardingView 与 SettingsView 里逐字重复的 .field/.field-label/.chips/.chip/.choices/.choice/.seg 抽成组件，是全局换肤的前置条件（否则新皮肤要粘进 8 个文件）。同理，PbList 与 GymList 共约 90% 的模板与 CSS，先合并成一个 schema 驱动的 RecordList，再统一上皮肤。",
+  "第 233 行的隐私脚注是一个可整块替换的文案接缝——但替换前必须先修正事实（配置了模型时档案会外发给第三方），否则新文案会继承旧的不实承诺。"
+ ]
+}

@@ -1,0 +1,169 @@
+{
+ "area": "设置与数据 / 模型接入（SettingsView + llm 服务 + 服务端默认模型代理）",
+ "purpose": "设置页承担四件事：(1) 切换「自主/监督」使用方式，切换前用 `switchPreview` 给出「会变化 / 保持不变」的双栏对照并要求二次确认；(2) 配置大模型接入——用户可填自己的 OpenAI 兼容接口（base_url / 模型名 / API Key），或选择使用服务端内置默认模型；(3) 管理隐私与外观偏好——摄像头开关、本地留存视频、能量估算展示、食物照片本地留存、数据保留天数、导出格式、主题（system/light/dark）；(4) 管理本机数据——统计概览、导出 JSON/CSV、以及两步确认的「清除全部数据」。同时它是整个 LLM 能力的配置中枢：`llmConfig`（用户自填）与 `llmDefault`（服务端默认）两套来源在此汇合，决定了「计划生成」和「食物识别」两条 AI 链路是否可用；`src/services/llm.ts` 是这两条链路共用的配置持久化 + 提示词构造 + 响应校验 + 代理调用层；`.env.example` 定义了服务端默认模型的注入方式。API Key 的安全边界是本子系统的核心设计：用户自己的 Key 存在独立 localStorage 键 `twopoles_llm` 中（绝不随 `twopoles_state` 导出），服务端的默认 Key 只存在于 Node 侧，浏览器只能通过 `GET /api/llm/status` 拿到 `{available, model}` 两个字段。降级策略是分层的：自填接口 → 服务端默认模型 → 纯本地规则（`planRules` 内置计划 / 餐食手工录入），识别失败再降级到本地 EfficientDet-Lite0。数据导入导出方面只实现了「导出」——JSON（完整业务数据）与 CSV（训练/餐食/计划三合一），仓库中不存在任何导入/恢复代码路径。",
+ "files": [
+  {
+   "path": "src/views/SettingsView.vue",
+   "role": "设置页主视图，483 行，六张 BaseCard 分区：使用方式、模型接入、隐私、外观、我的数据、清除全部数据；内含 llmForm 本地表单、toCsv/payload/download 全部导出逻辑、4 个手写 toggle 开关、theme chips",
+   "lines": 483
+  },
+  {
+   "path": "src/services/llm.ts",
+   "role": "LLM 唯一服务层，522 行，混装 5 类职责：配置持久化（loadLlmConfig/saveLlmConfig，STORAGE_KEY='twopoles_llm'）、就绪判定（isLlmReady/usingDefault/canUseLlm）、状态探测（fetchLlmStatus）、提示词与响应校验（buildPlanMessages/buildPlanQuestionMessages/validatePlanQuestions/validatePlanDraft/extractJson）、代理传输（callLlmChat/callPlanProxy/testLlmConfig）",
+   "lines": 522
+  },
+  {
+   "path": ".env.example",
+   "role": "服务端默认模型注入契约：LLM_DEFAULT_BASE_URL / LLM_DEFAULT_API_KEY / LLM_DEFAULT_MODEL；注释明确「密钥只留在服务端，不进前端包」「同名环境变量优先于文件」",
+   "lines": 6
+  },
+  {
+   "path": "src/stores/app.ts",
+   "role": "Pinia setup store，962 行；持有 llmConfig/llmDefault/planLlmReady，暴露 setLlmConfig/setLlmPreference/refreshLlmStatus/updatePrivacy/setTheme/clearAllData，以及计划生成两阶段状态机 planDraftState 的迁移逻辑",
+   "lines": 962
+  },
+  {
+   "path": "vite.config.ts",
+   "role": "llmProxy 自定义插件，169 行；configureServer + configurePreviewServer 承载 POST /api/llm/chat 与 GET /api/llm/status；loadEnv(mode, cwd, '') 读取 LLM_DEFAULT_*；server.host: true",
+   "lines": 169
+  },
+  {
+   "path": "src/types/domain.ts",
+   "role": "PrivacySettings（cameraEnabled/saveVideoLocally/dataRetentionDays/exportFormat/showEnergyEstimate/saveFoodPhotoLocally）、ThemePreference、TrainingType 联合类型、Meal/MealItem 的 photoThumb/photoId",
+   "lines": 1
+  },
+  {
+   "path": "src/components/common/PlanDraftDialog.vue",
+   "role": "计划草稿对话框，消费 store.planDraftState；自带 modelLabel 与 weekday()，与 llm.ts 重复",
+   "lines": 461
+  },
+  {
+   "path": "src/components/meals/FoodCaptureDialog.vue",
+   "role": "食物识别对话框，cloudAvailable = canUseLlm(store.llmConfig, store.llmDefault)，自带 cloudModelLabel，打开时自行 refreshLlmStatus()",
+   "lines": 998
+  },
+  {
+   "path": "src/components/layout/TopBar.vue",
+   "role": "第二处「使用方式切换确认」实现（pop-cols/pop-lead/pop-actions）+ 第二份 modes 数组",
+   "lines": 293
+  },
+  {
+   "path": "src/services/weekRules.ts",
+   "role": "loadOf(session)：负荷口径唯一权威实现（duration × RPE，缺 RPE 返回 null），SettingsView 的 CSV 却自己重算",
+   "lines": 1
+  },
+  {
+   "path": "src/components/common/BaseCard.vue",
+   "role": "卡片壳，padding: var(--card-pad, var(--space-6))，注释明确「调用方要改内距就给 --card-pad，不必抢选择器优先级」",
+   "lines": 1
+  },
+  {
+   "path": "src/components/common/StatStrip.vue",
+   "role": "发丝线指标条，导出 StatItem 接口；项目已用它取代「四张等宽卡」，但 SettingsView 的 .stats 仍是旧写法",
+   "lines": 1
+  },
+  {
+   "path": "src/styles/tokens.css",
+   "role": "设计令牌全集（--color-*/--space-*/--radius-*/--font-num/--motion-*/--easing-*/--breakpoint-*）+ html[data-theme] 双主题；--breakpoint-* 未被任何视图使用",
+   "lines": 259
+  }
+ ],
+ "keyComponents": [
+  "页头 .page-head：左侧 eyebrow「设置 / SETTINGS」+ h1「设置」+ 说明段落，右侧 StatusBadge 显示「已建档 / 未建档」",
+  "「使用方式」BaseCard：两枚 .choice 大按钮（自主 / 监督）构成单选卡组，选中后展开 .switch-confirm 双栏面板（左「会变化」右「保持不变」，数据来自 store.switchPreview），底部 .row-line 展示当前档案摘要并给 RouterLink 到 /onboarding",
+  "「模型接入」BaseCard：.llm-head 行（h2 + 副标题 + StatusBadge llmBadge）；.llm-default 段落展示服务端默认模型名与可用性；.llm-pick 两按钮偏好组（用我的接口 / 用内置模型）+ .llm-pick-note 解释回退行为",
+  "模型表单：.fields 两列布局，base_url 输入、模型名输入、API Key 输入（type=password），.actions 行放「保存配置」「测试连接」两个 BaseButton，右侧 .llm-msg 内联状态文本（llmMsg / llmMsgBad）",
+  "「隐私」BaseCard：4 个手写 .toggle 开关（摄像头、本地留存视频、显示能量估算、本地留存食物照片）+ 保留天数 number 输入（min=7 max=3650）+ 导出格式 .chips（JSON / CSV）",
+  "「外观」BaseCard：主题 .chips 三选（跟随系统 / 浅色 / 深色）+ 一行系统当前主题说明（systemDark 文案）",
+  "「我的数据」BaseCard：.stats 四格统计（训练次数 / 餐食条数 / 计划条数 / 占用空间 KB），两个导出 BaseButton（JSON / CSV），exportError 错误段落",
+  "「清除全部数据」BaseCard.danger：两段式确认，首击变文案 + 出现第二个「确认清除」按钮，confirming 状态控制",
+  "页脚一行：版本 {{ RULE_VERSION }}（当前值 'diet-rules-v2'，实为餐食规则版本，不是应用版本号）",
+  "抽屉/弹层（不在本页但同一子系统）：PlanDraftDialog 承载计划草稿的 questions/ready 状态机；FoodCaptureDialog 承载云端识别与本地识别两条路径"
+ ],
+ "uiPatterns": [
+  "整体骨架：单列窄页 .page-wrap（max-width 860px）居中，页头 sticky 感觉的 flex 行（左标题右状态徽章），下面依次 6 张 BaseCard，视觉分隔靠卡片阴影与 --space-6 间距",
+  "分区模式：每张 BaseCard 内是「h2 标题 + .sub 副标题 + 内容」，无分隔线，靠间距分组；BaseCard 有 default/flush/ink 三种 variant 但本页全用 default",
+  "单选卡组模式：.choice 网格两张大按钮式卡片，.active 加边框与强调色，用 radio 语义但无真实 input[type=radio]",
+  "对照确认模式：.switch-confirm 双栏 diff（左 changes 红/右 keeps 绿），条目用 li 列表 + 前面的小圆点标记，底部「确认切换」行动按钮",
+  "分段控件模式：.llm-pick 两个按钮并排，active 用 .active 类，不是原生 radio group",
+  "表单元模式：.field 包裹 label + input，底部分隔线，placeholder 承担示例说明；API Key 用 type=password，无「显示/隐藏」切换",
+  "开关模式：自绘 .toggle（隐藏 checkbox + .tg 轨道 + 滑块），label 与说明文字同行，focus-visible 有描边；共 4 个，样式完全手写、无公共组件",
+  "芯片选择模式：.chip 圆角小标签按钮，active 用 .active 类 + 强调底色；共 2 组（导出格式、主题）",
+  "统计磁贴模式：.stats 四列网格，.stat 单元 = 数字（无单位大字号）+ 说明小字；与项目其它页的 StatStrip 发丝线风格不同",
+  "危险区模式：BaseCard.danger 变体 + 两步确认，第二次点击才显示真正动作",
+  "反馈模式混用：模型配置用内联 .llm-msg 文本（成功/失败两套 class），导出失败用 .exportError 段落，而项目其它地方用 store.showToast 弹层；保存配置同时既弹 Toast 又写 .llm-msg",
+  "空态/加载态：设置页基本没有骨架屏或加载态，仅「测试连接」期间禁用按钮并把文案改成「测试中…」",
+  "响应式：@media(max-width:767px) 把 .choices/.fields/.stats 降为 1-2 列、页头改纵向、按钮满宽；@media(max-width:560px) 再收窄开关列；断点全部硬编码，未用 tokens.css 里的 --breakpoint-*"
+ ],
+ "styleApproach": "全站统一 `<style scoped>` + 裸 CSS（无 CSS 预处理器、无 CSS Modules），颜色/间距/圆角/动效令牌来自 src/styles/tokens.css 的自定义属性（--color-ink/--color-muted/--space-1..10/--radius-*/--motion-*/--easing-*/--shadow-*/--font-num），主题靠 html[data-theme] 覆盖同名字符实现。SettingsView.vue 第 412-483 行 72 行 scoped CSS 是一整套「自建 mini 设计系统」：.eyebrow（带 ::before 菱形）、.sub、.fine、.chip、.field、.actions、.stats/.stat、.toggle/.tg、.llm-*、.switch-confirm、.choice。问题是这套类名不是本项目独有的——.eyebrow 在 OnboardingView 与 PlanView 各写一遍（字面量几乎相同），.fine 三处字号不同（10.5/11/11.5px），.chip 三处定义（12px/13px/强调填充），.field 四处定义。字号没有走 --font-size-* 令牌（tokens.css 只有 --font-num 用于数字），圆角也自造了 13px/14px 等令牌表里不存在的值（令牌只有 6/8/10/12/16/999），而项目里 BaseButton/BaseCard 走的是令牌。关键冲突：BaseCard 的 padding 契约是 `var(--card-pad, var(--space-6))` 并在组件注释里写明「调用方要改内距请设置 --card-pad，不要和组件抢选择器优先级」，但 SettingsView 第 418 行 `.section{padding:22px}` 直接改了 BaseCard 根元素的内距——两者特异度相同（.card[data-v-x] 与 .section[data-v-y] 都是 0,2,0），最终胜负靠 CSS 注入顺序，属于脆弱覆盖。另有 `.actions :deep(button){width:auto;padding:0 20px}` 穿透 BaseButton 改盒模型，`.section`/`.eyebrow` 等类又与 BaseCard 的 variant 体系无关——说明「设置页」实质是一套脱离公共组件契约的私有视觉层。",
+ "dataFlow": "数据来源分三层：(1) localStorage 键 `twopoles_state`——由 src/stores/app.ts 统一读写，内含 profile / mode / modeLog / sessions / meals / plans / planHistory / unitGrams / privacy / theme / collapsed；(2) localStorage 键 `twopoles_llm`——由 src/services/llm.ts 单独读写，只含 LlmConfig {baseUrl, apiKey, model, preference}，与 `twopoles_state` 物理隔离，导出时不会被带走；(3) IndexedDB `twopoles_meal_photos`（store 名 photos，v1）——存食物原图，localStorage 只留缩略图 photoThumb 与 photoId。设置页与 store 之间全部是单向读取 + 显式 action 写回：视图不直接碰 localStorage，只调 store.setLlmConfig / setLlmPreference / updatePrivacy / setTheme / clearAllData；表单侧用本地 ref `llmForm` 拷贝一份 store.llmConfig 作为编辑缓冲，保存/测试/切偏好三处各自手动 `llmForm.value = { ...store.llmConfig }` 回写同步。服务端方向：浏览器从不直连模型厂商，一律走同源 POST /api/llm/chat 与 GET /api/llm/status，由 vite.config.ts 的 llmProxy 插件在 dev/preview 期注入；真实部署需要自建后端承载同契约。导出方向：设置页把 store 里的 sessions/meals/plans/planHistory/unitGrams/privacy/profile/mode/modeLog 拼成 payload（meals 显式置 photoId: undefined，照片本体不导出），JSON 走 JSON.stringify(payload, null, 2) 下载 .json，CSV 走自建 toCsv() 拼 15 列（带 BOM ﻿ + CRLF）下载 .csv。导入方向：不存在——全仓库没有任何 parse/restore/import 代码，导出的 JSON 也无法回灌，因为 payload 结构与 `twopoles_state` 结构并不相同（payload 多 exportedAt、缺 theme/collapsed、meals 缺 photoId）。",
+ "stateModel": "本子系统的状态是三组彼此独立、耦合很弱的模型：(1) 模型接入态：LlmPreference = 'custom' | 'default'，叠加 LlmConfig 字段完备性。三态派生 usingDefault(cfg) = preference==='default' || !isLlmReady(cfg)（注意 isLlmReady 只要求 baseUrl && model，不要求 apiKey），canUseLlm(cfg, fallback) = usingDefault ? fallback.available : (isLlmReady(cfg) || fallback.available)——即「用户声明优先、就绪度兜底」的双输入模型。设置页再自派生 llmBadge（内置模型/未配置/自己的接口/接口未填）四态文案。(2) 隐私偏好态：PrivacySettings 六个平铺字段，cameraEnabled / showEnergyEstimate / saveFoodPhotoLocally / exportFormat 已接线，saveVideoLocally 与 dataRetentionDays 是「已实现存储但无任何消费方」的空开关。(3) 主题态：ThemePreference = system|light|dark，store 监听 matchMedia('(prefers-color-scheme: dark)') 变化并 applyTheme，index.html 的内联预绘制脚本也读 twopoles_state.theme 提前打 data-theme 防闪烁——同一逻辑在两处实现。此外还有跨页共享的 PlanDraftState 状态机（status: idle|loading|questions|ready|error，loadingStage: questions|plan|null），它的类型定义在 src/services/llm.ts，迁移逻辑却在 src/stores/app.ts（generatePlanQuestions / generatePlanDraft / acceptPlanDraft），并用 planRequestId 做过期请求丢弃；设置页只负责把 llmConfig/llmDefault 喂进去，不直接操作该状态机。",
+ "coupling": "跨文件耦合点：(1) 设置页 → store：只依赖 useAppStore() 暴露的 setLlmConfig / setLlmPreference / refreshLlmStatus / updatePrivacy / setTheme / clearAllData / switchPreview / llmConfig / llmDefault，页面本身不直接操作 localStorage，是干净的；(2) llm.ts → types/domain.ts：isLlmReady/usingDefault/canUseLlm 依赖 LlmConfig，但 llm.ts 内部又自建了一份 TRAINING_TYPES 常量（重复 domain.ts 的 TrainingType 联合类型），llm.ts 不 import domain.ts 的类型，白名单靠人工同步；(3) llm.ts → vite 代理：依赖 /api/llm/chat 与 /api/llm/status 这两个 URL 常量，调用方拿不到 vite.config.ts 里的实现，代理逻辑与前端逻辑双向耦合在同一个字段名 useDefault/baseUrl/apiKey/model 上；(4) llm.ts → weekRules/planRules/mealRules：计划草稿的校验 validatePlanDraft 依赖 RULE_VERSION 等规则版本，生成计划的降级路径依赖 planRules；(5) 视图间耦合：设置页的「使用方式」与 TopBar 的切换是同一业务动作的两套实现，TopBar 内嵌了一份 modes 常量和一份 switch 确认弹层（pop-cols/pop-lead/pop-actions 结构），设置页在页面内展开同一份 switchPreview 对照——同一条规则、两种交互、两个数据源（store.modes 与视图内 modes）；(6) 全局耦合：设置页的 .eyebrow/.fine/.chip/.field/.actions 等 scoped 样式在各 view 重复实现，是跨视图的隐性耦合（改一处不会联动另一处）；(7) BaseCard 的 --card-pad 变量契约是设计上预留的换肤接缝，但设置页用 .section{padding:22px} 绕过了它，实际耦合在 CSS 优先级上；(8) 隐私开关的数据契约在 types/domain.ts 的 PrivacySettings 与 store 里的默认对象两处重复定义（clearAllData 内又复制了一遍默认值），改一个字段要动三处。",
+ "designDebt": [
+  "src/views/SettingsView.vue 第 455-458 行：`.stats` 四列网格（.stat 单元 = 数字 + 说明）与项目已有组件 src/components/common/StatStrip.vue 职责完全重复——StatStrip 的引入注释明确写着「替换掉之前每页各写一遍的四张等宽卡」，MealsView/ReportView 都已改用 StatStrip，唯独设置页仍留着手写的旧式四卡，数字也没有用 --font-num（Bahnschrift），与全站「数字用等宽表格字体」的设计原则不一致",
+  "src/views/SettingsView.vue 第 418 行 `.section{padding:22px}` 直接覆盖 BaseCard 的 `padding: var(--card-pad, var(--space-6))`，而 BaseCard 源码里明写「内距走变量，调用方要改直接给 --card-pad，不必和组件抢选择器优先级」——这是被官方注释点名的坏味道；.card[data-v-x] 与 .section[data-v-y] 特异度相同(0,2,0)，胜负靠 CSS 注入顺序，属于随时会翻车的脆弱覆盖",
+  "src/views/SettingsView.vue 第 460 行 `.actions :deep(button){width:auto;padding:0 20px}` 穿透进 BaseButton 的盒模型改内距，绕过 BaseButton 自己的 size 体系（sm/md/lg）；BaseButton 一旦调整内距或改用 flex 布局，这行会静默失效",
+  "src/views/SettingsView.vue 第 415-417 行 `.eyebrow` 与 OnboardingView 第 441 行逐字节相同（含 ::before 菱形），PlanView 第 425 行的 .eyebrow 又是另一套；`.fine` 在三处字号分别 10.5/11/11.5px；`.chip` 在 SettingsView(12px)/OnboardingView(13px)/ExecutionView(强调填充) 三份定义；`.field` 在四处重复",
+  "src/views/SettingsView.vue 第 294-307 行 `runTest()` 先执行 `store.setLlmConfig({ ...llmForm.value })`——「测试连接」会顺带把配置写入 localStorage（副作用），而且没有把 preference 切到 'custom'：当用户此前点过「用内置模型」（preference='default'）再填自填接口，测试走的是服务端默认模型而非用户刚填的 base_url，却照样显示「连接正常」，是明确的假阳性",
+  "src/views/SettingsView.vue 第 269-282 行 `saveLlm()` 会在就绪时把 preference 强行改成 'custom'，即「保存」顺手改掉了用户显式选过的「用内置模型」偏好；preference 是用户可选项，却被保存动作当作派生值覆盖",
+  "src/views/SettingsView.vue 第 258 行 `const llmForm = ref<LlmConfig>({ ...store.llmConfig })` 是 store.llmConfig 的第二份真相；第 270、287、295 行三处各自手写 `llmForm.value = { ...store.llmConfig }` 回同步，没有 watch 绑定，store 侧任何其它来源的变更（refreshLlmStatus 之后、或未来加的「从别处导入配置」）都不会回流到表单",
+  "src/views/SettingsView.vue 第 262-264 行 `llmBadge` 在视图里第三次重推「当前用的是哪个模型」；同样的文案逻辑还散在 PlanDraftDialog.vue 的 modelLabel、FoodCaptureDialog.vue 的 cloudModelLabel、MealsView 的识别方式提示里，共四处各写一遍，规则一改要改四处",
+  "src/services/llm.ts 第 39-52 行 `saveLlmConfig` 用 try/catch 把 localStorage.setItem 的失败完全吞掉，只留一行注释；设置页随后无条件弹「已保存」——在隐私模式或配额耗尽时用户会被告知保存成功，实际没存上",
+  "src/services/llm.ts 第 23-37 行 `loadLlmConfig` 不做任何归一化，而第 39-52 行 `saveLlmConfig` 会 trim 掉 baseUrl 末尾斜杠与 apiKey/model 空白——读写不对称，读路径直接信任存储内容",
+  "src/services/llm.ts 第 296 行 `desiredWeeklySessions` 的正则 `/([1-7])\\s*(?:次|天)?/` 中 `(?:次|天)?` 是可选的，因此「每周 10 次」会先匹配到「1」而返回 1 次/周；用户自定义输入两位数时结果错误（选项只有 3-6 次才不出问题）",
+  "src/services/llm.ts 第 287-303 行 `validatePlanQuestions` 先 `slice(0, 4)` 再用 `if (questions.length >= 3) break` 截断，实际上限是 3 但写得像 4；同一函数还把 `allowCustom` 硬编码为 true，模型自己返回的 allowCustom=false 被忽略",
+  "src/services/llm.ts 第 58 行 `TRAINING_TYPES` 是一份手抄的 TrainingType 字符串数组（与 src/types/domain.ts 的 TrainingType 联合类型重复），改训练类型要同时改两处，漏改会让模型输出 planTypes 校验失败",
+  "src/services/llm.ts 第 161-167 行的 WEEKDAY/weekdayOf 与 PlanDraftDialog.vue 内的 weekday()、src/utils/time.ts 的 WEEKDAYS_CN 是三份星期格式化实现",
+  "src/services/llm.ts 整个文件把 5 类职责（配置持久化 / 就绪判定 / 状态探测 / 提示词 / 响应校验 / 代理传输）混在一个 522 行模块里，提示词文案与 HTTP 调用在同一文件同一层——重做提示词或换模型厂商都要动到传输层",
+  "PlanDraftState 状态机的类型定义在 src/services/llm.ts（第 145-154 行），状态迁移逻辑却在 src/stores/app.ts（generatePlanQuestions / generatePlanDraft / acceptPlanDraft），同一个状态机跨两个文件维护，UI 侧（PlanDraftDialog）只读 store.planDraftState",
+  "src/stores/app.ts 中 generatePlanDraft 调用 validatePlanDraft 时传入的是 `llmConfig.value.model`（用户自填的模型名），而不是 callLlmChat 返回的实际模型名——当使用服务端默认模型时 llmConfig.model 为空或仍是旧的自填名，落到计划 reason 里的「模型：xxx」会记错模型名",
+  "src/stores/app.ts `clearAllData()` 只清 `twopoles_state` 与 IndexedDB 照片，**不清 `twopoles_llm`**——设置页「清除全部数据」卡片文案写的是「并清空本机存储」，但用户的 API Key 仍留在本机 localStorage 里，语义与实际不符（安全边界不一致）",
+  "src/stores/app.ts 隐私默认值被写了两遍：clearAllData 内部第 55-62 行的对象字面量，与第 878 行的对象字面量，以及设置页第 408 行 wipe() 里的硬编码 90（第三处魔数）",
+  "src/views/SettingsView.vue 第 352-377 行 toCsv() 里手写 `s.rpe === null || !s.actualDuration ? '未计入' : Math.round(s.actualDuration * s.rpe)`，与 src/services/weekRules.ts 第 30-33 行 `loadOf()` 的口径完全重复——负荷算法有两份实现，改一处导出就与周报对不上",
+  "src/views/SettingsView.vue 第 371-374 行把计划的版本号/模式/理由用 `｜` 拼进「备注」一列塞进 15 列表格，CSV 消费方无法按列解析这些信息",
+  "src/views/SettingsView.vue 第 328-341 行 `payload` computed 里包含带 photoThumb 的完整 meals，`sizeKb` 为了算体积对整份数据做 `new Blob([JSON.stringify(payload.value)])`，每次 store 变化都重新序列化全量数据（含 base64 缩略图），大库下是 O(n) 的重复开销；导出时又再 string 一次",
+  "src/views/SettingsView.vue 第 379-403 行 download/exportData/csvCell/toCsv 约 50 行导出逻辑全部内嵌在视图组件里，src/services/ 下没有任何 export 模块——想把「数据管理」做成独立页面或独立服务都得先搬家",
+  "src/views/SettingsView.vue 第 343-350 行 setPrivacy 只校验 dataRetentionDays >= 7，模板里虽写了 max=3650 但 number input 的 max 不阻止键入，>3650 的值会被原样写进 store；同时第 312 行的 retention ref 只在 setup 时初始化一次，store 侧变化不会回流",
+  "src/views/SettingsView.vue 第 309 行 `systemDark` 是 setup 期对 matchMedia('(prefers-color-scheme: dark') 的一次性快照，系统主题在运行中切换时这段「系统当前是深色/浅色」文案会过期（store 里有 media listener，视图里没有）",
+  "导出只有出、没有进：全仓库没有任何 import/restore 代码；导出的 JSON payload 结构与 `twopoles_state` 结构并不一致（多 exportedAt、缺 theme 与 collapsed、meals 缺 photoId），即便将来加导入也需要一层映射",
+  "界面把两个「当前无实际效果」的偏好（saveVideoLocally、dataRetentionDays）与两个已接线的开关（cameraEnabled、saveFoodPhotoLocally）用完全相同的 .toggle 样式并排呈现，只靠 .fine 小字披露；README/开始使用.md 虽标注了这一点，但界面本身没有区分",
+  "src/views/SettingsView.vue 第 146-149 行、107-115 行的 .fine 长段落承担了模型接入与隐私的全部安全说明（密钥不出本机、请求经本机代理、图片会发到模型厂商），是纯文字散文，没有结构化的告知形态",
+  "设置页「使用方式」切换确认（.switch-confirm 双栏）在 TopBar.vue 第 200-260 行有第二套完整实现，且两处各自维护一份 modes 数组（设置页内联数组 vs store.modes）",
+  "src/views/SettingsView.vue 第 434 行页脚把 `RULE_VERSION`（值 'diet-rules-v2'，来自 src/services/mealRules.ts）当「版本」显示给用户——它是餐食规则版本，不是应用版本，语义错位；且应用本身没有 version 字段",
+  "vite.config.ts 第 148-158 行 loadEnv(mode, cwd, '') 用空前缀会读入 .env/.env.local 全量变量，pick 只挑 LLM_DEFAULT_* 三项；.env.example 未说明 .env.local 也会被读取、也未说明改完 .env 需要重启 dev server（loadEnv 只在配置加载时执行一次）"
+ ],
+ "constraints": [
+  "localStorage 键名不可改：`twopoles_state`（主数据，index.html 的预绘制主题脚本也读它）与 `twopoles_llm`（API 配置）被多处硬编码，迁移需要同时改 store、llm.ts、index.html 与 README",
+  "LLM 走同源代理而非直连：`POST /api/llm/chat`（body：useDefault / baseUrl / apiKey / model / messages / temperature；返回：{text, model} 或 {error}）与 `GET /api/llm/status`（返回仅 {available, model}）。直连模型厂商会被 CORS 挡掉，url 形状不能改",
+  "上游契约：vite.config.ts 拼 `${baseUrl}/chat/completions`、带 `Authorization: Bearer`、非流式（stream:false）；base_url 必须以 http:// 或 https:// 开头，否则代理返回 400；末尾斜杠会被去掉",
+  "服务端默认 Key 绝不能进入前端：/api/llm/status 只能返回 {available, model} 两个字段，LLM_DEFAULT_* 只能通过 loadEnv 在 Node 侧读取，绝不能改成 VITE_ 前缀变量（那会打进前端 bundle）",
+  "代理请求体上限 6_000_000 字节（vite.config.ts readJson 的 limit），与食物图片 base64 内联发送耦合；上游超时 150s、客户端 120s，超时后必须 abort 上游（res.on('close') 联动 AbortController）",
+  "模型必须支持 OpenAI 的 image_url 消息格式才能做食物照片识别（.env.example 已写明「照片识别和计划生成共用这份配置」）",
+  "用户自己的 apiKey 会随每次 /api/llm/chat 请求体上传到本机/自建代理，代理必须原样透传给上游 Authorization 头——改传输层时不能顺手把 key 留在服务端或改成别的字段名",
+  "导出格式不可破坏：JSON 的字段名（exportedAt / profile / mode / modeLog / privacy / sessions / meals / plans / planHistory / unitGrams）与 CSV 的 15 列表头顺序、'﻿' BOM 前缀、CRLF 换行（Excel 中文不乱码依赖这个 BOM）",
+  "照片存储分层不可打破：缩略图 photoThumb 存 localStorage，原图存 IndexedDB(twopoles_meal_photos / photos / v1)，meal 上的 photoId 是唯一关联；导出时 photoId 必须置空（undefined 会被 JSON.stringify 丢弃）",
+  "负荷口径算法不可改：load = actualDuration × rpe，缺 RPE 或缺时长的记录不计入合计（src/services/weekRules.ts loadOf），周报与导出的数字必须一致",
+  "规则版本号会出现在用户可见的记录里（PLAN_VERSION=3、PLAN_RULES_VERSION='plan-rules-v3'、RULE_VERSION='diet-rules-v2'），改动需同步升级并保留旧记录的可读性",
+  "主题机制：html[data-theme] 属性 + 监听 matchMedia('(prefers-color-scheme: dark)')；index.html 里的预绘制脚本与 store.applyTheme 两处都要设置同一个属性，改主题时两处必须同步，否则刷新会闪白",
+  "localStorage 约 5MB 配额：food photos 的 base64 缩略图很容易逼近上限，导出体积统计与任何新的本地持久化都要考虑配额",
+  "dev/preview 服务器 host: true（监听 0.0.0.0），同网段可访问 /api/llm/chat，会消耗服务端默认 Key 额度；这是现存的暴露面，部署方案不能默认「只有本机能用」",
+  "静态部署的 dist/ 里没有 /api/llm/*：该路径只由 vite.config.ts 的 llmProxy 插件在 dev 与 preview 下注入，真实部署必须由受控后端承载同契约，否则整个模型功能不可用（README 已提及）"
+ ],
+ "redesignHooks": [
+  "【可直接整体替换的干净接缝】设置页六个区块（使用方式 / 模型接入 / 隐私 / 外观 / 我的数据 / 清除全部数据）是六张独立的 BaseCard，每张自带标题与内容，互不共享 DOM，可逐块换皮而不动逻辑",
+  "【可直接整体替换的干净接缝】store 暴露的 action 已经足够细：setLlmConfig / setLlmPreference / refreshLlmStatus / updatePrivacy / setTheme / clearAllData / switchPreview —— 新界面可以完全不碰 llm.ts 与 store 内部实现",
+  "【可直接整体替换的干净接缝】switchPreview 把「会变化 / 保持不变」两栏内容算成数据（differences / keeps 两个字符串数组），确认面板是纯数据驱动渲染，样式与文案可自由重写",
+  "【可直接整体替换的干净接缝】BaseCard 预留的 `--card-pad` 自定义属性是官方内距接缝，配合 variant（default/flush/ink）可以让新皮肤不改组件源码",
+  "【可直接整体替换的干净接缝】llm.ts 里的纯函数（isLlmReady / usingDefault / canUseLlm / buildPlanMessages / buildPlanQuestionMessages / validatePlanQuestions / validatePlanDraft / extractJson）无 DOM 与 store 依赖，可整体搬到新目录并被新面板直接调用",
+  "【可直接整体替换的干净接缝】导出三件套（payload computed / toCsv / download）虽然物理上在视图里，但全是纯数据变换，抽成 src/services/export.ts 后「数据管理」新页面可整体复用",
+  "【需先解耦再换皮】模型接入卡片：视图逻辑（llmForm 编辑缓冲、saveLlm / setPreference / runTest、llmMsg 内联反馈）与展示结构缠在一起，且 runTest 有写副作用、preference 被 saveLlm 派生覆盖。改版前应先把「表单状态」抽成独立 composable/useLlmForm，把「测试」改成不落库的纯探测，把 preference 变成用户显式可选而非派生量",
+  "【需先解耦再换皮】隐私卡片：四个开关的 label/说明/是否已接线全硬编码在模板里（saveVideoLocally、dataRetentionDays 是空开关），而 store 里的隐私默认值在两处重复。改版前应先把 PrivacySettings 的每一项抽成带 {key, label, hint, enabled(是否已实现)} 的元数据表，由表驱动渲染，并让默认值只有一份",
+  "【需先解耦再换皮】主题与系统主题：设置页的 theme chips 与 store 的 applyTheme、index.html 的预绘制脚本三处协作，且设置页的 systemDark 文案是过期快照。改版前应抽出统一的 themeService（读 localStorage + 监听 media query + 设置 data-theme），三处共用",
+  "【需先解耦再换皮】使用方式切换：同一业务在设置页与 TopBar 各实现一遍确认 UI、各有一份 modes 数组。改版前应抽成共享的 ModeSwitchConfirm 组件 + 单一 modes 数据源",
+  "【需先解耦再换皮】统计区：SettingsView 的 .stats 是 StatStrip 的重复实现且未用 --font-num，新版应直接改用 StatStrip（并让 StatStrip 支持需要的变体），而不是再写一套磁贴",
+  "【需先解耦再换皮】流式/加载态：模型调用目前只有「测试中…」一个按钮禁用态，PlanDraftDialog 承担了 questions/loading/ready/error 四态呈现。改版若要给设置页加模型连通性检查，需要把 llm.ts 的探测结果抽成一个可被设置页与其它页面共用的状态源，而不是各页各写 cloudModelLabel",
+  "【新增能力所需的接缝】导入/恢复功能：当前完全缺失，且导出结构与 twopoles_state 结构不同。新增时建议把「持久化 schema」抽到 src/services/persist.ts（唯一序列化 + 反序列化入口），导出直接复用该 schema 就能天然得到可回灌的 JSON，并把 import 做成与 export 对称的一对",
+  "【新增能力所需的接缝】vite.config.ts 第 43-146 行的 llmProxy 是 100 行内联的服务端代码，dev 与 preview 各自注册一次。改版若要改部署形态（独立后端、nginx 反代、正式域名），应先把它抽成独立 server/llmProxy.ts 模块，让前端契约与部署形态解耦",
+  "【令牌化接缝】scoped CSS 里散落的 .eyebrow/.fine/.chip/.field/.actions/.stats 已在 3-4 个 view 重复，样式层重构前应先抽成 tokens.css 之外的共享工具类或公共组件（Toggle / Chip / FieldRow），否则新皮肤会把重复复制到第五份"
+ ]
+}

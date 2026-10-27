@@ -1,0 +1,156 @@
+{
+ "area": "全局状态中枢（Pinia store + 领域类型 + 本地持久化）",
+ "purpose": "src/stores/app.ts 是整个应用唯一的全局状态中枢（Pinia setup store，963 行、42 个方法）。它承担六件事：① 身份与模式（大众/运动员，当前模式、待确认的模式切换、切换历史）；② 档案（UserProfile 单份）；③ 训练记录与训练计划（含规则生成与 LLM 生成两条来源、计划版本历史）；④ 饮食记录与本机\"1 单位=几克\"换算口径；⑤ 偏好与设置（隐私开关、主题三态、解释类卡片的折叠状态）；⑥ AI 计划的草稿状态机与模型配置。它同时是**本地持久化的唯一写入点**（localStorage `twopoles_state`），并直接承担了三块业务逻辑：模式切换的差异说明与确认流程、计划版本管理（不静默覆盖，旧版进 history）、LLM 草稿→确认→入库的两阶段流程。服务层（src/services/*）全是纯函数、不 import store，依赖方向是单向的：view/component → store → services。",
+ "files": [
+  {
+   "path": "src/stores/app.ts",
+   "role": "全局状态中枢本体。defineStore('app', setup 语法)：13 组 state、5 个 computed、42 个 action。持久化实现（init/persistState/clearAllData）、模式切换三段式、计划版本管理、LLM 草稿状态机全部在这里。改版动 store 之前必须先读完这个文件。",
+   "lines": 963
+  },
+  {
+   "path": "src/types/domain.ts",
+   "role": "领域类型契约（374 行）。Mode/UserProfile/Plan/PlanItem/TrainingSession/Meal/MealItem/MealAnalysis/PrivacySettings/Toast/ThemePreference 等。纯 interface、无方法。它同时是 localStorage 序列化后的 JSON 形状 —— 字段名等于持久化格式，改名等于丢数据。含若干死类型（PlanAdjustment、CameraSession、PoseFrame）。",
+   "lines": 374
+  },
+  {
+   "path": "src/utils/id.ts",
+   "role": "newId()：crypto.randomUUID 在非安全上下文（http + 局域网 IP）不可用，故有 Date.now+Math.random 的 fallback。全项目所有实体 id 都必须走它。改版新增实体时不能直接调 crypto.randomUUID。",
+   "lines": 7
+  },
+  {
+   "path": "src/utils/time.ts",
+   "role": "时间格式化与本地日历口径：toISODate（本地时区 YYYY-MM-DD，全项目\"今天\"的唯一口径）、shortDate/eyebrowDate/greeting/displayName、monthCells（周一为首列的月历格子）。store 只用了 toISODate。",
+   "lines": 37
+  },
+  {
+   "path": "src/services/llm.ts",
+   "role": "模型接入层。**第二套 localStorage 持久化**：loadLlmConfig/saveLlmConfig 读写独立的 key `twopoles_llm`（含 API key，故意不进导出）。store 的 llmConfig ref 由它在 init 时灌入、setLlmConfig 时写回。另有 PlanDraftState 类型定义（status × loadingStage 状态机）与提示词/校验逻辑。",
+   "lines": 522
+  },
+  {
+   "path": "src/services/mealPhotos.ts",
+   "role": "IndexedDB `twopoles_meal_photos` 照片库（store `photos`，DB_VERSION=1）。Meal.photoId 指向这里的 key。store 在 removeMeal/clearAllData 里调用 deleteMealPhoto/clearMealPhotos。改库名/store 名 = 已存原图全部失联。",
+   "lines": 88
+  },
+  {
+   "path": "src/services/weekRules.ts",
+   "role": "weekStart（周一为起点）与 buildWeeklyReport（负荷 = 时长×RPE，缺 RPE 不按 0 补齐）。store 只用 weekStart，但 store.sessions/store.meals 被 3 个 view 各自调用 buildWeeklyReport 重新聚合。",
+   "lines": 120
+  },
+  {
+   "path": "src/services/planRules.ts",
+   "role": "buildDayPlan / alternativesFor / PLAN_VERSION=3 / PLAN_RULES_VERSION='plan-rules-v3'。store 的 ensureWeekPlan 与 dayPlanNotice 都调它。注意 toPlanItem 里 planId 是占位符 `plan-v3`，由 store 覆盖。",
+   "lines": 209
+  },
+  {
+   "path": "src/services/mealRules.ts",
+   "role": "analyzeMeal / deriveCompleteness / MEAL_SLOTS / RULE_VERSION='diet-rules-v2'。store 的 addMeal 调前两个。纯函数，无 store 依赖。",
+   "lines": 237
+  },
+  {
+   "path": "src/services/foodComposition.ts",
+   "role": "estimateEnergy / unitKey / resolveUnitGrams / foodTable / UNIT_GRAMS 演示假设。store 的 addMeal 与 rememberUnitGrams/forgetUnitGrams 依赖它。unitKey 只做字符串拼接、不做名称规范化，规范化靠调用方自觉。",
+   "lines": 236
+  },
+  {
+   "path": "src/services/profileRules.ts",
+   "role": "normalizeProfile —— 唯一的数据迁移函数（旧档案补 personalBests/gymRecords 空数组）。store 的 init() 在读档时调用它。改档案字段时这里必须同步。",
+   "lines": 156
+  },
+  {
+   "path": "src/components/layout/AppShell.vue",
+   "role": "store.init() 的唯一调用点（第 39 行 onMounted）。AppShell 是 App.vue 的全部内容，因此 store 的首次初始化时机完全取决于这里。",
+   "lines": 59
+  },
+  {
+   "path": "src/views/SettingsView.vue",
+   "role": "store 的第二大手工消费者：模式切换确认 UI（渲染 switchPreview 的中文文案）、隐私/主题设置、JSON/CSV 导出（payload 清单 = 第 4 份持久化 schema 副本）、clearAllData 的调用方、localStorage 占用估算。",
+   "lines": 483
+  },
+  {
+   "path": "index.html",
+   "role": "首帧前的主题预置内联脚本（第 12-21 行），与 store 的 applyTheme() 是**同一套判定逻辑的两份手抄副本**。改主题 key 或判定必须同时改这里，否则深色用户刷新会白闪。",
+   "lines": 28
+  },
+  {
+   "path": "src/styles/tokens.css",
+   "role": "设计 token 单一来源（颜色/间距/圆角/动效/字号），4 个 CSS 文件在 main.ts 里全局引入。所有组件样式只引用 var(--token)，改版换肤的主战场在这里。",
+   "lines": 258
+  }
+ ],
+ "keyComponents": [
+  "模式切换确认面板（SettingsView.vue:29-40 与 TopBar.vue 的模式下拉共用）：数据源是 store 的 switchPreview computed，渲染 from/to/differences/keeps/openPlanNote 五段文案；确认走 confirmModeSwitch()，取消走 cancelModeSwitch()",
+  "AI 计划草稿弹窗（src/components/common/PlanDraftDialog.vue，461 行，全局挂载在 AppShell）：完全由 store 的 planDraftState.status 驱动四个态 —— loading（区分 loadingStage='questions'|'plan'）/ error / questions / ready；ready 态下在组件内维护 local 副本供用户改动作、类型、时长、组次、增删训练日，确认后调 acceptPlanDraft 入库",
+  "Toast 通知区（src/components/common/ToastRegion.vue，6 行 + AppShell 全局挂载）：只渲染 store.toasts，四种 type（success/error/warning/info）各有图标与左边框色；store.showToast 统一带 duration 自动消失",
+  "可折叠解释卡（src/components/common/InsightCard.vue）：cardId prop + store.toggleCard/isCardCollapsed(id)；目前只有 MealsView 的 'meal-rules' 与 ReportView 的 'report-quality' 两个实例在用",
+  "设置页四组开关（src/views/SettingsView.vue）：使用方式（模式）、模型接入（llmConfig/llmDefault）、隐私（privacy 的 5 个开关 + 保留天数 + 导出格式）、外观（themePref 三态）、我的数据（导出/清除）",
+  "Dashboard 页的 store 消费面（src/views/DashboardView.vue:296-513）：约 250 行 computed 取数层，直接从 store.sessions/meals/userProfile/currentMode 现算周报、负荷序列、强度分布、三餐摘要、时间轴"
+ ],
+ "uiPatterns": [
+  "store 本身不渲染任何 UI，但它决定了跨页面的状态呈现语义：① 模式是全局开关（TopBar 有模式下拉、SettingsView 有二选一卡、SidebarNav 不涉及），两种模式的首页主视觉完全不同（DashboardView 里 isAthlete 分成\"负荷曲线\"与\"今日安排\"两条分支）；② 计划状态有三层 —— 状态机态（idle/loading/questions/ready/error，由 PlanDraftDialog 全局消费）、周计划实体态（plans 数组，按 weekStartDate+mode 查）、条目态（locked/completed 两个布尔，由 PlanView 的两个 mini 按钮切换）；③ 空态语义在 store 层就已固化：'未记录' ≠ '没吃'/'没练'（loadRules 把缺 RPE 记为 missing 而非 0，weekRules 缺 RPE 的天不进负荷合计）；④ 折叠态是持久化的（collapsedCards），解释类卡片默认不常驻占位；⑤ 通知是一律性的（showToast 带 duration，4 种 type），成功/错误/信息在业务动作里就地弹出"
+ ],
+ "styleApproach": "store 本身不含样式，但它通过三条路径强耦合设计系统：① `applyTheme()` 直接写 `document.documentElement.dataset.theme = 'dark' | 'light'`（app.ts:87），并监听 `matchMedia('(prefers-color-scheme: dark)')` 的 change 事件实时跟随 —— 主题三态（system/light/dark）是 store 的公开 state，themePref 被持久化；② `index.html` 第 12-21 行有一段首帧前内联脚本，读取同一份 localStorage 的 theme 字段并写同样的 dataset.theme，注释里明说\"否则深色用户每次刷新都会白闪一下\" —— 这是主题判定逻辑的**第二份手抄副本**，store 里 applyTheme 与 index.html 的算法必须保持一致；③ 换肤的实际战场在 src/styles/tokens.css（258 行）+ globals.css + animations.css + gradients.css 这四个全局样式文件，main.ts 里全局引入，组件一律用 var(--token) 引用 token，scoped CSS 写在各自 .vue 里。store 层的样式耦合点只有 dataset.theme 这一个 DOM 契约。",
+ "dataFlow": "**数据来源**：全部数据来自本机，没有后端数据库。唯一的远端是 `/api/llm/status`（读服务端默认模型是否存在）与 `/api/llm/chat`（OpenAI 兼容代理），两者都在 services/llm.ts 里，store 只是转发。**三处持久化**：① localStorage key `twopoles_state` —— 由 store 的 persistState()（app.ts:137-167）用 JSON.stringify 一次性写入 11 个字段：mode / profile / sessions / meals / privacy / collapsed / theme / plans / planHistory / modeLog / unitGrams。序列化无版本号、无 schema 标记、无法向量化；② localStorage key `twopoles_llm` —— 由 services/llm.ts 的 loadLlmConfig/saveLlmConfig 独立管理，**故意不进导出**（含 API key）；③ IndexedDB `twopoles_meal_photos`（DB_VERSION=1，objectStore `photos`）—— 存饮食照片原图 Blob，key 是 Meal.photoId；Meal.photoThumb 则是 256px JPEG data URL，跟 meals 一起进 localStorage。**迁移逻辑**：没有版本化迁移框架，只有 init() 里逐字段的防御式读取 —— `Array.isArray(data.sessions) ? ... : []`、`data.privacy` 做浅合并、`data.theme` 三选一白名单、`unitGrams` 逐条过滤 `v > 0 && v <= 5000`、旧档案走 normalizeProfile() 补齐 personalBests/gymRecords 空数组。**数据流向**：视图 → store.state（只读）→ services 纯函数 → 视图；写路径统一是 store action 内部改 ref 再调 persistState()。没有 watch 订阅式自动持久化，persistState() 是手写调用，散落在 18 处。**导出口**：SettingsView.payload computed 单独组装一份导出对象（比 localStorage 少 collapsed/theme/pendingSwitch，多 exportedAt），JSON 走 JSON.stringify、CSV 走手写转义加 BOM。**导入口不存在** —— 项目里没有任何 FileReader / file input，导出的 JSON 无法回灌。",
+ "stateModel": "**① 模式状态机（两段式确认）**：currentMode（'public'|'athlete'）→ requestModeSwitch(target) 置 pendingSwitch → switchPreview computed 产出差异说明 → confirmModeSwitch() 或 cancelModeSwitch()。另有 commitMode(target) 供建档流程末页直接落地，跳过确认。**② 计划版本模型**：plans（当前版本，按 weekStartDate + mode 定位）+ planHistory（不可变快照）。三处写入路径：ensureWeekPlan（创建，version=1）、bumpVersion（改动，version+1，旧版进 history）、acceptPlanDraft（LLM 录入，version = old+1，旧版进 history）。计划条目级有 locked / completed 两个布尔。**③ AI 草稿状态机**：planDraftState.status ∈ {idle, loading, questions, ready, error}，正交维度 loadingStage ∈ {'questions', 'plan', null}（用于区分\"正在准备问题\"和\"正在生成计划\"），伴随 questions[] / answers{} / draft / error / warnings[]。并发控制用闭包里的单调计数器 planRequestId，晚到的旧请求结果直接丢弃。**④ 主题状态**：themePref ∈ {'system','light','dark'}，解析后写 <html data-theme>。**⑤ 折叠状态**：collapsedCards: string[]（卡片 id 集合）。**⑥ 餐次完整性**：Meal.completeness ∈ {'complete','partial','unknown'}（由 deriveCompleteness 判定）。**⑦ 计划新鲜度**：dayPlanNotice.stale 布尔，判定式是 `p.source !== 'llm' && !p.reason.includes(PLAN_RULES_VERSION)`。**⑧ 隐私开关**：PrivacySettings 六个布尔/枚举（cameraEnabled / saveVideoLocally / dataRetentionDays / exportFormat / showEnergyEstimate / saveFoodPhotoLocally）。",
+ "coupling": "**跨组件 import**：16 个文件 import `useAppStore` —— 7 个 view（DashboardView、PlanView、MealsView、ReportView、SettingsView、OnboardingView、ExecutionView）、7 个 component（TopBar、AppShell、ToastRegion、PlanDraftDialog、InsightCard、DailyWellnessCard、MealForm、FoodCaptureDialog）。store 出现在 AppShell 全局层（ToastRegion、PlanDraftDialog）与 App.vue 根部，是所有页面的公共依赖。**共享 store 字段**（按引用次数）：userProfile(20) / sessions(20) / privacy(19) / meals(19) / llmConfig(18) / llmDefault(16) / showToast(14) / currentMode(12) / isAthleteMode(10) / hasProfile(7) / unitGrams(4) / plans(3) / planHistory(3) / planDraftState / switchPreview / pendingSwitch / modeLog。**共享类型**：@/types/domain 被 store、6 个 service、7 个 view 同时 import，domain.ts 的 interface 形状直接等于 localStorage 的序列化形状 —— 类型与持久化格式是同一份契约，没有中间 DTO 层。**store → services 的依赖**（store 内部调用，全是纯函数）：mealRules(analyzeMeal, deriveCompleteness) / foodComposition(estimateEnergy, unitKey) / mealPhotos(clearMealPhotos, deleteMealPhoto) / planRules(buildDayPlan, PLAN_VERSION, PLAN_RULES_VERSION) / profileRules(normalizeProfile) / llm(11 个导出) / weekRules(weekStart) / utils/time(toISODate)。**反向耦合为零**：services 目录下没有任何文件 import store，依赖方向严格单向 —— 这是这个 store 少数让人省心的点，也意味着 services 层在改版中可以整体不动。**重复聚合**：buildWeeklyReport 被 3 个 view 各自调用（DashboardView.vue:334、PlanView.vue:290、ReportView.vue:172），三处都传同样的 {profile: store.userProfile, mode: store.currentMode}；store 自己没有暴露\"本周汇总\"这个口径，视图层各自重算。**日期口径分散**：`const now = new Date()` 在 5 个 view 里各写一遍（DashboardView:292、MealsView:265、PlanView:187、ReportView:152、TopBar:94），store 的 action 又各自再 new Date() 一次 —— 没有任何一处把\"当前参考日\"提升为全局状态。**视图直写 store state**：MealsView.vue:519 `store.meals = store.meals.filter(...)` 绕过 removeMeal 与 persistState（靠紧跟其后的 addMeal 才补上持久化）。**store ↔ DOM**：applyTheme 直接写 document.documentElement.dataset.theme；showToast 用 setTimeout 管生命周期；init() 注册 matchMedia 的 change 监听器且从不移除。",
+ "designDebt": [
+  "**持久化是\"手抄四份 schema\"**：新增一个 state 字段必须同时改 4 处 —— persistState() 的 state 对象（app.ts:138-150）、init() 的读取分支（app.ts:105-130）、clearAllData() 的复位清单（app.ts:869-891）、SettingsView.payload 的导出清单（SettingsView.vue:328-340）。漏掉任何一处都不报错，只是静默丢数据。这是改版最容易踩的坑。",
+  "**twopoles_state 没有 schema 版本号**：init() 是整块 JSON.parse 后逐字段防御式读取（app.ts:105-130），解析失败时只 console.error 并保留初始默认值（app.ts:127-129），用户看起来像\"从没建过档\"。没有 data.version 字段，将来无法区分\"旧数据缺字段\"和\"新数据\"。",
+  "**主题判定逻辑写了两遍**：app.ts:86 `applyTheme()` 的 `pref === 'dark' || (pref === 'system' && !!darkMedia?.matches)` 与 index.html:14-19 的内联脚本是同一套算法的两份手抄副本。改主题口径必须同时改两处，否则首帧会闪。app.ts:84 的注释自己也承认了这件事。",
+  "**init() 里 applyTheme() 被调用两次**（app.ts:100 与 app.ts:117）—— 第一次在读 storage 之前（用旧偏好算了一遍），第二次在读完之后。第 100 行那次是多余的。",
+  "**TDZ 隐患**：init()（app.ts:102 读 llmConfig、app.ts:120 写 modeLog）引用的 llmConfig（app.ts:338）与 modeLog（app.ts:175）都是同一作用域里声明在 init() **之后**的 const。现在能跑通纯粹是因为 init() 由 AppShell.vue:39 的 onMounted 触发、store setup 已执行完毕。任何人在模块顶层或 setup() 里同步调 store.init() 就是 ReferenceError。",
+  "**openPlanCount 在 store 内有两种口径**：switchPreview.openPlanCount = carry.length（app.ts:195，只算**原模式**的计划）vs modeLog.openPlanCount = openPlans.value.length（app.ts:221/241，算**全部模式**的计划，因为 openPlans 定义在 app.ts:177-179 不带 mode 过滤）。同名字段两种含义，跨视图读会读错。",
+  "**计划版本号有三套互相矛盾的策略**：ensureWeekPlan 永远写 version:1（app.ts:282）；regenerateWeekPlan（app.ts:319-334）把旧计划挪进 history 后调 ensureWeekPlan，导致新计划版本号**退回 1**，但 toast 却说\"旧版本 v3 已存为历史\"（app.ts:330）—— 版本号会倒退；acceptPlanDraft 用 (old?.version ?? 0) + 1（app.ts:572）；bumpVersion 用 plan.version += 1（app.ts:597）。",
+  "**复制到另一模式的计划会被误判成\"旧规则生成\"**：dayPlanNotice 的 stale 判定是 `p.source !== 'llm' && !p.reason.includes(PLAN_RULES_VERSION)`（app.ts:314）。copyPlanToMode 写的 reason 是\"由「大众模式」v1 复制而来\"（app.ts:255）不含 plan-rules-v3，source 又是靠 ...src 继承的（规则计划为 undefined）→ stale 恒为 true，Dashboard 会显示\"计划由旧规则生成，可在计划页重生成\"。",
+  "**复制计划会产出重复 item id**：copyPlanToMode 用 id: `${i.date}-${i.exerciseName}-c` 重建 id（app.ts:256），而 LLM 草稿允许同一天出现两个同名动作（validatePlanDraft 只去重日期不去重条目，llm.ts:394-438）→ 复制后两条 item 同 id；而 markItemCompleted（app.ts:635）、toggleItemLock（app.ts:627）、acceptAdjustment（app.ts:609-613）全部按 id 匹配，**一次操作会同时改到两条**。",
+  "**confirmModeSwitch 与 commitMode 是 8 行完全重复的代码**（app.ts:212-230 vs app.ts:233-243），差别只有 toast 和 pendingSwitch 清空。",
+  "**store 里塞了整段面向用户的中文文案**：switchPreview 的 differences / keeps / openPlanNote 是写死的中文句子（app.ts:191-198），SettingsView.vue:33-34 与 TopBar 都直接渲染。改版换措辞 = 改 store；换语言 = 无从下手。",
+  "**switchPreview.keeps 里的数字口径不对**：\"已存在的 ${plans.value.length} 份计划保留原模式与规则版本\"（app.ts:194）用的是全部模式、全部周的计划总数，而同一个对象里的 openPlanCount 却是\"原模式未完成\"的数量。同屏两个数字含义不一致。",
+  "**bumpVersion 每勾一次复选框就往 planHistory 塞一份完整计划快照**（app.ts:595）。markItemCompleted / toggleItemLock / addManualItem 全走它 → planHistory 无上限、无清理、整体进 localStorage。配合照片缩略图，这是写满 localStorage 的主因，而 app.ts:156-165 的配额提示只提了缩略图，误导用户。",
+  "**视图直接改 store 的 state**：MealsView.vue:519 `store.meals = store.meals.filter(m => m.id !== meal.id)` 绕过了 removeMeal（也就绕过了 IndexedDB 照片删除）和 persistState()（靠后面紧跟的 addMeal 才补上持久化）。store 缺 updateMeal / replaceMeal action，\"编辑一顿饭\"这个高频操作没有正规入口。",
+  "**planDraftState 是整体替换的，字段字面量重复 10 次**：generatePlanQuestions / generatePlanDraft 里每次状态转移都写一遍完整 7 字段对象（app.ts:403/415/429/439/453 与 481/494/504/512/528）。加一个字段要改 10 处。PlanDraftDialog 靠两个 watch（PlanDraftDialog.vue:202-220）兜住整体替换。",
+  "**planDraftState.status 与 loadingStage 两个概念互相渗透**：error 态也带 loadingStage（app.ts:405、432 等），loadingStage 的实际语义是\"当前在哪个阶段\"，却和 status 放在同一个可空结构里，类型上不正交。",
+  "**llmConfig 的持久化归属在 services/llm.ts 而不在 store**：init() 调 loadLlmConfig() 读（app.ts:102、llm.ts:23-37），setLlmConfig 调 saveLlmConfig() 写（app.ts:365-367、llm.ts:39-52），是\"读→清洗→写\"模型；其余字段是\"改 ref→persistState\"模型。两套并存，且 llmConfig 是 store 的公开 state，谁在 init() 之前读它就是空。",
+  "**llmDefault（服务端默认模型状态）是竞态的**：init() 里 void refreshLlmStatus()（app.ts:103）是 fire-and-forget，首屏任何读 store.llmDefault.available 的地方先拿到 false。MealsView 因此自己又补了一次 void store.refreshLlmStatus()（MealsView.vue:296）—— 同一个请求两个触发点。",
+  "**clearAllData() 没有清 llmConfig**：app.ts:869-891 复位了 mode/profile/sessions/meals/plans/planHistory/modeLog/pendingSwitch/privacy/collapsedCards/themePref/unitGrams，但 API key 仍留在 twopoles_llm，toast 文案（app.ts:888）也没提。也没有清 toasts / planDraftState / initialized，showToast 的 setTimeout（app.ts:696-700）也不取消。",
+  "**导出的 JSON 无法回灌**：SettingsView.payload（SettingsView.vue:328-340）导出 profile/mode/modeLog/privacy/sessions/meals/plans/planHistory/unitGrams，但全项目没有任何 import/restore 入口（无 FileReader、无 file input）。用户拿到的备份文件回不到应用里，导出功能实际只是\"单向快照\"。",
+  "**导出 payload 与 localStorage 实际内容不一致**：payload 里没有 collapsedCards / theme / pendingSwitch，而 twopoles_state 里有（app.ts:138-150）。SettingsView.vue:195 那行标签写着\"localStorage 占用\"，实际算的是导出 payload 的体积（SettingsView.vue:341），不是 localStorage 的真实占用。",
+  "**initialized 是死状态**：app.ts:64 定义、app.ts:131 置 true、app.ts:901 导出，但全项目没有任何一处读它。视图各自用 store.hasProfile 判断\"有没有档案\"，这个字段纯占位。",
+  "**domain.ts 里有一批死类型**：PlanAdjustment（domain.ts:140-147，全项目零引用 —— PlanView 是本地 computed 算出 adjustment 再直接调 acceptAdjustment(planId, PlanChange[])）、CameraSession（domain.ts:337-346）、PoseFrame（domain.ts:330-335）均无消费者。改版时容易误以为它们还是活的契约。",
+  "**PlanItem.planId 在实时预览分支是假值**：planRules.toPlanItem 写死 planId: `plan-v${version}`（planRules.ts:88），而 dayPlanNotice 在没有存档计划时返回的正是这些 item（app.ts:310）→ 前端拿到的 planId 是 plan-v3 这种占位符，不是真实计划 id。任何按 planId 反查计划的下游逻辑都会踩空。",
+  "**dayPlanNotice 把\"存档计划\"和\"实时计算\"混在一个返回值里**（app.ts:305-316）：items 取自存档（若有），conflicts / auto / gateNote 却总是来自当前规则重新算的 buildDayPlan。档案改过之后，页面会拿旧计划的条目配新规则的冲突说明 —— stale 标志只覆盖了规则版本一种情况。",
+  "**MealItem.foodId 是拼接字符串而非实体引用**：addMeal 里 foodId: `${i.category}-${i.foodName}`（app.ts:766），而真正的食物目录在 foodComposition.foodTable。foodId 无法指向目录条目，改版若要做\"食物库/收藏\"没有现成的键可用。",
+  "**unitKey 的名称规范化靠调用方自觉**：unitKey(foodName, unit) 直接拼 `${foodName}|${unit}`（foodComposition.ts:27-29），注释写的是\"用目录里的规范名\"，但函数本身不做归一化。store.rememberUnitGrams(foodName, unit, grams)（app.ts:836-841）是公开 API 且不做 canonicalize —— 当前唯一调用方 MealForm 传的是 convOf(row).food（已是 findFood().name，MealForm.vue:234）所以碰巧是对的，任何新调用方传原始名就会写出永远命不中的 key。分隔符 `|` 也没转义。",
+  "**store 直接操作 DOM 与定时器**：applyTheme() 写 document.documentElement.dataset.theme（app.ts:87）、showToast 用 setTimeout 管生命周期（app.ts:696-700）、init() 注册 matchMedia 的 change 监听器且从不移除（app.ts:104）。store 不再是纯数据层，测试与 SSR 都不友好。",
+  "**文档与代码不一致**：交付说明.md:280 的示例写 `store.switchMode('athlete')`，但 store 里从来没有 switchMode（现名是 requestModeSwitch/confirmModeSwitch/commitMode）；同文件 335 行仍写着\"init() 会读取该键，但运行时不会产生写入……switchMode() 与 updateProfile() 是唯一的写入点，而它们没有任何调用方\"，与现状（persistState 在 18 处被调用）完全脱节。文档里的 store API 清单不能当参考。"
+ ],
+ "constraints": [
+  "**twopoles_state 的 JSON 结构就是用户数据本身**：11 个 key（mode/profile/sessions/meals/privacy/collapsed/theme/plans/planHistory/modeLog/unitGrams）已经在真实用户浏览器里。改名 = 丢数据。改版必须做「读旧写新」或保留 key 兼容层，不能直接改字段名。",
+  "**twopoles_llm 与导出隔离是安全属性不是实现细节**：这个 key 含 API key 且**故意不包含在 JSON/CSV 导出里**（llm.ts:18 的注释明确写了原因）。拆 key / 并 key 时必须保持\"导出文件里没有密钥\"这条不变量。",
+  "**IndexedDB 库名 twopoles_meal_photos / objectStore photos / DB_VERSION=1**：Meal.photoId 是指向它的 key。改库名或 store 名 = 所有已保存的原图失联（缩略图还在、原图变灰）。",
+  "**index.html 的首帧内联脚本必须在 module 脚本之前读 localStorage['twopoles_state'].theme 并写 document.documentElement.dataset.theme** —— 这是深色用户刷新不白闪的唯一保障。换 key 名或换 DOM 属性名都会导致首帧闪烁。",
+  "**主题三态 system|light|dark → <html data-theme=\"dark|light\">**，且 system 必须实时跟随 matchMedia('(prefers-color-scheme: dark)') 的 change 事件（app.ts:104）。store 的 applyTheme 与 index.html 的内联脚本必须保持同一判定。",
+  "**负荷口径：负荷 = 时长(分钟) × RPE；缺 RPE 或缺时长 → 不可计算（null），绝不按 0 补齐；当天只要有一条训练缺 RPE，整天负荷就是 null**（weekRules.ts:30-33 与 62-69、loadRules.ts:100-107）。weekRules、loadRules、SettingsView 的 CSV 导出（SettingsView.vue:362）、store 的 applyFeedback toast（app.ts:752）四处必须口径一致，不能各算一遍。",
+  "**ACWR 口径**：近 7 天均值 / 近 28 天均值，窗口 28 天、急性 7 天、至少覆盖 14 天才出数（loadRules.ts:50-53、113-118）；分档阈值 0.8 / 1.3 / 1.5（loadRules.ts:145-151）。先取整再相除会落错档，均值/比值必须用原始值算完再取整。",
+  "**所有实体 id 必须走 newId()（src/utils/id.ts）**：crypto.randomUUID 在非安全上下文（http + 局域网 IP）不可用，newId() 有 Date.now+Math.random fallback。直接调 crypto.randomUUID 会让部分用户的应用起不来。",
+  "**PlanItem.id 在同一个 plan 内必须唯一**：markItemCompleted / toggleItemLock / acceptAdjustment 全部按 id 匹配（app.ts:609-613、627、635），重复 id 会导致一次操作改到多条。跨天规则生成的 id 是 `${date}-${ex.id}`（planRules.ts:85），手工录入是 `${date}-${name}-m${base36}`（app.ts:645）。",
+  "**Plan.id ↔ PlanItem.planId 的关联由 store 覆盖**：ensureWeekPlan 会把 buildDayPlan 产生的占位 planId（plan-v3）覆盖成真 id（app.ts:291）；MealItem.mealId / MealAnalysis.mealId 同理（analyzeMeal 返回 mealId:''，app.ts:781-786 才补上）。",
+  "**planRequestId 必须保持单调递增**（app.ts:351、414、427、480、493）：LLM 请求是异步的，靠这个计数器丢弃过期响应，防止关弹窗后晚到的结果把弹窗重新打开。任何并发改造都不能让旧请求覆盖新状态。",
+  "**浏览器能力降级守卫不能删**：matchMedia 可能不存在（app.ts:68 有 typeof matchMedia === 'function' 守卫）、indexedDB 可能不存在（mealPhotos.ts:7-9 守卫）、crypto 可能不存在（id.ts:3 守卫）。",
+  "**localStorage 配额（典型上限约 5MB）**：缩略图 data URL 与 planHistory 快照是主要占用，写入失败必须给用户可见提示（app.ts:154-166 已经这么做，且用 quotaWarned 保证只弹一次）。改版若增加大字段需重新评估。",
+  "**日期与周边界口径**：toISODate 用本地时区（time.ts:27-29），全项目的\"今天\"都是本地日期；weekStart 以周一为起点（weekRules.ts:14-19）；训练日固定为周一/三/五（planRules.ts:19 TRAINING_WEEKDAYS）。跨时区与夏令时的行为不能随意改。",
+  "**导出 JSON 的字段结构是用户的备份格式**（SettingsView.vue:328-340），一旦发布就构成事实标准，改动需提供兼容读。"
+ ],
+ "redesignHooks": [
+  "**主题是干净的接缝**：对外只有 applyTheme() 与 setTheme(pref) 两个接口，偏好三态 system|light|dark 不动。换肤只需重写 applyTheme 内部把偏好映射到 CSS 变量/类名（注意 dataset.theme 是与 index.html 共享的契约，见 constraints）。",
+  "**通知系统已完全解耦**：showToast / dismissToast / store.toasts 三个接口 + 只有 6 行的 ToastRegion.vue。换一套通知组件（栈式/内联/banner）完全不影响任何业务代码。",
+  "**折叠状态是纯 id 字符串集合**：collapsedCards + toggleCard(id) / isCardCollapsed(id)，与卡片外观完全无关（InsightCard 只用 cardId prop）。卡片外观可任意重做，只需保留 card-id 字符串。",
+  "**AI 草稿弹窗是自包含的**：PlanDraftDialog.vue（461 行）只读 store.planDraftState，store 不含任何弹窗逻辑。整块换掉弹窗 UI 不用碰 store。",
+  "**模式切换预览是纯数据对象**：switchPreview 返回 {from, to, fromLabel, toLabel, differences[], keeps[], openPlanCount, openPlanNote}，不含任何 DOM。确认弹窗可以整块重写 —— 前提是先把 differences/keeps/openPlanNote 里的中文文案从 store 挪到视图层或文案表（这是当前唯一挡住该接缝的东西）。",
+  "**services/ 层是完全独立的**：src/services/* 下 11 个文件全是纯函数、零 store 依赖、零 DOM 依赖（foodComposition/mealRules/planRules/weekRules/loadRules/profileRules/exercises/llm/wellnessCards/foodRecognition/mealPhotos）。改版换皮换布局时可以整体不动，也不用担心它们被 store 的重构波及。",
+  "**domain.ts 的类型是纯数据契约**：无方法、无类、无行为。可以自由增加可选字段（Meal.uncertain / MealItem.modelEnergy / EnergyEstimateRef.gramsPerUnit 都是这么加的），但**改名字或改嵌套层级等于改持久化格式**。",
+  "**必须先解耦再动的四处**：① 持久化的四份手抄 schema（persistState / init / clearAllData / SettingsView.payload）—— 改版必然要动持久化，必须先抽成统一的 serialize/deserialize/clear 三函数或换用持久化插件；② switchPreview 里的中文文案（store 里写 UI 文案）；③ dayPlanNotice 的「存档 items + 实时 conflicts」混合契约 —— 界面重排时无法判断该信哪个；④ store 对 DOM 的直接操作（applyTheme 写 dataset.theme、showToast 的 setTimeout、matchMedia 监听器不卸载）。",
+  "**可补齐的现成 seam**：store 缺 updateMeal/replaceMeal（MealsView.vue:519 只好直接写 store.meals），补上后编辑一顿饭的流程可以整体重写；store 没有暴露「本周汇总」口径（buildWeeklyReport 被 3 个 view 各调一次，DashboardView.vue:334 / PlanView.vue:290 / ReportView.vue:172），收进 store 就能消掉三份重复取数；「当前参考日」在 5 个 view 里各 new Date() 一次（DashboardView:292 / MealsView:265 / PlanView:187 / ReportView:152 / TopBar:94），提升到 store 或路由 query 后，加「回看某天」类功能才不会各页各算。",
+  "**planHistory 是 UI 的一等公民（PlanView.vue:156-163 的版本列表）**：改版若要折叠/隐藏历史，得先给 planHistory 加上限或去重策略，否则它会持续撑爆 localStorage（每勾一次复选框就多一份完整快照，app.ts:595）。"
+ ]
+}

@@ -1,0 +1,166 @@
+{
+ "area": "实时跟练执行页（ExecutionView）与端侧姿态识别/计数子系统",
+ "purpose": "这是「两仪·TwoPoles」训练闭环的执行环节：用户在计划页或仪表盘选定一个动作后进入本页，一边看画面（真实摄像头或预录的演示回放）一边完成组数，页面同时承担三件事——（1）呈现训练画面：摄像头分支是 `<video>` + `<canvas class=\"cam-overlay\">` 叠一层实时骨架，演示分支是一幅内联 SVG 剪影配合预置时间轴演出同样的节奏；（2）端侧姿态识别与计数：MediaPipe PoseLandmarker 在 worker（不可用时主线程）里出关键点，`useRepCounter` 依据关节角 + 可见度 + 时序做迟滞判定并累计次数；（3）训练结算：整组结束后收集 RPE、主观不适、备注，写进 `useAppStore` 的会话列表并持久化到 localStorage。UI 3.0 的「编辑式仪表盘」设计语言在这一页被一块固定深色的「舞台」打断，页面同时承担了取流、推理、计数、演出、结算五类职责，是全站耦合最重的一页，也是大改前端界面时最需要先拆解的一页。",
+ "files": [
+  {
+   "path": "d:/桌面/project/project/UI/src/views/ExecutionView.vue",
+   "role": "被改版的主页面。885 行单文件 SFC：模板含页头（动作切换 chips / 数据源切换 chips / 摄像头错误行）、双栏 execution-grid（1.4fr/1fr）、左栏 stage-card（video+canvas 摄像头分支 / 内联 SVG 剪影演示分支 / 置信度与阶段徽章 / 扫光 / 底部提示条 / 播放暂停跳过结束控件）、右栏 4 张 BaseCard（当前组数+进度条、本组完成次数+reps-grid、实时指标+校准区、手动修正表单 / 结束后换成 RPE 汇总卡）。脚本含 `tick()` 统一循环（同时推进演示时间轴、喂实时计数、跑组间休息、判结束）、`restart()` 手工重置约 25 个 ref、rAF 数字补间、路由 query 驱动动作选择。样式约 90 行 scoped CSS，混用 token 与硬编码色值。",
+   "lines": 885
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/composables/useRepCounter.ts",
+   "role": "计数状态机（可执行规格）。RepRule {neutral, bottom, hysteresis, minStageMs, minRepMs, maxStageMs, minVisibility}；start/end/between 三区 + 3 帧滑动平均 + 遮挡冻结（遮挡后必须重新回到起始区才恢复计数）+ maxStageMs 停滞重置 + minRepMs 抖动拒绝；`calibrate(readSample, ms=900)` 采 ≥4 个有效样本求均值写 `calibratedNeutral` 后调 `reset()`。输出 phase/counted/gate。",
+   "lines": 197
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/composables/usePoseCamera.ts",
+   "role": "摄像头 + 推理编排层。拉流（三档降级约束）、8s 等待 metadata、video.play()、按 videoWidth/Height 定 canvas 尺寸、创建引擎、RVFC/rAF 帧调度、每帧 createImageBitmap → engine.detect → applyMetrics + draw 骨架、fps 统计；`recover()` 把 worker 降级到主线程再降级到演示；`startSeq` 做 start/stop 竞态保护。返回扁平响应式接口。",
+   "lines": 318
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/composables/poseEngine.ts",
+   "role": "推理引擎抽象。PoseEngine = {state{delegate, runsIn, gpuError}, detect(bitmap, ts), close()}；`createWorkerEngine` 走经典 worker + id 化 pending map + 2s 超时；`createMainThreadEngine` 只跑 CPU；`createPoseEngine` 在 `import.meta.env.DEV` 时**强制**走主线程（因为 Vite dev 的 module worker 会让 MediaPipe wasm loader 500）。",
+   "lines": 119
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/composables/poseMath.ts",
+   "role": "纯几何模块。左侧 6 个关键点常量（shoulder 11 / elbow 13 / wrist 15 / hip 23 / knee 25 / ankle 27）、`angleAt`（退化返回 null、结果取整）、`computeMetrics`（需 ≥28 个 landmark，可见度取这 6 点均值而非 11..27 全段否则会 >1）、`nextTimestamp`（媒体时间换算，不严格递增返回 null 跳过该帧）。",
+   "lines": 47
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/composables/poseLandmarkerFactory.ts",
+   "role": "PoseLandmarker 工厂。GPU delegate 必须绑定一块**专用** canvas（不能是已有 2D context 的叠加层 canvas），GPU 失败降级 CPU 并带 `gpuError`；无 canvas 时直接 CPU，错误文案「当前环境没有可用的 GPU 绑定 canvas」。",
+   "lines": 45
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/composables/poseInference.worker.ts",
+   "role": "经典 worker 推理端。FilesetResolver + createPoseLandmarker + `bindCanvas()` 自建 OffscreenCanvas(640,480)；消息协议 init/detect/close 与 ready/failed/delegate/result；detect 走 detectForVideo + computeMetrics；bitmap 始终在 finally 里 close。",
+   "lines": 98
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/demoCameraService.ts",
+   "role": "演示数据源 + 结算口径。`demoExercises` 只有「坐站训练 2×8」「站姿弯举 2×10」两份预置时间轴（`buildSet` 生成 setEvents，计数发生在 +1300ms，坐站训练在 8000ms 插入遮挡）；`getDemoExercise` 找不到名字时**静默**回落到第一项；`getPhaseText` / `getConfidenceLevel` 承担实时模式的中文文案；`summarizeSession` 生成入库会话（actualDuration 写的是秒，cameraUsed 恒为 true）。",
+   "lines": 143
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/exercises.ts",
+   "role": "真实动作目录（26 项），带 CameraConfig {joint:'knee'|'elbow', neutral, bottom, minStageMs}（坐站训练 knee 168→100/220ms，站姿弯举 elbow 170→55/180ms）。ExecutionView 用它取计数阈值，与 demoCameraService 的 sets/reps 是两套真值。",
+   "lines": 128
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/types/domain.ts",
+   "role": "共享类型。ExercisePhase = 'idle'|'ready'|'down'|'up'|'occluded'|'complete'（本页演示与实时共用）；TrainingSession（actualDuration 注释标 minutes、rpe、discomfort、cameraUsed、manualCorrections、confidence）；DemoEvent {time,state,confidence,count?,message?}。",
+   "lines": 373
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/tokens.css",
+   "role": "设计系统 token 源。--color-accent #0f766e（dark 下 #3ec9b6）、--brand-pole-a-dark #3ec9b6、--font-num: Bahnschrift、圆角/间距/阴影/动效 token、html[data-theme] 主题切换。断点以 CSS 变量声明但无法用于 media query。",
+   "lines": 258
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/BaseCard.vue",
+   "role": "通用卡片。variant default/flush/ink、`--card-pad` 内边距覆盖钩子、遗留 `glass` prop。本页用 `padding:0!important` / `padding:22px!important` 绕开了这个钩子。",
+   "lines": 80
+  },
+  {
+   "path": "d:/桌面/project/project/UI/scripts/selfcheck.ts",
+   "role": "可执行规格（esbuild 打包，`npm run selfcheck`）。第 5 节 F05 断言计数状态机：完整行程只计一次、遮挡不累加、快抖不计数、阈值可被校准覆盖；第 8 节断言膝/肘角 180°/90°、可见度 ≤1（来自 6 个关键点）、nextTimestamp 单调。任何改口径的重构都要让这里保持全绿。",
+   "lines": 556
+  },
+  {
+   "path": "d:/桌面/project/project/UI/scripts/fetch-camera-assets.mjs",
+   "role": "资源准备脚本（`npm run camera:assets`）。拷贝 4 个 wasm 文件并下载 pose_landmarker_lite.task（5,777,746 字节）与 efficientdet_lite0.tflite 到 public/mediapipe/，产物被 gitignore。",
+   "lines": 120
+  }
+ ],
+ "keyComponents": [
+  "页头 `.page-header`（页面最上方）：一行 kick line + h1「{{exercise.name}} · 第 {{displaySet}} 组」+ `.exercise-switch` 动作切换 chips（来自 demoExercises）+ `.source-switch` 数据源切换 chips（演示回放 / 实时摄像头 / 重试摄像头）+ `.cam-note` 隐私说明 + `.cam-error` 错误行（role=\"alert\"）。",
+  "双栏骨架 `.execution-grid`（grid-template-columns: 1.4fr 1fr）：左舞台右信息，是本页唯一的主结构；1024px 以下塌成单列，`.info-cards` 变两列。",
+  "舞台容器 `.stage-card` → `.stage-container` → `.demo-frame`（固定 height:min(64vh,580px)，深色径向渐变底）：摄像头分支是 `<video class=\"cam-feed\">` + `<canvas class=\"cam-overlay\">`（两者都 `transform:scaleX(-1)` 镜像 + `object-fit:cover`），演示分支是 `.skeleton-overlay` + 内联 `<svg class=\"figure\" viewBox=\"0 0 560 760\">`。",
+  "舞台覆盖层 `.stage-overlay`：左上 `.confidence-badge`（识别良好/一般/较差，:key 绑 confidenceClass 强制重挂载重放动画）、右上 `.phase-badge`（阶段文案，来自 demoCameraService.getPhaseText）。",
+  "`.frame-sheen.gradient-shimmer` 扫光装饰 + `.stage-live` 底部半透明白提示条（aria-live=\"polite\"，实时显示关节角与置信度）+ `.stage-hint` 操作提示。",
+  "舞台控件 `.stage-controls`：暂停/播放、跳过本组（SkipForward）、结束（Square 圆形 `.ctrl-btn`）；在摄像头分支另加校准按钮。",
+  "右栏 `.info-cards` 四张 BaseCard：① count-card「当前组数」+ 组进度条；② count-card.primary「本组完成次数」+ `.reps-grid`（按 repsPerSet 生成的一排小格）；③ status card，四行实时指标 Activity/Gauge/Ruler/Timer（时长/次数/角度/帧率）+ `.calib` 校准区；④ actions-card，正常时是「手动修正」表单（数字输入 + 确认），结束后换成 actions-card.summary 汇总卡（本次摘要列表 + RPE 0..10 一排 chip + 不适 checkbox + 原因选择 + 备注 + 保存/再练一组）。",
+  "全局反馈通道 `ToastRegion`（AppShell 级，fixed 右上 top:106px）：每次计数成功弹一条「第 N 次」toast，跨页可见。",
+  "动作切换 chip 组与数据源切换 chip 组：前者改 `exercise`（并 router.replace 写 query），后者在 演示回放 / 实时摄像头 / 重试摄像头 三态间切换，是本页唯一的「模式开关」。"
+ ],
+ "uiPatterns": [
+  "布局骨架：全站是 AppShell（fixed 侧栏 + 顶栏 + 右侧内容区 + 移动端底部导航），本页在其内自建「页头 + 双栏 1.4fr/1fr」，右栏 4 张卡竖排堆叠。",
+  "卡片样式：BaseCard 的中性纸面 + 细描边 + 圆角 + 阴影；本页另用 `padding:0!important`（舞台卡）与 `padding:22px!important`（计数卡）改内边距，因此卡片内边距在这一页与其他页不一致。",
+  "舞台区是「固定深色孤岛」：深色径向渐变底 + 居中剪影/画面 + 两枚半透明白玻璃徽章 + 底部半透明白提示条 + 扫光动画，整块不随 light/dark 主题变化。",
+  "数字排版：计数与指标用 `--font-num`（Bahnschrift）大号数字，角度用「度」后缀拼字符串而非单位 token。",
+  "状态呈现三处并置：徽章（置信度/阶段）、底部提示条（角度与置信度明细）、全局 toast（每次计数成功），同一批事实被重复表达三次。",
+  "交互：chip 切动作与数据源；圆形图标按钮做暂停/跳过/结束；校准按钮仅在 live && counter 时出现；RPE 用 0..10 一排 chip 单选，不适用 checkbox，原因用下拉。",
+  "空态/加载态薄弱：摄像头未就绪只有一行文案提示「摄像头未就绪」，没有骨架屏或占位插画；`startingStage`（camera / model）已建模但没有对应的加载视觉；错误态复用 `.cam-error` 一行红字 + 一个「重试摄像头」chip。",
+  "响应式：@media(max-width:1024px) 双栏塌成单列且 `.info-cards` 变两列、`.actions-card` 跨满两列；@media(max-width:767px) 再降一档（padding 与栅格压缩）。断点值写死在各文件里，未取自 tokens。",
+  "动效：卡片入场用 `.animate-slide-in-up`，扫光用 `.gradient-shimmer`，直播点用 `.animate-pulse`，全局有 prefers-reduced-motion 兜底。",
+  "无障碍：`.stage-live` 与 `.cam-note` 有 aria-live=\"polite\"，`.cam-error` 有 role=\"alert\"；但置信度徽章、阶段徽章、计数变化都没有 live region，读屏用户听不到「第 N 次」以外的关键状态。"
+ ],
+ "styleApproach": "全局是 CSS 变量 token 体系：`src/styles/tokens.css` 定义颜色/间距/圆角/阴影/动效/字体，`html[data-theme=\"dark\"]` 覆盖一组 token；`globals.css` 提供 reset 与 body 纸面底 + 颗粒层；`animations.css` 提供 keyframes 与 `.animate-*` 工具类并带 prefers-reduced-motion 兜底；`gradients.css` 只剩 `.gradient-shimmer` 一个类在用。组件层全部用 `<style scoped>`，本页 ExecutionView 亦然。问题在于这一页的 scoped CSS 与 token 体系是「半接入」关系：一部分是 token（`var(--radius-md)`、`var(--shadow-sm)`、`var(--easing-ease-out)`、`var(--motion-base)`、`var(--brand-pole-a-dark)`、`var(--font-num)`），另一部分是硬编码字面量——`.cam-feed{background:#0d1f2c}`、`.demo-frame` 的 `radial-gradient(120% 100% at 50% 0%,#263038 0%,#14191d 55%,#0c1013 100%)`、`.db{fill:#2c363e}`、`.confidence-badge/.phase-badge{background:rgba(255,255,255,.9)}`、`.stage-live{background:rgba(255,255,255,.92);color:#15181b}`、SVG 渐变 fxNear/fxFar/fxTorso/fxHead 里的灰色 hex。结果是舞台区在 light/dark 两个主题下长得完全一样（永远是深底 + 白玻璃浮层 + 深色字），主题切换在这一页基本无效。token 也没有被 composable 层消费：`usePoseCamera.draw()` 的骨架颜色写成 `rgba(79, 209, 197, 0.85)`（连线）与 `#0f766e`（关键点填充），代码注释已说明「canvas 的 fillStyle/strokeStyle 不解析 CSS 变量，这里只能写字面色值」——这条限制本身不可破，但可以通过 getComputedStyle 读 token 再传字面量来消除硬编码。重复的自定义样式主要有三类：一是 BaseCard 提供的 `--card-pad` 钩子被 `!important` 绕开（`.stage-card{padding:0!important}`、`.count-card{padding:22px!important}`）；二是父组件用 `:deep()` 强改子组件按钮宽度后又用另一条 `:deep()` 撤销（`.actions-card :deep(button){width:100%}` 与 `.correct-form :deep(button){width:auto}`）；三是内联 `:style` 表达栅格（`.reps-grid` 的 `gridTemplateColumns: repeat(N, 1fr)`）。此外 12 条 `transform-origin` 规则把 SVG 动画硬绑在 viewBox 560×760 的绝对坐标上（如 `transform-origin:288px 714px`），并依赖 `transform-box:view-box`（SVG 上属较新特性，需在目标浏览器上确认）。断点（1024px / 767px）在本页写死，而 tokens.css 里的断点是 CSS 变量、无法用于 media query，两者没有共用来源。",
+ "dataFlow": "数据来源分四条通路。（1）路由输入：`/execution?exercise=<中文动作名>`，页面 `onMounted` 时用 `getDemoExercise(route.query.exercise)` 取演示配置，PlanView.vue:328 与 DashboardView.vue:512 通过 `router.push` 传入动作名；点击 `.exercise-switch` chip 时同时改本地 `exercise` ref 和 `router.replace`（没有对 query 的 watch，改 URL 手输动作名不触发任何反应）。（2）动作目录（双源）：`demoCameraService.demoExercises` 提供 sets / repsPerSet / restDuration / setEvents 演示时间轴，`services/exercises.ts` 的 `findExercise(name).camera` 提供计数阈值 {joint, neutral, bottom, minStageMs}，两者靠中文动作名 join；`demoExercises` 只有两项，其余 24 个目录动作在本页没有相机配置也没有演示数据。（3）实时链路（摄像头分支）：`usePoseCamera.start(video, canvas)` → getUserMedia 三档降级 → 等待 metadata → `video.play()` → canvas 尺寸取 videoWidth/videoHeight → `createPoseEngine`（DEV 主线程 / 生产 worker）→ 帧循环（优先 `video.requestVideoFrameCallback`，退回 rAF）→ 每帧 `createImageBitmap(video)` → `engine.detect(bitmap, ts)` → worker 或主线程内 `computeMetrics` 得到 {kneeAngle, hipAngle, elbowAngle, visibility} → `applyMetrics` 写回 composable 的 ref → `draw(landmarks)` 在叠加 canvas 上画骨架；视图通过读 `pose.kneeAngle.value / pose.elbowAngle.value / pose.visibility.value` 喂给 `useRepCounter.feed(angle, visibility, ts)`，拿到 `{phase, counted, gate}` 后写视图本地的 `phase` / `reps` / `message`。（4）结算与持久化：整组结束 `summarizeSession({elapsedMs, reps, sets, manualCorrections, ...})` 生成 `TrainingSession` 片段 → `store.addSession(...)` 写入 `useAppStore.sessions` 并 `persistState()` 到 `localStorage['twopoles_state']` + 弹 toast；用户随后提交 RPE/不适/备注 → `store.applyFeedback(...)` 回写同一条 session 的 rpe / discomfort / reason / notes 并再次 toast。展示层还有一条纯前端补间通路：`watch(reps)` → 独立的 rAF 把 `displayReps` 从旧值推到新值，供数字滚动动画使用；`reps` 是真值，`displayReps` 只是显示量。注意 `reps.value = Math.min(c.count, exercise.value.repsPerSet)` 会被「手动修正」打断（`corrected` 标志一旦置真就不再被模型计数覆盖，模型计数与修正值分别保留）。",
+ "stateModel": "页面上并存三台状态机，彼此语义并不干净对齐。第一台是相机链路状态 `PoseCameraStatus`（usePoseCamera.ts:9）：idle → starting(startingStage = 'camera' → 'model') → live / unsupported / denied / error。unsupported 与 denied 是终态（需用户点重试），error 是推理链路彻底失败的降级终态（同时把 errorMessage 写成「端侧推理失败…，已退回演示模式」并 stop()）；live 之外还有一条隐藏的中间降级路径：worker 推理出错时 `recover()` 先降级到主线程 CPU 再考虑退到演示（`downgraded` 标志保证只降一次）。第二台是动作阶段 `ExercisePhase`（types/domain.ts）= idle | ready | down | up | occluded | complete，它被演示回放和实时计数共用，但两种来源语义不同：演示侧来自 DemoEvent.state（剧情动作），实时侧来自 `useRepCounter.feed` 返回的 phase（含义是「当前到达行程的哪一端」，由 `rule.bottom > rule.neutral` 决定 up 还是 down）。第三台是页面本地状态：`status: 'playing' | 'resting' | 'idle'`（组进行中 / 组间休息 / 未开始）、`paused`、`finished`、`phase`、`reps` / `displayReps`、`setIndex` / `repsBySet`、`message` / `stageMessage` / `sourceNote` / `stageHint`（三份不同职责的文案）、`corrected`（非响应式 plain let）。`useRepCounter` 内部还有第四台更细的判定机：把角度按 start / end / between 三区划分，方向由 `rule.bottom > rule.neutral` 决定，迟滞带 hysteresis=8°，3 帧滑动平均平滑，配合 stageConfirmed（none / end / start）、minStageMs（阶段驻留下限）、minRepMs=700（过快抖动拒绝）、maxStageMs=6000（停滞重置）、minVisibility=0.5（遮挡冻结，且遮挡后必须重新回到起始区才恢复计数）。校准 `calibrate(readSample, 900)` 采样 ≥4 个有效点求均值写入 `calibratedNeutral` 并重置计数。视图层用 `tick()` 一条 rAF 循环同时推进演示时间轴（消费 setEvents）、喂实时计数、推进组间休息并判定结束。",
+ "coupling": "（1）跨组件 import：ExecutionView 引入 `BaseCard` / `BaseButton` / lucide 图标 / `useAppStore` / `demoCameraService` 的 5 个导出 / `usePoseCamera` / `useRepCounter` / `services/exercises` 的 `findExercise` / `types/domain` 的 `ExercisePhase`；本页没有反向依赖，但 `demoCameraService` 同时被本页与结算逻辑共享。（2）共享 store 字段：`useAppStore` 的 `sessions`（本页 addSession/applyFeedback 写）、`toasts`（本页每次计数成功调用 showToast，ToastRegion 渲染）、`privacy.cameraEnabled`（本页模板用它决定是否显示「重试摄像头」chip 和整段摄像头提示）。store 通过 `localStorage['twopoles_state']` 持久化，键名与结构是跨页数据契约。（3）共享类型：`ExercisePhase` 同时被 demoCameraService、useRepCounter、ExecutionView 三处按不同语义使用；`TrainingSession` 被 demoCameraService.summarizeSession 产出、被 loadRules/weekRules/ReportView/MealsView/SettingsView 消费。（4）跨子系统口径耦合（最需要警惕）：`summarizeSession` 写 `actualDuration = Math.round(elapsedMs / 1000)`（秒），而 `types/domain.ts:167` 注释、loadRules.ts:188、weekRules.ts:31-32、ReportView.vue:96、MealsView.vue:362、SettingsView.vue:361-362 全部按**分钟**消费，本页写入的训练时长在周报负荷、训练量、明细里被当成分钟，量级差 60 倍。另一处是 `cameraUsed: true` 硬编码 —— 演示回放（根本没开摄像头）也会被记成「使用了摄像头」。（5）跨目录动作目录耦合：`demoCameraService.demoExercises`（组数/次数/休息/时间轴）与 `services/exercises.ts`（26 项真实目录 + 相机阈值）靠中文动作名 join，PlanView 的 firstExercise 按 **type** 匹配，DashboardView 的 mainItem 可能是目录里任一动作，两处传出的名字在 demoExercises 里不存在时会被 `getDemoExercise` 静默回落到「坐站训练」。（6）共享样式/资源耦合：ExecutionView 的 scoped CSS 依赖 `src/styles/tokens.css` 的 token、`animations.css` 的 `.animate-*`、`gradients.css` 的 `.gradient-shimmer`；`public/mediapipe/` 下的 wasm 与 .task 模型由 `npm run camera:assets` 生成且被 gitignore，部署必须自备。（7）视图与 composable 的越界耦合：ExecutionView 三处直接写 `pose.errorMessage.value`（453/468/477），以及 `counter` 整个 composable 实例被塞进一个 `ref` 存放，视图读到的是 reactive 代理解包后的值，与 composable 内部 ref 不是同一层。",
+ "designDebt": [
+  "模板里的占位符是死代码：`pose.kneeAngle ?? '—'`（ExecutionView.vue:206）永远走不到 `'—'` 分支。`pose` 是 `usePoseCamera()` 返回的普通对象（内部装 ref），模板只对顶层 setup 绑定做解包，编译产物实测是 `unref(pose).kneeAngle ?? \"—\"`，ref 对象永不为 nullish，`??` 失效后由 `toDisplayString` 兜底渲染成空串 —— 角度为空时界面显示「膝 ° · 髋 ° · 肘 °」而不是「—」。同一文件 20/23 行的 `pose.errorMessage.value` 却显式取 `.value`，两种写法自相矛盾，抄错就会静默出空值。",
+  "视图直接写 composable 的内部 ref：ExecutionView.vue:453 `pose.errorMessage.value = '摄像头画面容器没有准备好，请重试。'`，468 与 477 行 `pose.errorMessage.value = ''`（清错误）。`usePoseCamera` 没有暴露 `clearError()`/`setError()`，所以清错误只能由外部手改内部状态 —— 换 UI 时这个口子会继续扩散。",
+  "两套动作目录靠中文名 join，且有一方静默兜底：`demoCameraService.demoExercises`（demoCameraService.ts:70-73，只有「坐站训练 2×8」「站姿弯举 2×10」）与 `services/exercises.ts`（26 项，带 CameraConfig）各写一份组数/次数。ExecutionView 的组数次数取前者、计数阈值取后者（`findExercise(exercise.value.name)?.camera`），改一处不同步另一处就会静默错配。更糟的是 `getDemoExercise`（demoCameraService.ts:75-77）找不到名字时静默回落到 `demoExercises[0]`，而 PlanView.vue:328 传的 firstExercise 是按 **type** 匹配的（可能是「弹力带弯举」），DashboardView.vue:512 传的也可能是目录里任一动作 —— 访问 /execution?exercise=弹力带弯举 会无声地开练「坐站训练」。",
+  "半个字段：`demoCameraService.setDuration`（L12 类型定义、L64 赋值）定义后全库无人使用，实际组时长由 setEvents 时间轴和硬编码的 restDuration 决定；`makeExercise` 把所有动作的 restDuration 统一写死 6000ms，与 exercises.ts 目录里的真实参数无关。",
+  "`summarizeSession` 里 `cameraUsed: true` 恒为真（demoCameraService.ts:139），演示回放（根本没有开摄像头）也会被记成「使用了摄像头」，隐私口径失真；`ExecutionView` 也没有把「本次是否真的用了摄像头」传给这个函数。",
+  "`actualDuration` 单位错配且波及全站：demoCameraService.ts:133 写的是 `Math.round(input.elapsedMs / 1000)`（秒），而 types/domain.ts:167 注释是 minutes，loadRules.ts:188、weekRules.ts:31-32、ReportView.vue:96、MealsView.vue:362、SettingsView.vue:361-362 全部按分钟消费 —— 跟练页写入的时长在周报负荷、训练量、明细里被当成分钟，量级差 60 倍（交付说明.md:372 记录的「actualDuration=50」正是秒）。",
+  "`ExercisePhase` 一套枚举承担两种语义：演示回放里 'down'/'up' 是剧情动作状态（`getPhaseText` 映射成「下蹲阶段/起身阶段」），实时计数里 `useRepCounter.feed` 的 'down'/'up' 是「到达行程的哪一端」（`rule.bottom > rule.neutral ? 'up' : 'down'`）。对「站姿弯举」而言实时模式会显示「下蹲阶段/起身阶段」，且内联 SVG 剪影的 `.figure.up.elbow` 姿态与实时几何含义正好相反。",
+  "计数状态机被视图的 rAF 驱动而不是被推理帧驱动：ExecutionView 的 `tick()` 每帧调用 `counter.feed(angle, visibility, ts)`（L377、L542），传进去的角度是上一张推理帧的旧值（推理 15-30fps，rAF 60fps），于是 `useRepCounter` 的 3 帧滑动平均（SMOOTH_WINDOW=3）平均的是同一个数而不是三个真实采样，minStageMs / maxStageMs 的驻留判定也按 60Hz 计。",
+  "方向判定与阈值口径不一致：`useRepCounter.feed()` 用 `rule.bottom > rule.neutral`（原始标定值）决定方向，而 `lowThreshold/highThreshold` 用 `calibratedNeutral.value ?? rule.neutral` 计算中位与迟滞方向；校准后两者可能反号，届时同一角度会落进相反的区。",
+  "校准会静默清零计数：`useRepCounter.calibrate()` 末尾调 `reset()`，而视图的 `runCalibrate` 只要 `live && counter` 就能触发（不限于组开始前）。校准后 `reps` 会被下一次 tick 覆盖成 0，已完成次数无提示地归零。",
+  "`useRepCounter` 内部用 `const window: number[] = []` 遮蔽了全局 `window`（滑动平均缓冲）。当前不碰 DOM 所以没炸，但这是该文件里最危险的地雷，任何一次「在这里用 window.setTimeout」都会静默变成对数组调用 setTimeout。",
+  "相机链路颜色写死，跟不上 token 与主题：`usePoseCamera.ts:58-67` 用 `rgba(79, 209, 197, 0.85)`（连线）和 `#0f766e`（关键点填充），注释说明 canvas 不解析 CSS 变量。结果实时骨架色既不等于 light token `--color-accent`（同值）也不等于 dark token `#3ec9b6`，和演示剪影的 `var(--brand-pole-a-dark)`（#3ec9b6）更是两个颜色 —— 同一屏两种蓝绿，交付说明.md:710 记录过这个 live/demo 骨架视觉冲突，至今未收敛。",
+  "样式层 token 与硬编码混用导致主题失效：`.cam-feed{background:#0d1f2c}`(749)、`.demo-frame` 的 `radial-gradient(...#263038...#14191d...#0c1013)`(760)、`.db{fill:#2c363e}`(780)、`.confidence-badge/.phase-badge{background:rgba(255,255,255,.9)}`(823)、`.stage-live{background:rgba(255,255,255,.92);color:#15181b}`(828)、SVG 的 fxNear/fxFar/fxTorso/fxHead 渐变灰阶全部写死。舞台区事实上是一块固定深色孤岛，浅色半透明浮层在任何主题下都不变，dark 主题改不到这里。",
+  "用 `!important` 与 `:deep()` 硬压 BaseCard：`.stage-card{padding:0!important}`(756)、`.count-card{padding:22px!important}`(838) 绕开了 BaseCard 自带的 `--card-pad` 变量钩子；`.actions-card :deep(button){width:100%;margin-bottom:8px}`(862) 与 `.correct-form :deep(button){width:auto;margin-bottom:0;padding:0 18px}`(865) 互相撤销，同一个按钮被两条规则反复改写。",
+  "内联 SVG 剪影与绝对坐标耦合：ExecutionView.vue:41-115 约 75 行 `<svg viewBox=\"0 0 560 760\">`（含 4 个 gradient defs 与 8 个关节 `<g>`），配套 12 条 `transform-origin` 写死 viewBox 坐标（773、792-803，如 `transform-origin:288px 714px`），依赖 `transform-box:view-box`。换比例尺、换关节、换插画风格都要同步手改整张坐标表。",
+  "布局用内联 style 表达：`.reps-grid` 的 `gridTemplateColumns: 'repeat(' + exercise.repsPerSet + ', 1fr)'`(189) 写在 `:style` 上，无法用 CSS 变量或媒体查询接管，次数多时（repsPerSet 很大）格子会挤成不可读的细条。",
+  "三条文案通道重复表达同一批事实：`stageMessage`（L409、L437）、`sourceNote`、`stageHint` 各自拼「摄像头未就绪 / 阶段 / 置信度」；阶段文案还来自一个叫 demo 的服务（demoCameraService.getPhaseText，demoCameraService.ts:82-95）—— 实时模式的阶段词也由「演示」模块负责。",
+  "`restart()` 手工重置约 25 个 ref（elapsedMs / setElapsed / reps / displayReps / repsBySet / setIndex / status / paused / finished / message / phase / manualCorrections / setProgress / tween 相关…），漏一个就残留上一组状态；且 `switchMode('camera')` 成功后也调 `restart()`，切数据源等于重开一局。",
+  "同一个文件里 `status` 有两种含义：视图的 `status: 'playing'|'resting'|'idle'` 与 `pose.status: PoseCameraStatus`（idle/starting/live/unsupported/denied/error），模板中 `status` 与 `pose.status` 并存，任何一次改名或类型收敛都会误伤。",
+  "置信度徽章用 `:key=\"confidenceClass\"` 强制重挂载来重放入场动画，属于用 key hack 代替 CSS animation 重触发；`getConfidenceLevel`（demoCameraService.ts:97）的 0.8/0.5 阈值原本是给 demo 事件的 confidence 用的，被复用到实时模式的 `visibility`（关键点可见度），两个物理量共用「识别良好/一般/较差」一套文案。",
+  "两条独立动画回路叠加：`usePoseCamera.onFrame` 自带 RVFC/rAF 循环并在每帧新建 `DrawingUtils` 实例全量重画（usePoseCamera.ts:50-68、95-119），ExecutionView 的 `tick()` 又有自己的 rAF；两者没有共享时钟，「帧率」指示的是推理帧率而非渲染帧率。",
+  "开发态指示失真：`createPoseEngine` 在 `import.meta.env.DEV` 时恒走主线程（poseEngine.ts:108），所以界面上的「推理落点 / 后端」在开发时永远显示主线程 + CPU，worker/GPU 路径只有构建产物才能验证。",
+  "文档与实现存在口径落差：README.md:246-247 记录了 dev 下 worker 不可用、README.md:307/331 仍留「未在真机验证」字样，而 交付说明.md:460+ 已把 MediaPipe 阶段记为「半真记录」、交付说明.md:662-687 记了剪影改造、710 记了 live/demo 骨架视觉冲突 —— 文档之间的成熟度描述不一致，改版时不能直接引用文档判断现状。",
+  "`counter` 整个 composable 实例被塞进一个 `ref`（ExecutionView 的 `counter = ref<ReturnType<typeof useRepCounter> | null>(null)`），`counter.value.count` 读到的其实是 reactive 代理解包后的值，与 composable 内部 ref 不是同一层；且 `useRepCounter` 在 `buildCounter()` 里（非 setup 上下文）创建，其内部 `computed` 不在组件 effect scope 内、不会被自动 stop，改版重构时容易漏掉释放或重复创建。"
+ ],
+ "constraints": [
+  "MediaPipe 资源路径与体积是硬事实：wasm 目录与 `pose_landmarker_lite.task`（5,777,746 字节）、`efficientdet_lite0.tflite` 位于 `public/mediapipe/`，由 `npm run camera:assets`（scripts/fetch-camera-assets.mjs）下载且被 gitignore，部署必须自备；路径常量写死在 usePoseCamera.ts:11-13 的 `/mediapipe/wasm` 与 `/mediapipe/models/pose_landmarker_lite.task`，换 CDN 目录名要同步改这里。",
+  "摄像头取流必须在安全上下文：`window.isSecureContext` 必须为真（https 或 localhost），否则 getUserMedia 不可用；`navigator.mediaDevices.getUserMedia` 缺失时必须报 unsupported。这是浏览器硬限制，任何离线/内网 http 部署都会退化。",
+  "取流失败必须靠 DOMException 的 `name` 分类（NotAllowedError / PermissionDeniedError / SecurityError / NotFoundError / OverconstrainedError / NotReadableError）才能给出可区分的中文提示（usePoseCamera.ts:186-192、214-226），若在重构中把它们统一包成普通 Error，错误文案粒度会不可逆地丢失。",
+  "`PoseLandmarker.detectForVideo` 要求时间戳严格递增；`poseMath.nextTimestamp` 用媒体时间换算并在不递增时返回 null 跳过该帧（usePoseCamera.ts:98）。任何重写帧调度的改法都必须保留这个单调约束，否则 MediaPipe 会直接抛错或输出脏结果。",
+  "推理必须是**经典** worker：`import PoseInferenceWorker from './poseInference.worker?worker'`（poseEngine.ts:9-11 注释 + 108 行）。原因是 MediaPipe 的 wasm loader 在 worker 内走 importScripts，module worker 下 Vite dev 不把 public/ 里的 glue 当模块解析、直接 500；这条限制同时决定了 dev 模式恒定回落主线程，不能简单改成 module worker。",
+  "GPU delegate 必须绑定一块**专用** canvas，且该 canvas 不能已经有 2D context —— 因此不能复用 UI 上的叠加层 canvas，worker 内只能自建 `new OffscreenCanvas(640, 480)`（poseInference.worker.ts handleInit / poseLandmarkerFactory.ts）。若改版想「用 UI 画布同时做 GPU 绑定和骨架绘制」，会直接失效。",
+  "MediaPipe DrawingUtils 只吃字面色值：canvas 的 fillStyle/strokeStyle 不解析 CSS 变量（usePoseCamera.ts:57 注释明确记录，交付说明.md:550 记过一次 `var(--color-accent)` 被静默忽略的 bug）。骨架颜色要跟随主题，只能读取 computed style 后传字面量，不能在 draw 调用里写 var(...)。",
+  "几何口径固定为左侧 6 个关键点（shoulder 11 / elbow 13 / wrist 15 / hip 23 / knee 25 / ankle 27，poseMath.ts 的 LEFT 常量），`computeMetrics` 需要 ≥28 个 landmark；可见度是这 6 个点的均值（按 11..27 整段取会 >1，这是代码注释里写死的坑）。`minVisibility: 0.5` 的遮挡门限直接依赖这个定义，改成全身可见度会让遮挡判定整体失真。",
+  "计数口径由 `npm run selfcheck`（scripts/selfcheck.ts，第 5 节 F05、第 8 节）锁定：完整行程只计一次、遮挡不累加、快抖不计数、阈值可被校准覆盖、膝/肘角 180°/90°、可见度 ≤1、时间戳单调。改 `useRepCounter` 的迟滞 / 遮挡 / 最短最长时长阈值，必须让自检保持全绿。",
+  "当前实测的动作参数是标定数据而非自由值：坐站训练 knee neutral 168 / bottom 100 / minStageMs 220，站姿弯举 elbow neutral 170 / bottom 55 / minStageMs 180；通用参数 hysteresis 8°、minRepMs 700ms、maxStageMs 6000ms。改任一个都要重新标定并跑自检。",
+  "帧循环与取帧的浏览器能力契约：没有 `requestVideoFrameCallback` 时必须能退回 rAF（usePoseCamera.ts:77-88）；`video.readyState < 2` 时不能推理；取帧入口是 `createImageBitmap(video)`；主线程路径必须在 finally 里 `bitmap.close()`，worker 路径靠 transfer 转移所有权后由 worker 关闭，重复关闭或泄漏都会累积显存。",
+  "`TrainingSession` 的字段名与 `localStorage` 键 `twopoles_state` 的持久化结构是跨页数据契约（store.persistState）。其中 `actualDuration` 在 domain.ts:167 约定为 minutes —— 当前写入方写的是秒（属 bug），修版时应统一为分钟并考虑既有数据的换算，而不是改消费方。",
+  "MediaPipe 的 VIDEO 运行模式与 numPoses=1 决定只跟踪单人；`PoseLandmarker.POSE_CONNECTIONS` 决定绘制出的连线集合是 MediaPipe 固定的 33 点人体拓扑，不能自定义成仅左侧 6 点连线。"
+ ],
+ "redesignHooks": [
+  "【可整体替换·边界清晰】`usePoseCamera()` 返回扁平响应式接口（status / errorMessage / fps / kneeAngle / hipAngle / elbowAngle / visibility / delegate / runsIn / startingStage + start / stop），不泄露内部 engine / stream / handle，换成任何一套新舞台 UI（例如分屏、画中画、纯指标面板）都只需重写 ExecutionView 的模板与样式，composable 一行不用动。",
+  "【可整体替换·边界清晰】`poseMath.ts` / `poseLandmarkerFactory.ts` / `poseEngine.ts` / `poseInference.worker.ts` 是与 UI 完全解耦的纯推理层（除 OffscreenCanvas 创建外无 DOM 依赖），可以整体搬到新的 `src/features/execution/` 目录而不波及其它页面；`useRepCounter.ts` 同理，只依赖角度/可见度/时间戳三个入参。",
+  "【可整体替换·边界清晰】`useRepCounter` 的对外契约就是 reset / calibrate / feed 三件套加一组只读 ref，视图只喂 `(angle, visibility, ts)` 拿 `{phase, counted, gate}` —— 换计数呈现方式（环形进度、节奏条、节拍器）完全不触碰算法。",
+  "【可整体替换·边界清晰】`demoCameraService` 的 `getPhaseText` / `getConfidenceLevel` / `summarizeSession` 是纯函数，可以整体搬到新的文案层或 i18n 层，视图不感知；`demoExercises` 的时间轴数据也可以换成真正的 JSON 资源文件而不改视图。",
+  "【可整体替换·边界清晰】右栏 4 张 BaseCard 已是独立块，各自带 variant 与 `--card-pad` 钩子，可逐个抽成 `RepCounterCard.vue` / `JointMetricsCard.vue` / `ManualCorrectionCard.vue` / `SessionSummaryCard.vue`，逻辑留在各自组件内，页面只负责排布。",
+  "【可整体替换·边界清晰】BaseCard 已提供 variant=default/flush/ink + `--card-pad` 变量 + 遗留 `glass` prop，是现成的换皮接口；把 ExecutionView 里那两处 `padding:...!important` 换成 `--card-pad:0` 后，这一页就能并入统一卡片体系，不再单独维护内边距。",
+  "【可整体替换·边界清晰】内联 SVG 剪影（ExecutionView.vue:41-115 与 773-803 的 transform-origin 表）可整体抽成 `DemoFigure.vue`，props 只需 phase / joint / paused，把 viewBox 坐标表关进组件内部，换插画风格不影响页面。",
+  "【可整体替换·边界清晰】`.reps-grid` 次数格、`.stage-overlay` 的两枚徽章、`.frame-sheen` 扫光、`.stage-live` 底部条、`.stage-controls` 圆形按钮组，都是纯展示块，可各自成为独立组件或换成完全不同的形态。",
+  "【可整体替换·边界清晰】顶部 `.source-switch`（演示回放 / 实时摄像头 / 重试摄像头）与 `.exercise-switch` chips 已经是「本地 ref + 事件回调」的形态，可直接换成新的分段控件、下拉或设置入口。",
+  "【需要先解耦·样式与逻辑纠缠】`tick()`（ExecutionView.vue 约 L349-392）把演示时间轴推进、实时计数喂数、组间休息、结束判定、elapsedMs/setElapsed 计时、reps/displayReps 补间写进同一条 rAF；界面大改时任何重排都会碰它。必须先拆成「时钟」「计数器驱动」「展示补间」三层（各自独立 rAF 或 setInterval），再动布局。",
+  "【需要先解耦·样式与逻辑纠缠】实时骨架的绘制在 `usePoseCamera.draw()`（主线程 canvas + DrawingUtils），颜色线宽是字面量；而画面容器、镜像 transform、object-fit:cover 都在 ExecutionView 的 CSS 里，canvas buffer 尺寸取 videoWidth/videoHeight。骨架与画面是两套各自维护的坐标系，想改舞台布局（竖屏、画中画、分屏）必须先统一「画面矩形 ↔ 骨架坐标」映射，不能直接改 CSS。",
+  "【需要先解耦·样式与逻辑纠缠】`pose.errorMessage.value` 的三处直写（453/468/477）必须先改成 composable 暴露的 `clearError()` / `setError()`，否则新 UI 的错误提示只能继续靠外部改内部 ref。",
+  "【需要先解耦·样式与逻辑纠缠】`pose.kneeAngle ?? '—'` 的 ref 解包错误必须先修：要么让 usePoseCamera 的返回值用 `reactive()` 包一层以获得模板深层解包，要么在视图里统一改用 `.value`；新 UI 若沿用现写法会继续渲染「膝 °」这类空值。",
+  "【需要先解耦·样式与逻辑纠缠】`stageMessage` / `sourceNote` / `stageHint` 三条文案，加上 `getPhaseText`/`getConfidenceLevel` 里的中文硬编码（还放在一个叫 demo 的服务里），必须先抽成单一文案表并区分「演示剧情文案」与「实时几何文案」，再重排右侧信息卡的阶段展示。",
+  "【需要先解耦·样式与逻辑纠缠】`ExercisePhase` 一套枚举两套语义（演示剧情 up/down vs 实时几何 up/down）必须先拆成两个类型（`DemoBeat` 与 `RepPhase`）或补一张明确映射表，再重排阶段展示与剪影姿态。",
+  "【需要先解耦·样式与逻辑纠缠】`useRepCounter` 的判定完全由几何驱动，而 `.figure` 剪影动作由 `phase` 驱动，两者在「站姿弯举」上方向相反；重排剪影动画前必须先统一方向语义，否则换皮后动作看起来是反的。",
+  "【需要先解耦·样式与逻辑纠缠】`summarizeSession` 的 `cameraUsed` 与 `actualDuration` 同 `loadRules`/`weekRules`/ReportView 的消费口径耦合，界面重排（新的结束卡片、新的汇总面板）时必须同时确定「单位」与「来源」，否则新汇总面板会把秒当分钟显示。",
+  "【需要先解耦·样式与逻辑纠缠】`createPoseEngine` 的 DEV 主线程回落（poseEngine.ts:108）让开发态永远看不到 worker/GPU 指示；新 UI 若要展示「推理后端 / 落点」，必须先提供一条可在 dev 验证的开关路径（如 query 参数强制 worker），否则该指示在开发中不可测。",
+  "【需要先解耦·样式与逻辑纠缠】12 条 `transform-origin` 与 viewBox 560×760 硬绑定，任何「放大缩小 / 换比例 / 换关节」的美化都要先把这张坐标表参数化（例如用 CSS 变量或 SVG 局部坐标系），否则改一个关节要重算全套。",
+  "【需要先解耦·样式与逻辑纠缠】`restart()` 手工重置约 25 个 ref，且 `switchMode` 成功时也调用它（切数据源 = 重开一局）；重排「开始/暂停/跳过/结束」这套控件前，必须先把会话重置抽成一个显式的 `resetSession()` 边界，并把「切数据源」与「重开一局」拆成两个不同意图。"
+ ]
+}

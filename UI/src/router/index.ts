@@ -3,7 +3,10 @@ import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/dashboard'
+    name: 'poles',
+    component: () => import('@/views/TwoPolesView.vue'),
+    // workspace: 外壳让主区吃满视口、自己处理滚动；双极工作台不参与整页滚动
+    meta: { title: '今日两仪', workspace: true }
   },
   {
     path: '/onboarding',
@@ -12,10 +15,9 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '个人档案' }
   },
   {
+    // 旧地址保留跳转，书签与历史记录不会落到 404
     path: '/dashboard',
-    name: 'dashboard',
-    component: () => import('@/views/DashboardView.vue'),
-    meta: { title: '今日概览' }
+    redirect: '/'
   },
   {
     path: '/plan',

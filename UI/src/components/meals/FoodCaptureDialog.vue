@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <Teleport to="body">
     <div v-if="open" class="scrim" @click.self="requestClose">
       <div ref="dlgEl" class="dlg" role="dialog" aria-modal="true" aria-labelledby="food-log-title" tabindex="-1">
@@ -307,6 +307,8 @@ const props = defineProps<{
   /** 页面当前展示的日期；保存时写进同一天，保证马上出现在今日列表 */
   date: string
   initialView: 'capture' | 'manual'
+  /** 从"早餐 / 午餐 / 晚餐"某一格点进来时指定餐次；不传则按当前时间推断 */
+  initialMealType?: MealType | null
 }>()
 
 const emit = defineEmits<{
@@ -467,7 +469,7 @@ function reset() {
   recognized.value = null
   const at = new Date()
   mealTime.value = clockTime(at)
-  mealType.value = inferMealType(at)
+  mealType.value = props.initialMealType ?? inferMealType(at)
   if (props.initialView === 'manual') {
     editorOpen.value = true
     items.value = [blankItem()]
@@ -507,7 +509,7 @@ function startManual() {
   recognized.value = null
   const at = new Date()
   mealTime.value = clockTime(at)
-  mealType.value = inferMealType(at)
+  mealType.value = props.initialMealType ?? inferMealType(at)
   if (!items.value.length) items.value = [blankItem()]
 }
 

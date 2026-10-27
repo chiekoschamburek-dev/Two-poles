@@ -14,7 +14,9 @@ import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, normalizeProfile, parseResult } from '@/services/profileRules'
 import { buildPlanMessages, buildPlanQuestionMessages, canUseLlm, desiredWeeklySessions, extractJson, isLlmReady, usingDefault, validatePlanDraft, validatePlanQuestions } from '@/services/llm'
-import type { MealItem, PersonalBest, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
+import { BRIDGE_LIMITS, buildBridgeSignals, buildWeekFacts, peekLine, readDayFacts } from '@/services/bridgeRules'
+import { toISODate } from '@/utils/time'
+import type { FoodCategory, Meal, MealItem, PersonalBest, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
 let passed = 0
@@ -551,6 +553,107 @@ const msgsWithAnswers = buildPlanMessages(p({}), draftDates, 'public', {
 })
 ok('生成计划提示词带上补充回答', msgsWithAnswers.user.includes('每周希望安排几次训练？ → 5 次'))
 ok('生成计划提示词要求按回答排够次数且不要默认三天', msgsWithAnswers.system.includes('不要默认只排三天') && msgsWithAnswers.system.includes('4–5'))
+
+console.log('\n12. 两仪同期对照（运动 × 饮食，健康口径与缺失口径）')
+const mkBridgeSession = (date: string, rpe: number | null, minutes = 20, discomfort = false): TrainingSession => ({
+  id: `s-${date}-${rpe}-${minutes}-${discomfort}`, userId: 'u1', date,
+  exerciseName: '站姿弯举', type: '站姿弯举', actualDuration: minutes,
+  completionStatus: 'completed', rpe, discomfort, cameraUsed: false,
+  manualCorrections: 0, createdAt: `${date}T20:00:00.000Z`
+})
+const mkBridgeMeal = (date: string, type: Meal['mealType'], cats: FoodCategory[], complete = true): Meal => ({
+  id: `m-${date}-${type}-${cats.join('')}`, userId: 'u1', date, mealType: type,
+  time: type === 'breakfast' ? '08:00' : type === 'lunch' ? '12:00' : type === 'dinner' ? '18:30' : '21:00',
+  completeness: complete ? 'complete' : 'partial', analyzed: false,
+  items: cats.map((category, i) => ({
+    id: `i-${date}-${type}-${i}`, mealId: `m-${date}-${type}`, foodId: `f-${i}`,
+    foodName: `食物${i}`, category, portionSize: 1, portionUnit: '份', confirmed: true
+  })),
+  createdAt: `${date}T12:00:00.000Z`
+})
+
+const bridgeDate = (offset: number) => toISODate(iso(offset))
+const emptyDay = readDayFacts([], [], bridgeDate(0))
+ok('没记录的一天：正餐 0/3，8 类全缺', emptyDay.recordedSlots === 0 && emptyDay.missing.length === 8)
+ok('没记录的一天不把类别算成"已出现"', emptyDay.coverage.length === 0)
+
+const oneDay = readDayFacts(
+  [mkBridgeSession(bridgeDate(0), 6, 30), mkBridgeSession(bridgeDate(0), 8, 10, true)],
+  [
+    mkBridgeMeal(bridgeDate(0), 'breakfast', ['谷薯类', '蛋类']),
+    mkBridgeMeal(bridgeDate(0), 'lunch', ['蔬菜类', '肉类'], false),
+    mkBridgeMeal(bridgeDate(0), 'breakfast', ['奶类']),
+    mkBridgeMeal(bridgeDate(0), 'snack', ['水果类'])
+  ],
+  bridgeDate(0)
+)
+ok('同餐次记两条只算一档正餐', oneDay.recordedSlots === 2, String(oneDay.recordedSlots))
+ok('加餐不计入正餐档数', oneDay.snackCount === 1 && oneDay.recordedSlots === 2)
+ok('平均 RPE 只算记了 RPE 的场次', oneDay.avgRpe === 7)
+ok('任一场次报不适即为 true', oneDay.discomfort === true)
+ok('类别覆盖按出现过的类去重', oneDay.coverage.length === 6, oneDay.coverage.join('、'))
+ok('没出现的类进 missing', oneDay.missing.includes('坚果类') && oneDay.missing.includes('豆类'))
+ok('训练时长是当天合计', oneDay.sessionMinutes === 40)
+
+const weekSessions = [
+  mkBridgeSession(bridgeDate(0), 5, 30),
+  mkBridgeSession(bridgeDate(2), 7, 20)
+]
+const weekMeals = [
+  mkBridgeMeal(bridgeDate(0), 'lunch', ['谷薯类', '蔬菜类', '肉类']),
+  mkBridgeMeal(bridgeDate(1), 'lunch', ['谷薯类', '蔬菜类'])
+]
+const bridgeWeek = buildWeekFacts(weekSessions, weekMeals, iso(3))
+ok('本周有训练记录的天数', bridgeWeek.sessionDays === 2, String(bridgeWeek.sessionDays))
+ok('本周有餐食记录的天数', bridgeWeek.mealDays === 2, String(bridgeWeek.mealDays))
+ok('两边都有记录的天数', bridgeWeek.pairedDays === 1, String(bridgeWeek.pairedDays))
+ok('只有餐食记录的天数', bridgeWeek.nutritionOnlyDays === 1, String(bridgeWeek.nutritionOnlyDays))
+ok('无训练日样本少于 2 天时不给差值', bridgeWeek.coverageGap === null, String(bridgeWeek.coverageGap))
+ok('训练日平均覆盖按有训练记录的天算', bridgeWeek.avgCoverageTraining === 1.5, String(bridgeWeek.avgCoverageTraining))
+
+const bridgeWeek2 = buildWeekFacts(weekSessions, [
+  ...weekMeals,
+  mkBridgeMeal(bridgeDate(3), 'lunch', ['谷薯类', '蔬菜类', '蛋类']),
+  mkBridgeMeal(bridgeDate(4), 'lunch', ['谷薯类', '蔬菜类', '豆类'])
+], iso(4))
+ok('无训练日样本够了才算差值', bridgeWeek2.coverageGap !== null, String(bridgeWeek2.coverageGap))
+ok('差值 = 训练日均值 − 无训练日均值', bridgeWeek2.coverageGap === -1.2, String(bridgeWeek2.coverageGap))
+ok('差值只用有餐食记录的无训练日，不把空白日当 0', bridgeWeek2.restSampleDays === 3, String(bridgeWeek2.restSampleDays))
+
+const emptySignals = buildBridgeSignals(readDayFacts([], [], bridgeDate(0)), bridgeWeek2)
+ok('两边都空时说明空着是合法状态', emptySignals[0]?.id === 'both-empty-today' && emptySignals[0].detail.includes('合法'))
+ok('联动提示最多四条', emptySignals.length <= 4)
+
+const trainingNoMeal = readDayFacts([mkBridgeSession(bridgeDate(0), 6, 30)], [], bridgeDate(0))
+const trainingSignals = buildBridgeSignals(trainingNoMeal, bridgeWeek2)
+ok('有训练但没餐食记录时提示补记', trainingSignals.some(s => s.id === 'training-with-missing-meals'))
+ok('补记提示明确"不代表该吃什么"', trainingSignals.find(s => s.id === 'training-with-missing-meals')?.detail.includes('不代表现在该吃什么') === true)
+
+const mealNoTraining = readDayFacts([], [mkBridgeMeal(bridgeDate(0), 'lunch', ['谷薯类'])], bridgeDate(0))
+const mealSignals = buildBridgeSignals(mealNoTraining, bridgeWeek2)
+ok('只有餐食记录时把注意力引回运动', mealSignals.some(s => s.id === 'meals-without-movement'))
+ok('不把"没记录"说成"没运动"', mealSignals.find(s => s.id === 'meals-without-movement')?.detail.includes('没有记录不等于没运动') === true)
+
+const discomfortDay = readDayFacts([mkBridgeSession(bridgeDate(0), 8, 20, true)], [], bridgeDate(0))
+const discomfortSignals = buildBridgeSignals(discomfortDay, bridgeWeek2)
+ok('不适记录排在最前且语气是 caution', discomfortSignals[0]?.tone === 'caution' && discomfortSignals[0].kind === 'safety')
+ok('不适出现时不声称会自动加量', discomfortSignals[0].detail.includes('不会据此建议加量'))
+
+const weeklyDiscomfortWeek = buildWeekFacts([mkBridgeSession(bridgeDate(1), 7, 20, true)], [], iso(1))
+ok('本周不适天数被统计', weeklyDiscomfortWeek.discomfortDays === 1)
+const nextDaySignals = buildBridgeSignals(readDayFacts([], [], bridgeDate(0)), weeklyDiscomfortWeek)
+ok('今天无不适但本周有，也把安全提示放首位', nextDaySignals[0]?.id === 'week-discomfort' && nextDaySignals[0].tone === 'caution')
+ok('周内不适不声称会自动停止加量', nextDaySignals[0].detail.includes('不给出加量建议'))
+
+ok('移动端另一极预览：运动只写今天分钟数', peekLine('movement', trainingNoMeal) === '今天 30 分钟', peekLine('movement', trainingNoMeal))
+ok('移动端另一极预览：饮食只写今天餐数', peekLine('nutrition', mealNoTraining) === '今天 1/3 餐', peekLine('nutrition', mealNoTraining))
+ok('移动端另一极预览：没有记录时不编造数字', peekLine('movement', readDayFacts([], [], bridgeDate(0))) === '今天还没记录')
+
+const movementOnlyWeek = buildWeekFacts([mkBridgeSession(bridgeDate(0), 5, 30)], [], iso(0))
+const movementOnlySignals = buildBridgeSignals(readDayFacts([], [], bridgeDate(0)), movementOnlyWeek)
+ok('本周只有运动记录时指出另一极缺失', movementOnlySignals.some(s => s.id === 'week-movement-only'))
+ok('健康口径清单写明不推断因果', BRIDGE_LIMITS.some(l => l.includes('不代表因果')))
+ok('健康口径清单写明未记录不等于没发生', BRIDGE_LIMITS.some(l => l.includes('未记录不等于没发生')))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

@@ -60,12 +60,23 @@
   --color-neutral-soft: #eeede7;
 
   /* === 品牌位 === */
-  /* 两仪的两极是全站唯一的"双色"场合：右极=训练，左极=饮食 */
+  /* 两仪的两极是全站唯一的"双色"场合：左极=运动，右极=饮食 */
   --brand-pole-a: #0f766e;
   --brand-pole-a-light: #3ec9b6;
   --brand-pole-b: #24586f;
   --brand-pole-b-light: #8fb8d8;
   --brand-pole-ring: #c9c6bb;
+
+  /* 双极工作台专用：左栏运动（青），右栏饮食（蓝）。
+     只用于身份条、栏顶细线、联动按钮与图标，不替代交互强调色。 */
+  --pole-movement: #0f766e;
+  --pole-movement-strong: #0b5b56;
+  --pole-movement-soft: #e4ede9;
+  --pole-movement-line: #c8d9d3;
+  --pole-nutrition: #24586f;
+  --pole-nutrition-strong: #1a4152;
+  --pole-nutrition-soft: #e7eef2;
+  --pole-nutrition-line: #c9d8e0;
   /* 深底专用：两极提亮一档，否则在 #11161a 上读不出形状 */
   --brand-pole-a-dark: #3ec9b6;
   --brand-pole-b-dark: #7fa8c4;
@@ -236,6 +247,15 @@ html[data-theme="dark"] {
   --color-neutral-soft: #242a30;
 
   --brand-pole-ring: #3a4249;
+
+  --pole-movement: #3ec9b6;
+  --pole-movement-strong: #2ba89a;
+  --pole-movement-soft: #16302d;
+  --pole-movement-line: #24504a;
+  --pole-nutrition: #8fb8d8;
+  --pole-nutrition-strong: #a9c8e0;
+  --pole-nutrition-soft: #16262f;
+  --pole-nutrition-line: #2c4654;
 
   --surface-glass: rgba(28, 33, 38, 0.86);
   --surface-glass-strong: rgba(28, 33, 38, 0.95);

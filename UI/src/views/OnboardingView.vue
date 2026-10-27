@@ -428,10 +428,10 @@ function finish() {
   store.showToast({
     type: 'success',
     title: wasEditing ? '档案已更新' : '档案已建好',
-    message: blocked.value ? '按你的档案：不生成自动推荐，可手工录入与记录' : '概览页的称呼与推荐口径会按这份档案来。',
+    message: blocked.value ? '按你的档案：不生成自动推荐，可手工录入与记录' : '今日两仪的运动与饮食口径会按这份档案来。',
     duration: 3000
   })
-  router.push('/dashboard')
+  router.push('/')
 }
 </script>
 

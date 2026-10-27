@@ -4,7 +4,7 @@
       <Menu :size="20" />
     </button>
 
-    <RouterLink to="/dashboard" class="lockup" aria-label="返回今日概览">
+    <RouterLink to="/" class="lockup" aria-label="返回今日两仪">
       <svg class="mark" viewBox="0 0 64 64" role="img" aria-label="两仪·TwoPoles">
         <g fill="none" stroke-width="5.6">
           <circle cx="32" cy="32" r="21.5" stroke="var(--brand-pole-ring)" />

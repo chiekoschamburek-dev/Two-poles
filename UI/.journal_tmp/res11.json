@@ -1,0 +1,134 @@
+{
+ "lens": "信息架构与页面职责（7 个路由页的职责边界、完整用户动线、导航结构合理性、每页\"第一眼\"）",
+ "findings": [
+  {
+   "title": "「跟练」是任务流却占了一级导航，且跨页深链会静默替换掉用户要练的动作",
+   "detail": "SidebarNav.vue 的 items 数组（`/dashboard、/plan、/execution、/meals、/report`）把 `/execution` 与其它 4 个业务页并列，桌面端一级导航共 7 个入口。但 ExecutionView 实际只能播放 demoCameraService.demoExercises 里的两条固定动作（「坐站训练」「站姿弯举」，demoCameraService.ts:70-73），`getDemoExercise` 找不到名字时静默回落 `demoExercises[0]`（demoCameraService.ts:75-77）。而 DashboardView.vue:512 的 `start()` 传的是 `mainItem.exerciseName`——mainItem 是「时长最长的那一段」，可能来自规则引擎、LLM 草稿或手工录入的任意动作（如「弹力带弯举」）。结果：用户在首页点「开始跟练」，跟练页 h1 显示的是「坐站训练 · 第 1 组」（ExecutionView.vue:5 用 `exercise.name`），界面没有任何一句提示说明动作被换掉了。PlanView.vue:328 传的 firstExercise 按 type 匹配，同样会错配（且 exercises.ts 里 type='站姿弯举' 有 3 条，只有 1 条带 camera 配置）。这是「界面意图」在跨页时被丢弃的最严重一处 IA 缺陷：跟练页的职责被隐式改写成了「固定演示播放器」。",
+   "impact": "high",
+   "action": "① 跟练页从桌面一级导航移除，降级为「今日」下的任务流（移动端 MobileNav 已经用 owns 做了归属，桌面端应对齐）；② ExecutionView 增加一个显式的「当前动作与你的计划不一致」提示条（至少在 fallback 发生时显示「你计划的是 X，本页演示的是 Y」），并把 fallback 从 `getDemoExercise` 内部提到视图层可见；③ 把 exercises.ts 里带 camera 配置的两个动作（ex-chair-sitstand / ex-stand-curl）与 demoExercises 对齐成同一份数据源（改 demoCameraService 引用 exercises.ts，而不是各写一份组数/次数）。"
+  },
+  {
+   "title": "「训练 → 饮食 → 复盘」的复盘一环是断的：训练结束直接跳回首页，没有任何页面承接「刚练完这一次」",
+   "detail": "完整动线今天是：/dashboard（今日动作）→ /execution（跟练）→ 结束后 `leave()` 走 router.push('/dashboard')（ExecutionView.vue:726-728）→ 用户自己想到去 /meals 拍一餐 → 复盘只能靠 /report，而 /report 是「本周」聚合视角，刚练完的那一次被埋在账本表格的一行里（ReportView.vue:93-107），且没有任何单次训练详情页。store.addSession 写入 sessions 之后没有任何「本次记录」界面，RPE/不适/备注是在跟练页右栏的表单里直接提交的（ExecutionView.vue:638-654）。也就是说，「练完 → 立刻看到这次练得怎么样 → 顺势记一餐 → 再看本周」这条最自然的闭环不存在，全靠用户自己记住 7 个路由里哪个是复盘。",
+   "impact": "high",
+   "action": "在 ExecutionView 增加「结束态」卡片（不是结束按钮直接跳走，而是先落一张本次记录卡：动作/组数/次数/RPE/负荷/一句结论），并在其上给两个明确的下一步按钮：「记一餐」→ /meals、「看本周」→ /report。这样复盘入口从「周报下钻」变成「动作末端自然承接」。同时在首页顶部加一条「刚刚完成」横条（消费最近一条 session），让首页也能承接上一次动作。"
+  },
+  {
+   "title": "同一件事在全站有 4 套实现，改版会把已存在的口径矛盾固化进新界面",
+   "detail": "(a)「今天的计划」两套：DashboardView.vue:297 用 `store.dayPlanNotice(now)`（已存计划优先），同一页 DashboardView.vue:455 的 `upcoming` 却用 `buildDayPlan(d, ...)` 现算——所以首页「接下来 3 个训练日」永远是规则模板，不是用户存下来的 LLM 计划，与计划页自相矛盾。(b)「本周计划场次」两套：weekRules.ts:71 的 `plannedDays` 只认 `isPlanDay`（规则），从不读 store.plans；用户接受一份 5 天模型计划后，Dashboard 仪表 g-foot 的 `week.plannedSessions` 与 ReportView 的「计划场次」仍显示 3，完成率分母是错的。(c)「计划训练日圆点」直接写死：ReportView.vue:226 `planned: [1, 3, 5].includes(d.getDay())`，而同页 axis-note 写的是「圆点＝按你当前档案过滤后、该日计划应训练的日子」，真实口径是 weekRules.ts:71 的 `isPlanDay(d, profile, mode)`；未满 18 岁或档案过滤掉某天时，同一页里 StatStrip「计划场次」=0 而图上仍有 3 个圆点。(d)「逐日负荷柱状图」4 套渲染（DashboardView.vue:652-661、ReportView.vue:329-342、common/LoadChart.vue 的 SVG、以及 loadRules 的数据层），归一化下限都不同（Dashboard 用 `Math.max(1,...)`、Report 用 `Math.max(120,...)`），同一周在两个页面柱高不同；「缺 RPE」的编码又不同（斜纹 vs 6px 实色短柱）。(e)「餐食 8 类覆盖」3 处各写（MealsView.vue:289、ReportView.vue:247/249/255），而权威清单 mealRules.EXPECTED_CATEGORIES 是 private、拿不到，「8」这个字面量被复制 5 处。",
+   "impact": "high",
+   "action": "改版前先建一个统一取数层（建议 src/services/queries/ 或 store getters），只暴露 4 个口径函数：todayPlan() / weekPlan() / weekLoad() / mealCoverage()；所有视图（Dashboard/Plan/Report/Meals）改为消费它们，不再自行 filter。ReportView 的圆点改调 `isPlanDay(d, store.userProfile, store.currentMode)`。负荷柱状图收敛成 1 个组件（以 LoadChart 为唯一实现，或让 ReportView 复用 Dashboard 的那份），只保留 1 套归一化下限与 1 套「缺 RPE」编码。「8 类」从 mealRules 导出 EXPECTED_CATEGORIES 并全站引用。"
+  },
+  {
+   "title": "训练时长单位错配：跟练写入的是「秒」，全站按「分钟」消费，新界面会直接显示错 60 倍的数字",
+   "detail": "demoCameraService.ts:133 `actualDuration: Math.round(input.elapsedMs / 1000)` 写的是秒；types/domain.ts:167 注释写的是 `minutes`；消费方全部按分钟：weekRules.ts:32 `load = Math.round(actualDuration * rpe)`、weekRules.ts:103 累加 totalDuration、loadRules.ts:188、ReportView.vue:96 渲染 `{{ s.actualDuration }} min`、MealsView.vue:362、SettingsView.vue:361-362 的 CSV 导出。一次 50 秒的跟练会在周报里显示「50 min」、负荷按 50×RPE 计（正确值约 0.83×RPE）、CSV 导出同样是 50。交付说明.md:372 记录的「actualDuration=50」正是这个秒数。这不是样式问题，但会决定改版后的每一个新数字面板长什么样。",
+   "impact": "high",
+   "action": "改版第一步就把单位定死：写入端改为分钟（`Math.round(elapsedMs / 60000)`），并为已存在的旧数据做一次读取端兼容（识别 >600 的值视为秒并除以 60，或在 store.init() 里做一次性迁移），绝不能改消费方。同时把「单位」提升为 domain 层显式约定并在 selfcheck 加一条断言（跟练 50 秒 → actualDuration 记 0.83 或 1 分钟，负荷 = 分钟×RPE）。"
+  },
+  {
+   "title": "首页一页承担 4 件事，且大众/运动员是两套结构完全不同的首页</",
+   "detail": "DashboardView 的版面顺序是：setup 建档条 → lede（今日动作 + 换一项/开始跟练）→ cluster（时间轴 or 28 天负荷曲线）→ 双极仪表 → ledger（本周逐日负荷柱 / 今天三餐 / 为什么是这 N 分钟）→ DailyWellnessCard → footer。两种模式的分支是互斥的：DashboardView.vue:54 `v-if=\"!isAthlete && timeline.length\"`、:138 `v-if=\"isAthlete\"`，即运动员模式永远看不到时间轴与休息日卡，大众模式永远看不到负荷曲线。仪表的语义还随模式漂移：:171 `:training=\"isAthlete ? lowPct : trainingPct\"`、`:meal=\"isAthlete ? highPct : mealPct\"`——同一个 prop 在两种模式下分别是「训练完成率」和「低强度时长占比」，改版换图表时无法判断该画什么。:163 `{{ isAthlete ? 'Load' : 'Load' }}` 两个分支完全相同（遗留空三元），:166 `{{ isAthlete ? 'W2' : 'LIVE' }}` 的 'W2' 是硬编码字面量、与同页 weekNo 无关（运动员模式无论第几周都显示 W2）。此外首页把「今天做什么」这个唯一主任务与本周统计、仪表、科普挤在同一屏，与调研结论「首页只放今天能执行的事，统计下钻」直接冲突。",
+   "impact": "high",
+   "action": "① 把 Dashboard 收敛成 Today 页：只保留 lede（今日动作 + 两个按钮）、今天的三餐（带「＋记」）、一个轻量提示。② 把负荷曲线与双极仪表整体下沉到 /report（周报本来就是「事实报告」页，且它现在完全没有模式分支）。③ 仪表两极固定为「训练完成率 / 饮食记录率」这一对固定语义，强度分布另找位置（作为负荷页的一种形态，而不是同一个 prop 换义）。④ 删掉 'W2' 硬编码，改用 weekNo；删掉 L163 的空三元。"
+  },
+  {
+   "title": "导航信息架构是三套词表、三张互不同步的表；桌面 7 入口 vs 移动 4 Tab，同一用户看到两套顶层结构",
+   "detail": "router/index.ts 的 meta.title 是第 1 套（个人档案/今日概览/训练计划/摄像头跟练/饮食记录/我的周报/个人设置，共 7 条）；SidebarNav.vue 的 items 是第 2 套（今日/计划/跟练/饮食/周报 共 5 项，另加模板里手写的「档案」「设置」两个 RouterLink，这两个游离在数据之外，不参与 items.map，将来换 active 态逻辑会漏）；MobileNav.vue 的 items 是第 3 套（今日/记录/图表/我的 共 4 项，并把 owns 映射写死在同一行）。结果是桌面叫「周报」移动叫「图表」、桌面「跟练」在移动底栏没有对应、桌面「档案」vs 设置页「个人档案」vs 移动「我的」。而移动端的 owns 归属（/plan 与 /execution 归「今日」、/onboarding 归「我的」）本身是一条 IA 决策，却写在一个模板文件里；桌面端完全没有对应机制，于是 /plan 与 /execution 在桌面是一级、移动是二级。",
+   "impact": "high",
+   "action": "建 src/nav/config.ts 作为唯一导航表（字段：to / label / icon / group / owns / desktopVisible / mobileVisible / order），从 router 的 meta 派生；SidebarNav 与 MobileNav 都改为渲染这张表，SidebarNav 底部两项也进表；词表统一为「今日 / 计划 / 记录 / 周报 / 我的」。桌面端把 /plan、/execution 降为「今日」组下的二级（与移动端同构），一级入口压到 4-5 个——这与调研 §五 P1-4「移动端固定 4 Tab」是同一个决定，不应只做一半。"
+  },
+  {
+   "title": "每页「第一眼该看到什么」职责不清的具体落点",
+   "detail": "逐页核对：/dashboard 第一眼是动作 h1（这点做对了），但同屏还有仪表 + 三块账本 + 养生卡。/plan 第一眼是标题 + 「手工录入一项」+ 本周/四周周期 tab + 版本区（v3 / 大众模式 / 按规则重算 / 用模型规划）——**版本区把内部数据模型（Plan.version、planHistory）暴露成一级信息**，且「用模型规划」在 PlanView.vue:19 被 disabled，tooltip 写「未配置可用模型，请先到设置页填写」，但设置页没有从该按钮直达（用户得去顶栏头像）。/execution 第一眼是「坐站训练 · 第 1 组」+ 演示/实时切换 chips，缺「今天周几、这是今天第几项、还剩几组」这类上下文，也没有训练前准备（动作说明/目标次数/热身）。/meals 第一眼是 h1「记录饮食，拍一张就好」+ 一个「N/3 餐已记录」chip，随后 StatStrip，再然后一张占半屏的 hero 卡，**真正的主动作「记录饮食」按钮被埋在 hero 卡里**，而且首屏没有任何一句「今天还缺哪一餐」的指引。/report 第一眼是日期区间 + 上一周/本周/下一周 + 四格原始量（计划场次/有记录场次/总时长/训练负荷），**没有一句可读结论**告诉用户「这周怎么样」。/settings 第一眼是「使用方式」（模式切换）卡，隐私/数据/模型接入全部在下面——但调研结论明确要求「无广告/本地存储」这类承诺要提到文案层，而不是藏在设置里。/onboarding 第一眼是步骤 1 选模式 + dots，无问题。",
+   "impact": "medium",
+   "action": "每页定一条「一句话职责 + 第一眼三件事」并写进改版规范：今日=现在做什么（动作+两个按钮+缺哪一餐）；计划=本周怎么排（周视图+改单入口，版本区降级为折叠的历史抽屉）；跟练=只做这一件事（去掉模式/动作切换 chips，或收进设置）；记录=3 步记一餐（拍照/常吃/搜索三入口前置，hero 卡降为一行）；周报=这周怎么样（首屏给 1 句结论 + 3 个关键数，原始量下沉）；我的=数据与隐私（把「数据只存本机/无账号」提到首屏）。"
+  },
+  {
+   "title": "「建档」与「改档案」共用一条路由，而运动员模式全程没有最终复核步",
+   "detail": "OnboardingView 的 `editing = computed(() => store.hasProfile)`（OnboardingView.vue:253）——同一条 /onboarding 路由同时承担首次引导与后续编辑，但两者需要的交互完全不同：首次引导是线性向导，编辑档案应该是「直接看到所有字段 + 保存」。现状是改个昵称也要从第 1 步「选模式」重走 3 步。更严重的是步骤分支：OnboardingView.vue:112 `v-else-if=\"mode === 'athlete'\"` 决定了运动员模式下第 3 步是「专项信息」填写页而不是回顾问——所以**运动员用户从建档到完成之间没有任何一次确认复核**，而 stepTitles[2]（OnboardingView.vue:256-260）写死「确认无误就可以开始了。」、dots 也宣称第 3 步是最后确认（交付说明.md:475 记录过早期 `total = athlete ? 3 : 2` 的版本 bug，改成常量 3 后语义错位被留下了）。连带：OnboardingView.vue:211-213 的三条（主项/训练目标/PB·极限数据）位于回顾问里却用 `v-if=\"athleteDraft\"` 守卫，而回顾问只在 public 模式渲染、athleteDraft 只在 athlete 模式为真——三条是死代码。",
+   "impact": "medium",
+   "action": "拆成两条路由：/onboarding 只做首次引导（完成后不可再进，或重进则跳到 /profile），/profile 做档案编辑（单页分组表单 + 保存/取消，不走步骤条）。修 stepTitles 使其在 athlete 分支下也表述正确（或把「专项信息」并入第 2 步、把回顾问恢复为所有模式共有的第 3 步），并删掉 L211-213 的死代码。"
+  },
+  {
+   "title": "缺一个全局「当前参考日」，导致跨零点页面停在昨天，且饮食页无法补记、无法回看",
+   "detail": "`const now = new Date()` 在 4 个视图里各写一遍且都是普通 const 而不是 ref：DashboardView.vue:292、MealsView.vue:265、PlanView.vue:187、ReportView.vue:152；TopBar.vue:94 的 `dateLabel` 同样在 setup 时求值一次且非响应式。应用跨零点常驻时，首页的 today/timeline/upcoming/养生卡、饮食页的「今天」全部停在昨天，必须手动刷新（DashboardView 的养生卡甚至按 `now` 取卡，连内容都停在昨天）。更本质的是维度不对等：/report 有上一周/本周/下一周的历史浏览能力，而 /meals 完全没有时间导航——MealsView.vue:265 的 `now` 是模块级 const，FoodCaptureDialog 的 date prop 也永远是「今天」，所以**无法补记昨天、无法查看上周某天的餐**。",
+   "impact": "medium",
+   "action": "把「当前参考日」提升为全局单一来源（store.today，或路由 query ?date=2026-10-25），所有视图与 TopBar 日期统一消费它；MealsView 加日期切换条 + 「补记昨天」快捷入口，FoodCaptureDialog 的 date prop 改为可传任意日期（目前它只能记今天）。"
+  },
+  {
+   "title": "/report 完全没有模式分支，运动员的「复盘」页看不到任何负荷分析",
+   "detail": "ReportView 全文没有 isAthlete 分支（grep 确认），store.currentMode 只被透传给 buildWeeklyReport 参与计划天数计算。结果：Dashboard 有完整的大众/运动员两套首页（时间轴 vs 28 天负荷曲线），PlanView 有四周周期视图，TopBar 有 W{n} 徽标，但运动员模式唯一的「复盘」页只有一张 7 天柱图和一张餐食矩阵——CTL / ATL / ACWR / 强度分布全都只存在于 Dashboard 的运动员分支里。交付说明.md:733 把「周报两套图表」明确列为下一轮待做项。改版前必须先定调，否则新周报页会把这个割裂固化。",
+   "impact": "medium",
+   "action": "明确二选一并写进改版规范：(A) 补齐运动员周报——LoadChart 已是 7 个纯 props 的现成积木，loadRules/buildLoadSeries 也是纯函数，接入成本低；(B) 把周报定义为模式中立的「事实报告」，页头显式声明，并把 ACWR/强度分布整体搬进 Dashboard 的负荷面板。倾向于 A（与调研「训练+饮食+周报合在一屏」的差异化定位一致）。"
+  },
+  {
+   "title": "计划页在移动端把「手工录入一项」整个隐藏，而这是门槛用户唯一的安排入口",
+   "detail": "PlanView.vue:540 的响应式规则 `@media(max-width:767px){ ... .page-head :deep(button){display:none} ... }` 会把页头里的「手工录入一项」BaseButton 整个隐藏且无任何替代入口。而 planRules 的门槛逻辑（AUTO_RECOMMEND_MIN_AGE=18 + GATE_RESTRICTIONS「孕期或产后」「伤病或遵医嘱限制」）在 gateNote 里明确写着「需要安排请在计划页手工录入」——也就是说，**未满 18 岁或命中医疗门槛的用户在手机上无法安排任何训练**，而「手工录入」按钮就写在 gateNote 里让用户去点。",
+   "impact": "medium",
+   "action": "把「手工录入」移出 page-head，改放到工具条右侧或做成分段控件里的第三个 tab / 页面右下 FAB；至少不要放在会被 `:deep(button){display:none}` 命中的位置。改版时同步检查其它页面是否用了类似的「按断点隐藏整个按钮组」写法。"
+  },
+  {
+   "title": "common 层缺关键原语，7 个页面各写一套弹层/空态/分段控件/骨架",
+   "detail": "现状：弹层 3 份手写（PlanDraftDialog.vue:352-360 无 Escape/无焦点陷阱/无滚动锁；FoodCaptureDialog.vue:888 scrim .46 + blur 3px；MealPhotoViewer.vue:132 scrim .72 + blur 4px）；空态 4 份（DashboardView.vue:218/231、ReportView.vue:110-116、MealPhotoViewer.vue:140、MealsView 的 .empty-state）；分段控件 4 种形态（主题三选 SettingsView.vue:177-184 的 chip 组、模式切换 TopBar.vue:33-68 的 popover、周切换 ReportView.vue:10-12 的三个裸 button、日期区间另一套）；输入框 4 套（PlanDraftDialog.vue:394/414/418/427）；骨架屏 0 套（gradients.css 删掉了 .skeleton，PlanDraftDialog.vue:370-375 自己写了 @keyframes spin）。这些在改版时会被逐页复制成第 5、第 6 套。",
+   "impact": "medium",
+   "action": "改版开工前先建 4 个原语：BaseDialog（scrim + 尺寸档 + Escape + 焦点陷阱 + 滚动锁）、EmptyState、Skeleton、SegmentedControl（同时吸收 FormField/ChipGroup/ChoiceCard 这三个 OnboardingView 内部控件）。它们是纯新增、不改业务逻辑，可以与改版并行。"
+  },
+  {
+   "title": "首页的洞察卡不可隐藏、不可下移，与调研文档的硬要求直接冲突",
+   "detail": "调研文档 §五 P2-11 明确写「任何 AI 洞察/建议卡都必须可隐藏、可下移、可重排」（依据 Garmin 8 磁贴、Samsung 置顶卡两次翻车的共同原因）。现状：DashboardView.vue:251-260 的「为什么是这 N 分钟？」卡自己手写了 InsightCard 的结构（eyebrow + 标题 + 正文）但没有收起开关，用户无法收起它；DailyWellnessCard.vue:96 的 `expanded = ref(false)` 是纯组件内临时状态，DailyWellnessCard.vue:78 的注释自己写明「不写 localStorage、不走 store.toggleCard」——整张卡也无法被隐藏或下移。store.collapsedCards / toggleCard / isCardCollapsed 这套机制（app.ts:66/855-864，持久化在 localStorage 的 collapsed 字段）存在，但只有 InsightCard 在用。",
+   "impact": "medium",
+   "action": "把 Dashboard 的「为什么」卡换成 InsightCard（cardId 用 'dashboard-why'），DailyWellnessCard 的展开态改走 store.collapsedCards / toggleCard（cardId 用 'daily-wellness'），并给这两张卡加「隐藏」能力（collapsedCards 之外增加一个 dismissed 列表，或用同一数组加前缀区分）。"
+  },
+  {
+   "title": "设置页只有导出没有导入，「我的数据」缺一半，而导出的 JSON 实际回灌不进来",
+   "detail": "设置页的「我的数据」区块提供 JSON / CSV 导出（SettingsView.vue:328-341 的 payload + toCsv），但全仓没有任何 FileReader / file input / 导入路径（grep 确认）。更麻烦的是导出的 payload 结构与 twopoles_state 不同：多 exportedAt、缺 theme 与 collapsed、meals 缺 photoId（photoId 被故意置空因为 Blob 导不出）——即使将来加导入也需要一层映射。用户拿到的「备份」回不到应用里，而页面上没有任何地方说明这一点。",
+   "impact": "medium",
+   "action": "要么补一个导入入口（先把持久化 schema 抽到 src/services/persist.ts 做唯一 serialize/deserialize 入口，导出直接复用该 schema，导入做成对称的一对，并在导入时对缺字段做兼容补齐）；要么在导出区明确写「导出用于查看与归档，暂不支持恢复」，不要让「备份」二字误导。"
+  },
+  {
+   "title": "页面容器 6 套、页头 4 套、按钮 4 套：改版要逐页重写外壳语言",
+   "detail": "容器宽度 6 种并存：.page 1440（DashboardView.vue:517、ReportView.vue:280）、.page-wrap 1440（MealsView.vue:543、PlanView.vue:423）、.page-wrap 760（OnboardingView.vue:439）、.page-wrap 860（SettingsView.vue:413）、.execution-page 1400 硬编码（ExecutionView.vue:738），globals.css:142-148 的 .container 工具类零调用。页头 4 套：OnboardingView.vue:440、SettingsView.vue:414、PlanView.vue:427、ExecutionView.vue:739 各写一套 flex + eyebrow + h1 + p，h1 字号 28/28/36/28 不一，且 OnboardingView.vue:441 与 SettingsView.vue:415 的 eyebrow::before 菱形点样式是逐字相同的两行 CSS。按钮 4 套：BaseButton.vue（44px，标准）、DashboardView.vue:554-560（42px，自绘）、PlanDraftDialog.vue:434-437（42px）、TopBar.vue:254-256（38px 且无 focus-visible 定制）。",
+   "impact": "medium",
+   "action": "建 PageShell（宽度档位 + 左右 padding）与 PageHeader（eyebrow + h1 + 描述 + 右侧动作槽）两个原语，7 页统一；TopBar 与 DashboardView 的自绘按钮先收敛到 BaseButton（顺带修掉 TopBar 按钮低于 44px 且缺 focus-visible 的问题），再谈视觉统一。"
+  },
+  {
+   "title": "模式切换有两套实现两套文案，改版后必然分叉",
+   "detail": "同一业务动作在两处实现：TopBar.vue:32-69 的 .popover 预览分支（pop-cols「变化·保持不变」/ pop-actions）与 SettingsView.vue:29-40 的 .switch-confirm（「会变化 / 保持不变」），渲染的都是 store.switchPreview，结构一一对应但类名与文案标签不同；两处各维护一份 modes 数组，措辞还不一致：TopBar.vue:97-100 的 note 是「轻量推荐 · 自动计数 · 简单餐次确认」，SettingsView.vue:245-246 的 desc 是「按器材与时长过滤的一周安排、摄像头计数、简单餐次确认」。另外 switchPreview 的 differences/keeps/openPlanNote 是写死在 store/app.ts:189-199 的中文字符串，不是数据。",
+   "impact": "low",
+   "action": "抽一个 ModeSwitchConfirm 组件 + 单一文案表（services/modes.ts 或 constants/），把 store 里硬编码的中文差异清单挪出 store（store 只取数、视图只渲染）。这属于改版的前置解耦，不做的话新皮肤一定会再复制第三份。"
+  },
+  {
+   "title": "移动端底栏的触控目标与文档不符，且「图表」这个 label 名不副实",
+   "detail": "MobileNav.vue 的样式写的是 `min-width:60px; min-height:46px`（实测值），而 README.md:210 称「实测 64×57px」——文档与实现不符。底栏 4 个 tab 是 今日/记录/图表/我的，其中「图表」指向的其实是 /report（我的周报），「记录」指向 /meals（饮食记录），命名与桌面端「周报」「饮食」完全不同。另外底栏 4 个 tab 里「今日」的 owns 把 /plan 与 /execution 都吞进去了，导致手机用户在 /plan 页看到「今日」高亮，会以为自己还在首页。",
+   "impact": "low",
+   "action": "统一词表后底栏改为「今日 / 计划 / 记录 / 我的」或「今日 / 记录 / 周报 / 我的」；「今日」高亮时给出二级归属提示（如底栏上方一行小字「今日 › 训练计划」），或让 /plan 在底栏有自己的入口。同步修正 README.md:210 的触控目标数字。"
+  },
+  {
+   "title": "死资产与遗留结构会误导改版决策，建议在开改前清一遍",
+   "detail": "src/components/{journey,reports,training} 与 src/data 四个目录全空且全仓零 import（README.md:96 已注明是早期交付文档设想、未落地），但 README.md:271「添加新组件」仍在指导把组件放进 common/journey/training；src/components/common/MetricCard.vue 是 72 行的已废弃半成品（自带 @deprecated 注释、零调用）；BaseCard 的 interactive 与 glass 两个 prop 全仓零调用，glass 还带了一整套 13 行的 backdrop-filter + prefers-reduced-transparency 降级死代码；tokens.css:180-183 的 --breakpoint-sm/md/lg/xl 全仓零引用且数值与实际断点（767/1099）矛盾；globals.css:142-148 的 .container 零调用。",
+   "impact": "low",
+   "action": "开改前一次性删除：4 个空目录、MetricCard.vue、BaseCard 的 interactive/glass 死 prop 与配套样式、--breakpoint-* 四个令牌、.container 工具类；同步修 README 的项目结构树与「添加新组件」章节。断点统一由一个 src/styles/breakpoints.ts 或构建期常量提供（CSS 变量无法用于 @media）。"
+  }
+ ],
+ "invariants": [
+  "负荷口径不可改：load = 实际时长(分钟) × RPE；缺 RPE 或缺时长的记录一律不可计算(null)，绝不按 0 补齐；当天只要有一条训练缺 RPE，整天负荷就是 null（weekRules.ts:30-33/62-69、loadRules.ts:100-107）。改版不得为了图表好看而改成 0 或估算值。",
+  "ACWR 口径不可改：近 7 天均值 ÷ 近 28 天均值，窗口 28 天、急性 7 天、至少覆盖 14 天才出数（loadRules.ts:50-53/113-118）；分档阈值 0.8 / 1.3 / 1.5（loadRules.ts:144-150）；必须先算原始值再取整，先取整会把 1.49 舍成 1.5 落错档。改图表不得改这些数。",
+  "三态语义不可合并：「未记录 ≠ 没练 ≠ 0」。null 一律显示「—」，首条记录之前的天是 unknown（既不是 0 也不是缺失），休息日显示为「未安排」而非失败。空图表用文案说明而不是画 0（DashboardView 的 bars-empty、ReportView 的 empty 都是这个口径）。",
+  "强度分布口径不可改：按 RPE ≥ 7（默认阈值）分低/高两段，用时长占比而非次数，未记 RPE 的时长单列 unknownMinutes 不塞进任何一侧，可归类时长为 0 时 lowShare/highShare 必须是 null（loadRules.ts:178-203）。",
+  "完成率口径不可改：无安排（plannedDays 为空）时 completionRate 必须是 null 而不是 0；未记录不计入分母（weekRules.ts:90-94/117）。",
+  "localStorage 主键与字段名不可改：键名 'twopoles_state'，字段 mode / profile / sessions / meals / privacy / collapsed / theme / plans / planHistory / modeLog / unitGrams（stores/app.ts:137-150）。改版不得改名或改嵌套层级，否则老用户本机数据读不出来；需要扩展字段时只加可选字段并在 init() 里做防御式补齐。",
+  "密钥隔离是安全属性不是实现细节：'twopoles_llm' 键存用户自填的 apiKey/baseUrl/model，故意不进 JSON/CSV 导出（llm.ts:18 注释）。任何导出/备份/诊断功能都不得把密钥或 LLM_DEFAULT_* 打进前端产物或导出文件。",
+  "IndexedDB 照片分层不可合并：DB 名 twopoles_meal_photos / objectStore photos / 版本 1，key 是 photoId 字符串，value 是 Blob；缩略图（256px JPEG data URL）在 localStorage，meal.photoId 是唯一关联。改库名/版本/store 名/值类型会让已有原图失联，且当前没有迁移代码。",
+  "导出格式不可破坏：JSON 字段名（exportedAt / profile / mode / modeLog / privacy / sessions / meals / plans / planHistory / unitGrams）与 CSV 的 15 列表头顺序、'﻿' BOM 前缀、CRLF 换行（Excel 中文不乱码依赖 BOM）。导出时 photoId 必须置空。",
+  "主题机制三处必须同步：html[data-theme=\"dark\"|\"light\"] 属性 + index.html:9-19 的首帧内联脚本 + stores/app.ts:85-88 的 applyTheme()。改主题实现方式（如改用 class）必须三处一起改，否则深色用户刷新白闪；themePref 仍是 system|light|dark 三态并需实时跟随 matchMedia。",
+  "颜色不得成为唯一信息源：ShapeState 的实心/半填/空心、StatusBadge 的实心点/空心点、负荷图的「已计算/缺 RPE/未记录」三态编码必须保留形状或纹理通道（tokens.css:51、ShapeState.vue:32）。改图表时尤其注意：LoadChart 与 ReportView 现在对「缺 RPE」用了两种编码（6px 实色短柱 vs 45° 斜纹），收敛时必须保留一种非颜色的区分。",
+  "所有「量」必须保持等宽数字（--font-num + font-variant-numeric: tabular-nums）与 10px/.17em 字距的 .micro 小标签（globals.css），否则两组数字无法竖向比较；这是排版版面的基础契约，不是样式偏好。",
+  "浏览器/硬件能力降级链路不可删：getUserMedia 需要 https 或 localhost（否则跟练与拍照必须退回演示/文件选择）；MediaPipe 推理必须是经典 worker（module worker 下 wasm loader 会 500），GPU delegate 必须绑一块未开 2D context 的专用 OffscreenCanvas；缺 requestVideoFrameCallback 时必须能退回 rAF；canvas 的 fillStyle/strokeStyle 不解析 CSS 变量（骨架色只能读 computed style 后传字面量）；PoseLandmarker.detectForVideo 要求时间戳严格递增；MediaPipe 资产路径 /mediapipe/wasm 与 /mediapipe/models/* 不可改。改版不得引入比这更严格的环境要求。",
+  "计数与识别口径由 npm run selfcheck 锁定：完整行程只计一次、遮挡不累加、快抖不计数、阈值可被校准覆盖、膝/肘角 180°/90°、可见度 ≤1、时间戳单调；useRepCounter 的迟滞 8°、minRepMs 700ms、maxStageMs 6000ms 与坐站/弯举的标定参数不得改动。改版验证以 npm run typecheck + npm run selfcheck 为准（npm run build 在受限沙箱下会因 esbuild spawn EPERM 失败）。",
+  "无账号、无后端：全部数据只落本机，不得引入需要登录或服务端持久化的界面流程；页脚的「无账号 · 记录只存本机」是产品承诺，不得删除或弱化。同理不得把档案快照（llm.profileSnapshot）外发却不告知——当前 OnboardingView 的隐私脚注在配置了模型时不成立，改版时必须修正文案而不是继承旧承诺。",
+  "安全门槛不可弱化：AUTO_RECOMMEND_MIN_AGE=18 与 GATE_RESTRICTIONS（孕期或产后 / 伤病或遵医嘱限制）是「适用范围开关」而非动作过滤器，界面上必须继续明确写出「可以记录但不生成推荐」，不得弱化成一句提示；建档页的三句免责话术（不据此给 BMI 结论 / 不判断动作是否安全）不可删改。",
+  "养生卡片的确定性与定位不可改：pickDailyWellnessCard 同一天多次调用必须返回同一条、跨时刻稳定、健身/饮食按日交替、连续 16 天 16 个不同 id（selfcheck.ts:331-336）；dayIndex 必须用本地日历分量经 Date.UTC 构造，不得换成 toISOString()（会跨时区跨日）；每条带 source、不编造页码外链、面向 12 岁以上、不写减重/断食/补剂方案、WELLNESS_DISCLAIMER 必须在展开区末尾。",
+  "计划版本语义不可改：一次改动 = 一个新版本，旧版本永不静默覆盖，一律进 planHistory（app.ts:322/546/595）；界面改版不得改成「就地保存」；PlanItem.id 在同一 plan 内必须唯一（markItemCompleted / toggleItemLock / acceptAdjustment 全按 id 匹配）。",
+  "跨页深链的既有契约：/execution?exercise=<动作中文名> 被 DashboardView.vue:512、PlanView.vue:328 与 exercises.findExercise 的中文名查库共同依赖。改版可以换参数名，但必须同步改这三处 + findExercise，且要为「动作名不在演示库」补上可见的 fallback 提示（当前 getDemoExercise 静默回落会让用户练错动作）。"
+ ]
+}

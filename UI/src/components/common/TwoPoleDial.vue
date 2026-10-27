@@ -15,7 +15,7 @@
       <path class="track" :d="trackA" />
       <path class="track" :d="trackB" />
 
-      <!-- 右弧 = 训练（顺时针），左弧 = 饮食（逆时针） -->
+      <!-- 左弧 = 运动（逆时针），右弧 = 饮食（顺时针）——与桌面双栏的左右位置一致 -->
       <path class="pole-a" :d="arcTraining" />
       <path class="pole-b" :d="arcMeal" />
 
@@ -35,9 +35,9 @@ import { computed } from 'vue'
 
 const props = withDefaults(
   defineProps<{
-    /** 训练达成 0–1（右弧，顺时针） */
+    /** 运动达成 0–1（左弧，逆时针） */
     training: number
-    /** 饮食达成 0–1（左弧，逆时针） */
+    /** 饮食达成 0–1（右弧，顺时针） */
     meal: number
     /** 环的直径（px）；窄屏可以直接改 --dial-size 覆盖 */
     size?: number
@@ -73,12 +73,12 @@ function arc(pct: number, side: 'a' | 'b'): string {
 
 const clamp01 = (v: number) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0)
 
-const arcTraining = computed(() => arc(props.training, 'a'))
-const arcMeal = computed(() => arc(props.meal, 'b'))
+const arcTraining = computed(() => arc(props.training, 'b'))
+const arcMeal = computed(() => arc(props.meal, 'a'))
 const trackA = arc(1, 'a')
 const trackB = arc(1, 'b')
-const anchorA = computed(() => polar(6 + 144 * clamp01(props.training)))
-const anchorB = computed(() => polar(354 - 144 * clamp01(props.meal)))
+const anchorA = computed(() => polar(354 - 144 * clamp01(props.training)))
+const anchorB = computed(() => polar(6 + 144 * clamp01(props.meal)))
 
 /** 12 个刻度：够"仪表"，又不至于在 130px 的小尺寸上糊成一片 */
 const tickLines = Array.from({ length: 12 }, (_, i) => {

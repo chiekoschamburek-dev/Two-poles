@@ -1,0 +1,173 @@
+{
+ "area": "周报与负荷/恢复分析子系统（ReportView + weekRules + loadRules + wellnessCards）",
+ "purpose": "把本机记录（训练 session / 餐食 meal）按「周一为周首」聚合成一份可回看的周报，并给运动员模式提供负荷-恢复判定。职责分三层且界限清楚：(1) `src/services/weekRules.ts` 是周报取数层，按周一为起点聚合一周，产出 `WeekSummary`（计划场次 / 有记录场次 / 总时长 / 总负荷 AU / 逐日负荷 / 餐食类别覆盖 / 数据质量说明），核心口径是「没记录 ≠ 0」「缺 RPE 不进合计」；(2) `src/services/loadRules.ts` 是运动员模式的负荷序列层，产出 28 天 `LoadPoint` 序列（load/rest/missing/unknown 四态）、CTL/ATL/ACWR、强度分布（低/高/未归类时长占比）与 ACWR 分档；(3) `src/services/wellnessCards.ts` 是首页「今日养生」每日科普卡的内容层，15 张卡的文案与按日期的稳定取卡规则。`src/views/ReportView.vue` 只负责把这些数据渲染成周报界面（指标条 + 每日负荷柱图 + 餐食类别点阵 + 训练明细账本 + 数据质量卡），**不含任何统计口径**——改界面时这些服务层必须原样保留。",
+ "files": [
+  {
+   "path": "src/views/ReportView.vue",
+   "role": "周报页唯一视图：周切换、StatStrip 指标条、每日负荷柱图（纯 div/CSS，非 SVG）、餐食类别点阵、训练明细表、数据质量 InsightCard、空态 CTA。全部取数来自 weekRules，样式为 scoped CSS + tokens 变量",
+   "lines": 413
+  },
+  {
+   "path": "src/services/weekRules.ts",
+   "role": "周报计算层（不可改口径）：weekStart（周一起）/ weekDates / loadOf（时长×RPE，缺任一为 null）/ buildWeeklyReport 产出 WeekSummary。含 plannedDays、loadDays、unloadedDays、completionRate（可为 null）、blockedByDiscomfort 字段",
+   "lines": 120
+  },
+  {
+   "path": "src/services/loadRules.ts",
+   "role": "负荷与恢复算法层（不可改口径）：buildLoadSeries 产出 28 天四态 LoadPoint[] + CTL/ATL/ACWR/coveredDays/daysNeeded；loadZone 按 ACWR 分 5 档；intensitySplit 按 RPE≥7 把时长分低/高/未归类三段",
+   "lines": 203
+  },
+  {
+   "path": "src/services/wellnessCards.ts",
+   "role": "每日养生卡片内容层：15 张卡的 title/summary/detail/points/source/tags/athlete 补充文本 + WELLNESS_DISCLAIMER + pickDailyWellnessCard(date) 的稳定取卡规则（健身/饮食按日期奇偶交替）",
+   "lines": 548
+  },
+  {
+   "path": "src/components/common/StatStrip.vue",
+   "role": "指标条展示组件，ReportView 与 MealsView 共用；StatItem 接口（label/value/unit/hint/tone）在此导出，ReportView 用它做四格指标",
+   "lines": 98
+  },
+  {
+   "path": "src/components/common/InsightCard.vue",
+   "role": "可收起洞察卡容器：props 为 cardId/eyebrow/title/tone + icon/content slot；收起状态读写 store.collapsedCards（持久化到 localStorage）",
+   "lines": 53
+  },
+  {
+   "path": "src/components/common/BaseCard.vue",
+   "role": "全站表面边界：variant default/flush/ink + --card-pad 变量；ReportView 三张卡都用 variant=\"flush\"（自带表头与行分隔）",
+   "lines": 80
+  },
+  {
+   "path": "src/components/common/LoadChart.vue",
+   "role": "首页运动员模式的 SVG 负荷曲线 + ACWR 刻度带（与 ReportView 的 CSS 柱图是两套独立实现）；直接消费 loadRules 的 LoadPoint/LoadZone 类型与 LOAD_ZONE_TEXT 文案",
+   "lines": 268
+  },
+  {
+   "path": "src/components/wellness/DailyWellnessCard.vue",
+   "role": "wellnessCards 的唯一消费者（首页）；展开态是组件内临时状态，不写 store，同一张卡不随模式切换，仅追加运动员补充区",
+   "lines": 367
+  },
+  {
+   "path": "src/services/planRules.ts",
+   "role": "计划生成单一来源；weekRules 通过 isPlanDay 依赖它计算「本周安排天数」，因此档案/年龄/器材/限制会直接影响周报的完成率分母",
+   "lines": 209
+  },
+  {
+   "path": "src/services/mealRules.ts",
+   "role": "提供 FOOD_CATEGORIES（10 类，ReportView 只取前 8）与 RULE_VERSION（diet-rules-v2，被 weekRules 拼进 ruleVersion）",
+   "lines": 237
+  },
+  {
+   "path": "src/stores/app.ts",
+   "role": "Pinia setup store：sessions/meals/userProfile/currentMode 四个只读字段是周报与负荷的唯一数据源；collapsedCards 承载 InsightCard 收起状态；持久化 key 为 localStorage 'twopoles_state'",
+   "lines": 962
+  },
+  {
+   "path": "src/styles/tokens.css",
+   "role": "设计令牌唯一来源（颜色/字号/圆角/间距/动效/双主题）；注释明确「只改质地与层级，不改调研结论」，改版应改这里而不是散落的组件样式",
+   "lines": 258
+  },
+  {
+   "path": "src/views/DashboardView.vue",
+   "role": "同源消费方：共享 buildWeeklyReport/weekStart/WEEK_LABELS，并自己实现了一套逐日负荷柱（.bars），与 ReportView 的 .plot 高度重复；周一序 weekNo 算法与 ReportView 逐字重复",
+   "lines": 739
+  },
+  {
+   "path": "scripts/selfcheck.ts",
+   "role": "纯逻辑行为断言（npm run selfcheck）：锁死了 loadOf、totalLoad、unloadedDays、completionRate=null、blockedByDiscomfort、ACWR 窗口/均值/分档边界、intensitySplit 阈值、wellnessCards 取卡稳定性。改版前后必须仍然全绿",
+   "lines": 556
+  }
+ ],
+ "keyComponents": [
+  "顶部抬头 .lede（ReportView.vue:3-14）：左「micro kick + h1（日期范围 + 第 N 周 small）+ 一句口径说明」，右 .weeknav 三个按钮（上一周 ChevronLeft / 本周 / 下一周 ChevronRight，当前周时下一周 disabled）。周切换只改 refDate，所有区块随之重算。",
+  "StatStrip 指标条（ReportView.vue:16，179-210）：四格「计划场次 / 有记录场次 / 总时长 / 训练负荷」，每格是「label + 数字 + 单位 + hint 说明」，第三格固定 min、第四格固定 AU。数据源为 buildWeeklyReport 的 WeekSummary。",
+  "安全提示条 .safety（ReportView.vue:18-20）：仅当 report.blockedByDiscomfort 为真时出现，说明「本周有训练报了不适：自动加量建议已停止」，左侧 3px 强调色内阴影 + caution 底色。",
+  "每日负荷卡（ReportView.vue:24-49）：BaseCard variant=\"flush\"，表头「micro Load by day + h2 每日负荷」+ 右侧三色图例（已计算实心 / 缺 RPE 斜纹 / 未记录空心）；主体是纯 div 的 .plot（7 列 .col，每列上方数字 + 下方 .bar），下面一排 .days 星期标签（今天高亮、计划日加圆点），底部 .axis-note 说明圆点含义。",
+  "餐食结构卡（ReportView.vue:51-74）：BaseCard variant=\"flush\"，表头「micro Meals + h2 餐食结构」+ 右侧 .chip 显示「N 条记录 / 未记录」；主体 .matrix 是 2 列 × 4 行的点阵，每行 = 类别名 + 4 个点（按相对次数填充）+ 次数；底部 .mx-foot 列出「本周没出现过」的类别标签，.axis-note 声明「出现次数按记录条目累计，不代表分量或营养摄入量」。",
+  "训练账本卡（ReportView.vue:78-117）：BaseCard variant=\"flush\"，表头「micro Sessions + h2 本周训练记录（N 条 · 按时间）」+ 右侧说明「RPE 为自评，空着就是不填」；主体是 .table-wrap 包裹的 7 列表格（日期/动作/时长/次数·组/RPE/负荷/状态），状态列用 StatusBadge（success/warning/neutral）；无记录时是 .empty 空态 + 两个跳转按钮（去跟练 / 记一餐）。",
+  "数据质量 InsightCard（ReportView.vue:119-125）：card-id=\"report-quality\"、eyebrow=\"DATA QUALITY\"、title=\"这份报告没说的三件事\"、tone=\"ink\"；内容是 report.dataQuality 的 <ul>，末尾附 ruleVersion 与本机数据条数说明。收起状态由 InsightCard 写 store.collapsedCards。",
+  "页脚 .footnote（ReportView.vue:127-130）：左侧「负荷为自评口径（RPE × 时长），只用于自己和自己比」，右侧 ruleVersion。",
+  "（同族组件，供改版参照/复用）LoadChart.vue：首页运动员模式的 SVG 28 天负荷曲线 + CTL/ATL 均线 + ACWR 刻度带 + 样本不足提示。",
+  "（同族组件，供改版参照/复用）DailyWellnessCard.vue：今日养生卡的可折叠详情版式（正文 + 要点 + 右侧运动员补充 + 来源 + 免责声明）。"
+ ],
+ "uiPatterns": [
+  "骨架：单列 .page（max-width 变参 --content-max-width）自上而下 —— 抬头 → StatStrip → 条件安全条 → 双图区 .charts（grid 1.22fr 1fr）→ 账本表 → InsightCard → 页脚。左右分栏只发生在「双图区」和 StatStrip 内部。",
+  "卡片：全部 BaseCard variant=\"flush\"（内距归零，表头与行分隔由页面自己画），卡片之间只有 14px 间距、1px 发丝线边框、无投影，靠「纸面 + 发丝线」而不是「浮起」分层。",
+  "数字优先：--font-num（Bahnschrift）+ tabular-nums；.micro 小标签 10px / 字距 .17em / 全大写；h1 用 38px 负字距；量与名分层明显。",
+  "状态呈现三重冗余（不靠颜色单独承载）：负荷三态 = 渐变实心（已计算）/ 45° repeating-linear-gradient 斜纹（缺 RPE）/ 仅 inset 描边（未记录）/ 强调色描边（今天且无数据）；类别出现次数用 4 点相对档位点阵而非长条；完成状态用 StatusBadge 的圆点形状 + 语义色双通道。",
+  "文案口径层：几乎每个数字都配一句「这条数据说了什么 / 没说什么」（StatStrip 的 hint、图表下方的 .axis-note、.micro + h2 双层标题），是这套页面的主要表达手段，不只是装饰。",
+  "交互：上一周 / 本周 / 下一周按钮组（下一周在当前周 disabled，opacity 0.4 + not-allowed）；InsightCard 收起/展开（aria-expanded + ChevronDown 翻转）；空态里两个 BaseButton 跳转（/execution、/meals）。",
+  "空态：账本无记录时给「这一周还没有训练记录。负荷图保持空白，而不是画成 0。」+ 两个 CTA；数值缺失一律显示「—」而不是 0（ReportView.vue:39、96-99、184、203）。",
+  "响应式：1099px 时 .charts 变单列、StatStrip 变 2×2（并补第三条上边线）；767px 时抬头纵排、padding 20→14px、表格横向滚动（min-width 720px + .table-wrap overflow-x:auto）。",
+  "无 loading / 无骨架屏 / 无错误态：所有数据来自本地 store 的同步 computed，不存在异步态；也没有「规则不可用」的兜底 UI。",
+  "动效：ReportView 自身没有入场动画类（DashboardView 用 animate-fade-in / animate-slide-in-up），页面切换动画在 AppShell 的 <Transition name=\"page\">；全局 animations.css 对 prefers-reduced-motion 做了全量降级。"
+ ],
+ "styleApproach": "纯 CSS，全部 <style scoped>，没有预处理器、CSS-in-JS 或 Tailwind。设计系统是「CSS 变量令牌 + 全局工具类 + 少量共用组件」三层：令牌在 src/styles/tokens.css（颜色/字号/圆角/间距/阴影/动效/双主题 html[data-theme=\"dark\"] 整组覆盖），全局工具类在 globals.css（.micro 10px+.17em 字距、.num 等宽数字、.container、.hairline、.visually-hidden），组件层是 BaseCard/BaseButton/StatusBadge/StatStrip/InsightCard。ReportView 的换皮应当优先只动 tokens.css 与 scoped 里的 CSS，不动模板。\\n\\n但「重复的自定义样式」很多，且没有收敛：\\n1) .chip 在 ReportView.vue:321-327 与 DashboardView.vue:579-584 各写一份（结构近似但实现不同）；\\n2) 逐日负荷柱 .bar/.plot 与 .bars 在 ReportView.vue:329-337 和 DashboardView.vue:652-661 各写一份，几乎逐行重复（同样的 4 段式渐变 + 斜纹 + 今天描边），只是高度 132/96px、gap 12/10px 不同；\\n3) 标签胶囊 .tags/.mx-foot .tags 在 ReportView.vue:365、DailyWellnessCard.vue:269、DashboardView.vue:681 各写一份；\\n4) tokens.css 里定义了 --space-1..16、--radius-*、--font-size-*，但 ReportView 大量使用裸 px（padding 20px、font-size 11.5px、border-radius 2px、max-width 34px），令牌体系只被用了一半；\\n5) 硬编码颜色绕过令牌：ReportView.vue:331 与 DashboardView.vue:654 的柱渐变写死 #12857c→#0c655e（深色主题下 --color-accent 已变成 #3ec9b6，柱色不跟着变，且与同页图例 .sw.solid 用 var(--color-accent) 对不上）；LoadChart.vue:233 的 var(--color-caution-soft, #f6ecd8) 是永远不会触发的 fallback；\\n6) 断点用裸 px（1099px / 767px）散落在各组件，tokens.css 里的 --breakpoint-sm/md/lg/xl 没有任何地方使用（CSS 媒体查询不支持变量）；\\n7) 表格样式（th/td/td.num/td.d/td.name）只在 ReportView 的 scoped 里存在，别处无法复用；\\n8) globals.css 的 h1/h2 全局字号（36px/32px）与 .lede h1（38px）局部覆盖并存，改主题时容易打架。",
+ "dataFlow": "单向：localStorage('twopoles_state') → store.init() 解析 → store.sessions / store.meals / store.userProfile / store.currentMode（Pinia setup store）→ ReportView 的 computed → 模板。全程没有 props/emits（报告页是路由级页面，不复用），没有 watch，没有网络请求，没有 store action 被调用（唯一的写入是 InsightCard 内部的 store.toggleCard('report-quality') 与 router.push）。\\n\\n具体三条取数支路：\\n1) 周报主体：report = buildWeeklyReport(store.sessions, store.meals, refDate, { profile: store.userProfile, mode: store.currentMode }) → WeekSummary，驱动 StatStrip、数据质量卡、餐食矩阵。\\n2) 逐日负荷：dayStates 在 ReportView 内部**自己**再算一遍（store.sessions.filter(s => s.date === iso) → loadOf 逐条），没有复用 report.loadByDay；sessions 明细表也是 ReportView 自己 filter + sort。\\n3) 餐食类别：report.categoryCoverage（服务端按「餐内条目数」累计，不是按餐数、不按份量）→ 页面再算 4 档相对点阵与「本周没出现过」列表。\\n\\n写入侧：ReportView 自身不写数据；周切换只改本地 ref refDate（不落盘）。所有持久化都是 store.persistState() 写 localStorage 'twopoles_state'（含 sessions/meals/profile/collapsed/theme/plans/planHistory/modeLog/unitGrams）。",
+ "stateModel": "周报本身没有显式状态机，全部是 refDate（当前查看的周）派生的 computed：refDate → weekStart → days → report/dayStates/sessions/stats/categoryRows/missingCats。唯一的显式枚举/状态来自服务层：\\n1) LoadDayState = 'load' | 'rest' | 'missing' | 'unknown'（loadRules.ts:12）：load=当天有训练且全部带 RPE；rest=首条记录之后但当天无记录（负荷记 0，参与平均）；missing=有记录但缺 RPE（整天剔除，不按 0 补齐）；unknown=早于首条记录（既不是 0 也不是缺失，不参与平均）。周报层没有这套四态，只用 number | null 两值，null 同时代表「没记录」和「缺 RPE」两种情况。\\n2) LoadZone = 'low' | 'optimal' | 'high' | 'veryHigh' | 'unknown'（loadRules.ts:142），边界 <0.8 / ≤1.3 / ≤1.5 / >1.5，unknown 表示样本不足或非有限值。\\n3) TrainingSession.completionStatus = 'completed' | 'partial' | 'skipped'（domain.ts:173），ReportView 用 statusText() 翻成「完成/部分/跳过」。\\n4) Meal.completeness = 'complete' | 'partial' | 'unknown'（mealRules.ts:155-158）。\\n5) nullable 语义是这套系统的核心状态：totalLoad 可为 null（本周没有任何带 RPE 的记录）、completionRate 可为 null（本周无安排，不计算完成率）、lowShare/highShare 可为 null（没有可归类时长）、acwr 可为 null（覆盖不足 14 天）。UI 约定：null 一律显示「—」或「样本不足」，绝不显示 0。\\n6) ReportView 内部另有一个三态视觉编码（zero / hatch / today），由 day.load === null 与 day.hasSession 两个布尔量临时推出，不是服务层状态（详见 designDebt）。",
+ "coupling": "跨文件 import：ReportView → weekRules（WEEK_LABELS, buildWeeklyReport, loadOf, weekDates, weekStart）、mealRules（FOOD_CATEGORIES）、utils/time（toISODate）、stores/app、components/common/{BaseCard,BaseButton,StatusBadge,StatStrip,InsightCard}、lucide-vue-next 图标。\\n服务层依赖链：loadRules.ts:10 从 weekRules.ts import loadOf —— 底层（负荷序列）反向依赖上层（周报聚合），是层级倒置；weekRules.ts:4 从 planRules import isPlanDay（计划规则）→ planRules → exercises（动作库）。\\n共享 store 字段：sessions / meals / userProfile / currentMode（周报与负荷的唯一数据源）、collapsedCards（InsightCard 收起状态，跨页共享，card-id 字符串是隐式契约：'report-quality' / 'meal-rules'）。\\n共享类型：types/domain.ts 的 TrainingSession / Meal / FoodCategory / WeeklyReport 被服务层与视图层共用；StatItem 类型从 StatStrip.vue 的普通 <script> 块导出供 ReportView/MealsView import。\\n跨视图耦合：DashboardView 与 ReportView 共享 buildWeeklyReport / weekStart / WEEK_LABELS 且各自实现一份逐日负荷柱图与一份 ISO 周数算法；PlanView.vue:182 也 import 了 weekDates/weekStart/buildWeeklyReport（用于周期阶段负荷对比）。weekRules 的 ruleVersion 串了两套版本号（report-rules-v2 / diet-rules-v2），改任一套规则都会改到周报的版本标识。\\nwellnessCards.ts 与周报子系统无耦合，仅共享 store.isAthleteMode（DailyWellnessCard 读取）。",
+ "designDebt": [
+  "ReportView.vue:226 `planned: [1, 3, 5].includes(d.getDay())` 把「计划训练日」写死为周一/三/五，但同页 ReportView.vue:48 的轴注写的是「圆点＝按你当前档案过滤后、该日计划应训练的日子」，而真实口径在 weekRules.ts:71 用 `isPlanDay(d, profile, mode)`（受年龄门槛 18 岁、场地、器材、限制影响）。未满 18 岁或档案过滤掉某天时，图上的圆点与 StatStrip 的「计划场次」会互相矛盾。修法：直接调 isPlanDay(d, store.userProfile, store.currentMode)。",
+  "ReportView.vue:219-227 的 dayStates 重新实现了一遍 weekRules.ts:62-69 的逐日负荷规则（当天任一条缺 RPE 则整天 null）。WeekSummary 里已有 loadByDay（weekRules.ts:106）却被完全忽略 —— 同一口径两份实现，改一边必然漂移。",
+  "ReportView.vue:239-242 的 barClass 依赖 day.hasSession 才能区分「没记录（空心）」与「缺 RPE（斜纹）」，而 hasSession 是页面自己 filter 出来的，不是 report 对象的一部分。也就是说周报数据层已经把两种「null」压平了，UI 再反推一次 —— 换皮时如果只接 report.loadByDay，斜纹与空心就区分不出来，必须先把这个区分提升为服务层字段或纯函数。",
+  "ReportView.vue:164-170 与 DashboardView.vue:343-349 逐字重复同一段 7 行 ISO 周数算法（UTC 归一 + 移到当周周四 + 与年初差除 7）。应提到 utils/time.ts 的 isoWeekNo()，否则改周口径要改两处。",
+  "DashboardView.vue:335-342 又手写了一份 weekDates（weekRules.ts:21 已导出并被 PlanView 使用）。ReportView.vue:261 和 PlanView.vue:187 各自又写了一份周一序的星期名数组 ['一','二',...]（weekRules.WEEK_LABELS 已存在）。三处重复。",
+  "负荷刻度下限 120 出现两处且算法不同：ReportView.vue:229 `Math.max(120, ...dayStates.map(d => d.load ?? 0))`（不取整档），LoadChart.vue:102-105 `Math.max(120, Math.ceil(peak / 60) * 60)`（按 60 取档）。同一个「120 AU 下限」在周报柱图和首页曲线里的视觉含义不一致。",
+  "ReportView.vue:230 `const PLOT_H = 132` 与 CSS 完全脱钩：`.plot { height: 158px }`（第 329 行）、移动端 `.plot { height: 138px }`（第 405 行）。最坏情况 132(柱) + 6(gap) + ~17(数字标签) ≈ 155px，而移动端绘图区内容高只有 138-12-1 = 125px → 最高的柱子和它的数值标签会溢出绘图区约 30px，压到卡片表头上。换图表前必须把柱高改成按容器尺寸计算或改成 SVG viewBox。",
+  "ReportView.vue:184-196 的 StatStrip 文案与数据口径不符：标签写「计划场次」「有记录场次」且单位写「场」，但 r.plannedSessions 实际是 plannedDays.length（天数，weekRules.ts:114）、r.completedSessions 实际是有记录的去重日期数（weekRules.ts:102）。同一天记两条训练时 completedSessions 仍是 1，完成率也因此按「天」算而不是按「场」算。",
+  "weekRules.ts:72 的 completedDates 取的是「有任意 session 的去重日期」，不含 completionStatus 过滤 —— 标记为 'skipped' 的训练也算「有记录」，进而计入完成率分子。StatStrip 的 hint 写「完成率 X% · 未记录不计入分母」（ReportView.vue:192）没错，但「跳过算完成」这件事界面上没有任何说明。",
+  "weekRules.ts:98 `userId: sessions[0]?.userId ?? 'demo-user'` 取的是**传入全量数组**的第一条 session，而不是本周内的第一条；多用户/多周数据下报表归属会错位。",
+  "weekRules.ts:103 totalDuration 把缺 RPE 的训练时长也计入，但 totalLoad 不计入 → 同一张报表里「总时长」与「总负荷」的覆盖范围不同，而 ReportView.vue:199 的 hint 只写「来自实际记录，不含估算」，没有说明两者口径不一致。",
+  "ReportView.vue:247-256 把 `FOOD_CATEGORIES.slice(0, 8)` 写死两处，FOOD_CATEGORIES 实际有 10 类（第 9、10 类「油脂类」「其他」永远不进矩阵、也永远不出现在「本周没出现过」里）。这个「8」与 README.md:165 的「8 类食物出现次数」硬绑定，加类别要同时改三处。",
+  "ReportView.vue:249 的 `max` 在 .map 内部计算 —— 每个类别行都重算一次全表最大值（8 次重复计算），应提到 computed 外层。",
+  "ReportView.vue:250 的 `level = Math.max(1, Math.round((count / max) * 4))` 与同一行的 `count` 是两套数，4 点相对档位没有图例说明「点阵=相对次数」，count 又单独显示一次，信息重复且读者需要自己把点阵换算回次数。",
+  "weekRules.ts:84-95 把整句中文数据质量文案硬编码在服务层，UI 只能整段渲染成 <li>（ReportView.vue:122）。文案与算法强耦合：想改一句措辞或把一条拆成两栏，必须改 services 层而不是只换皮。",
+  "周报页完全没有模式分支。DashboardView 有完整的 `isAthlete` 分支（大众=时间轴+双极环 / 运动员=LoadChart+强度分布），ReportView 无论哪种模式都渲染同一张「每日负荷 + 餐食结构」图，store.currentMode 只被透传给 buildWeeklyReport 参与计划天数计算。交付说明.md:733 明确把「周报两套图表」列为待做项 —— 改版时这块要么补齐要么明确声明周报是模式中立的。",
+  "同一份「每日负荷」有两套完全独立的渲染实现：ReportView.vue:329-342 是纯 div + CSS（渐变柱、repeating-linear-gradient 斜纹、inset 描边），LoadChart.vue 是 SVG（rect + polyline + 网格刻度 + 未知区灰底）。两种「缺 RPE」的视觉编码也不同（斜纹 vs 6px 短条），两种「未记录」也不同（空心柱 vs 灰底 unknown band）。改版时这两块必须合并或明确分工，否则同一个概念会出现两套语义。",
+  "硬编码颜色绕过令牌：ReportView.vue:331 与 DashboardView.vue:654 的柱渐变写死 `#12857c → #0c655e`，而深色主题下 --color-accent 已改成 #3ec9b6（tokens.css:200）→ 深色模式下柱色不随主题变化，且与同页图例 .sw.solid（用 var(--color-accent)）颜色对不上。",
+  "图例与实际图形不一致：ReportView.vue:349 `.sw.none` 用 `--hair` 描边，而对应实际的 `.plot .bar.zero`（第 333 行）用 `--hair-strong` 描边 —— 图例色块和真实柱子的粗细对不上。",
+  "wellnessCards.ts 548 行纯文案（约 30KB）静态 import 进主 bundle：pickDailyWellnessCard 每天只用其中一条，但 15 张卡的 detail/athlete 全文全部进包，没有任何按需加载或按类别拆分。",
+  "weekRules.ts:71 调 isPlanDay → planRules.buildDayPlan → 每个动作还要跑 alternativesFor → 每次都新建一遍 activeExercises() 过滤（exercises.ts:122）。buildWeeklyReport 一次要跑 7 天 × 多次过滤，而 report 是 computed，store 任何变更都会重算。改造周报页时若把 report 从 computed 改成 ref/定时刷新需注意这个成本。",
+  "ReportView.vue:119 的 InsightCard 用 tone=\"ink\"，但 InsightCard.vue:44 的 ink 图标底色写死 #11161a 且带 `box-shadow:0 10px 22px -12px rgba(21,24,27,.6)`，深色主题下深色图标块贴在深色卡上几乎不可见。",
+  "ReportView 的格式化逻辑全在视图内、没有独立展示层：statusText()（第 264-266 行）、weekLabel()（第 258-262 行）、'—' vs 0 的分支（第 39、96-99、184、203 行）、'场/min/AU' 单位（第 185-204 行）都是 view 内散落的字符串拼接，DashboardView 另有一套自己的翻译与单位写法。",
+  "ReportView.vue:124 把「数据只存本机浏览器」与实时条数写死在数据质量卡里（`{{ store.sessions.length }} 条训练 / {{ store.meals.length }} 条餐食`），与 cards 的可收起机制绑在一起 —— 换掉 InsightCard 就会丢这条隐私声明（它同时是调研结论里「无广告/本地存储」要点在文案层的唯一落点）。"
+ ],
+ "constraints": [
+  "负荷定义不可改：单次 load = Math.round(actualDuration × rpe)，rpe 为 null 或时长缺失一律返回 null（weekRules.ts:30-33）。不能改成「缺 RPE 记 0」「缺 RPE 用平均时长补齐」或换成 TRIMP 等其他公式 —— 界面上的 AU 数字含义必须与此一致。",
+  "天级聚合规则：当天的训练中只要有一条缺 RPE，整天负荷为 null（weekRules.ts:66-67、loadRules.ts:104-106）。两处必须保持同一判断，否则周报与首页曲线会互相打脸。",
+  "合计口径：totalLoad 只累加有完整 RPE 的天，缺的天不进合计，并在 dataQuality 里说明覆盖天数与「不按 0 补齐」（weekRules.ts:74-75、88）。周报里任何「总负荷」都不能改成含缺失天的估计值。",
+  "ACWR 定义：近 7 天平均负荷 ÷ 近 28 天平均负荷；CTL 分母包含休息日（负荷 0），missing / unknown 天从窗口剔除；覆盖天数 < 14 天或 CTL ≤ 0 时返回 null，不给假数字（loadRules.ts:112-127）。样本不足必须显示「还需 N 天」而不是 0。",
+  "取整顺序：均值先用原始值算，比值用原始值算完再取整（r1/r2 只在最后一步，loadRules.ts:64-67、116-117）。任何「先取整再相除」的重构都会让 1.49 变成 1.5 并落错档 —— selfcheck.ts:380 断言 ACWR 恰好等于 1.00。",
+  "ACWR 分档边界不可挪动：<0.8 low、≤1.3 optimal、≤1.5 high、>1.5 veryHigh、null/非有限 unknown（loadRules.ts:144-150），selfcheck.ts:392-398 逐条断言。LOAD_ZONE_TEXT 的文案与档位一一对应。",
+  "强度分布按 RPE ≥ 7（threshold 默认 7）分低/高两段，用时长不用次数；未记 RPE 的时长单列（unknownMinutes），不塞进任何一侧；可归类时长为 0 时 lowShare/highShare 必须是 null（loadRules.ts:178-203）。",
+  "「还没开始用」≠ 0：首条记录之前的天是 unknown，既不参与 CTL/ATL 均值也不画成 0（loadRules.ts:96-100）。新用户第一天不能被算成重度减量。",
+  "周起始为周一（weekRules.ts:14-19），WEEK_LABELS 是周一序的 ['一'…'日']；若改周起始，所有 `(d.getDay() + 6) % 7` 的换算（ReportView.vue:261、DashboardView.vue:459 等）必须同步。",
+  "完成率口径：无安排（plannedDays 为空）时不计算，必须为 null 而不是 0；未记录不计入分母（weekRules.ts:90-94、117）。",
+  "安全闸：本周任一天 discomfort 为真 → blockedByDiscomfort 为 true（weekRules.ts:118），ReportView 据此显示「自动加量建议已停止」提示（ReportView.vue:18-20）。这条提示不能被新设计静默丢掉。",
+  "数据只存本机浏览器（localStorage 'twopoles_state'，stores/app.ts:105、151），无账号、无后端、无网络请求。周报界面上的「数据只存本机浏览器」说明（ReportView.vue:124）属于产品承诺，不能在改版中删掉或弱化。",
+  "餐食类别覆盖统计的是「记录条目数」，不是餐数、不是份量、不是营养摄入量（weekRules.ts:78-81）。界面上必须保留这一句限定说明（ReportView.vue:73）。",
+  "wellnessCards：同一天多次调用必须返回同一条且跨时刻稳定、健身/饮食按日交替、相邻两天不同、连续 16 天 16 个不同 id（selfcheck.ts:331-336）；dayIndex 必须用本地日历分量经 Date.UTC 构造，不能换成 toISOString()（会在时区边界跨日，wellnessCards.ts:538-541 的注释明确警告）；来源名不得编造论文页码或外链；免责声明文案固定（WELLNESS_DISCLAIMER）；每卡 detail 2–4 段、points 2–4 条、tags 2–4 个、athlete 三段齐全（selfcheck.ts:315-324）。",
+  "无障碍与色彩：图表容器用 role=\"img\" + aria-label 描述内容；状态必须颜色 + 形状/纹理双通道（tokens.css 与 research/界面偏好调研.md 的核心结论），不能只靠色值区分「已计算/缺 RPE/未记录」。",
+  "浏览器兼容：目标 Chrome/Edge/Firefox 最新 + Safari 14+；需保留 prefers-reduced-motion（animations.css、globals.css）与 prefers-reduced-transparency（BaseCard.vue:73）的降级分支；mask-image 必须同时写 -webkit-mask-image（BaseCard.vue:63-64）。",
+  "双主题：所有新样式只能用 tokens.css 变量（html[data-theme=\"dark\"] 整组覆盖同名令牌），写死颜色会在深色主题下出现白块/不跟随的色值 —— 这是调研文档里「半适配深色是高频吐槽点」的直接教训。",
+  "npm run selfcheck 必须在改版前后全绿（当前含 loadOf/totalLoad/unloadedDays/completionRate/blockedByDiscomfort/ACWR 窗口与分档边界/intensitySplit/wellnessCards 取卡稳定性共约 145 项断言）。"
+ ],
+ "redesignHooks": [
+  "【可整块换掉、不动逻辑】buildWeeklyReport / buildLoadSeries / loadZone / intensitySplit / loadOf / weekStart / weekDates / pickDailyWellnessCard 全部是纯函数，输入输出都是纯数据，视图层可以完全重写而不碰它们。",
+  "【可整块换掉】StatStrip 的 StatItem（label/value/unit/hint/tone）就是为「换皮不换算」设计的展示契约 —— 只要重写 StatStrip 内部样式或结构，ReportView 的 stats computed 一行都不用动；反过来若要改指标结构，ReportView.vue:179-210 的 stats 数组也要跟着改。",
+  "【可整块换掉】InsightCard 的 props（cardId/eyebrow/title/tone）+ icon/content 两个 slot + 内部 store.collapsedCards 收起逻辑，是洞察卡的完整边界。ReportView.vue:119-125 只用了 8 行，换皮时保留 card-id=\"report-quality\" 即可保住持久化与 aria-expanded。",
+  "【可整块换掉】BaseCard 的 variant（default/flush/ink）+ --card-pad 变量已经承担了「表面系统」的职责；ReportView 三张卡都用 flush，重排时只需换内部结构，不必碰卡片外观。",
+  "【可整块换掉】ReportView 的三个内容区（每日负荷卡、餐食结构卡、训练账本卡）各自有独立边界：BaseCard 包壳 + .card-head（micro + h2 + 右侧 slot）+ role=\"img\"/aria-label 的主体 + .axis-note 脚注。这四段可以分别替换成完全不同的视觉（SVG 折线、堆叠条、卡片流、时间轴），不影响其他区块。",
+  "【可整块换掉】wellnessCards.ts（内容 + 类型 + 取卡函数）与 DailyWellnessCard.vue（呈现）已经分离；DailyWellnessCard 可以整块重写而不动文案，取卡规则（每日稳定、类别交替）不动即可。",
+  "【可整块换掉】周切换交互（shiftWeek/goToday/refDate）纯本地，refDate 是唯一的 ref；把翻页改成下拉、滑动或分段控件都不影响任何计算，只要仍然驱动 refDate。",
+  "【必须先解耦再换皮 1】逐日负荷的状态编码与几何混在 view 里：dayStates（数据）+ barPx（像素高度）+ barClass（zero/hatch/today 三态）是三件事。应先抽出一个纯函数 dayState(day) → 'load'|'missing'|'none'|'today'（数据层）与一个 dayMeta（数值/单位/轴标签），再让渲染层只消费它们；否则换 SVG / Canvas 时会连带复制一份口径。",
+  "【必须先解耦再换皮 2】weekRules.ts:84-95 的 dataQuality 是整段中文字符串。要让新界面按「缺 RPE / 计划差 / 餐食未记录」分栏展示，必须把服务层改成返回结构化条目（如 { kind: 'rpe-missing' | 'coverage' | 'meals', text }），或至少保留原文并另加机器可读的 kind；否则 UI 只能整段丢进一个 <li>。",
+  "【必须先解耦再换皮 3】stats 的取数与文案写在一起（ReportView.vue:179-210）。建议拆成「从 WeekSummary 取值」与「值 → 呈现（单位/文案/tone）」两步；改版常常要同时改文案和布局，混在一起会让两边互相绊住。",
+  "【必须先解耦再换皮 4】柱高与容器尺寸的耦合（PLOT_H=132 vs CSS 158/138）。换成 SVG 时应改用 viewBox + preserveAspectRatio 或百分比高度；换成别的图表（如折线、热力图）时这个常量直接作废，但前提是先把它从 CSS 里解耦。",
+  "【必须先解耦再换皮 5】planned 圆点必须改成调用 isPlanDay(d, store.userProfile, store.currentMode)（或直接消费 report.plannedDays），否则档案一变圆点就与「计划场次」打架 —— 这是数据正确性，不是样式问题，必须在换皮前修。",
+  "【必须先解耦再换皮 6】周数算法与 weekDates/星期名数组应先收敛到 utils/time.ts 或 weekRules.ts 的单一实现（现在 ReportView、DashboardView、PlanView 各有一份），再重排周导航 UI；否则周标签与周号会各说各话。",
+  "【半成品/待决策】周报页没有任何模式分支，而 DashboardView 有完整的 isAthlete 分支、交付说明.md:733 把「周报两套图表」明确列为下一轮待做。大改版时应在这里明确二选一：补齐运动员版周报（可直接复用 loadRules + LoadChart），或把周报定义成模式中立的「事实报告」并在文案里说明。",
+  "【半成品/待决策】ReportView 完全没有 loading / 错误 / 部分数据态。数据是本地同步的，理论上不需要 loading；但 buildWeeklyReport 依赖 userProfile 与 planRules，档案字段异常时没有兜底 UI —— 大改版前建议先加一层错误边界，再谈版式。",
+  "【半成品】wellnessCards 的 15 张卡文案齐全且被 selfcheck 校验，但整套内容（~30KB）静态进主包、每天只用一条。若大改版要新增/扩写卡片，先把它按 category 拆成独立模块并做按需加载，否则 bundle 会继续线性膨胀。"
+ ]
+}

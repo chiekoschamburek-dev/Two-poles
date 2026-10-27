@@ -1,7 +1,7 @@
 <template><nav class="mobile-nav" aria-label="移动端导航"><RouterLink v-for="item in items" :key="item.to" :to="item.to" :class="{ on: isOn(item) }" :aria-current="isOn(item) ? 'page' : undefined"><component :is="item.icon" :size="19"/><span>{{item.label}}</span></RouterLink></nav></template>
-<script setup lang="ts">import { computed } from 'vue'; import { useRoute } from 'vue-router'; import { Sun, Utensils, BarChart3, UserRound } from 'lucide-vue-next'
-// 计划与跟练归在"今日"名下：这两页是从今日首屏下钻出去的，底栏不留独立入口也不该没有归属
-const items=[{to:'/dashboard',label:'今日',icon:Sun,owns:['/plan','/execution']},{to:'/meals',label:'记录',icon:Utensils},{to:'/report',label:'图表',icon:BarChart3},{to:'/settings',label:'我的',icon:UserRound,owns:['/onboarding']}]
+<script setup lang="ts">import { computed } from 'vue'; import { useRoute } from 'vue-router'; import { CircleDot, Utensils, BarChart3, UserRound } from 'lucide-vue-next'
+// 计划与跟练是运动一侧的下钻页，归在"两仪"名下；底栏只留四个一级入口
+const items=[{to:'/',label:'两仪',icon:CircleDot,owns:['/plan','/execution']},{to:'/meals',label:'记录',icon:Utensils},{to:'/report',label:'图表',icon:BarChart3},{to:'/settings',label:'我的',icon:UserRound,owns:['/onboarding']}]
 const route=useRoute()
 const path=computed(() => route.path)
 const isOn=(item:{to:string;owns?:string[]}) => path.value === item.to || (item.owns || []).some(p => path.value.startsWith(p))

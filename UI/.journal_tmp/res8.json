@@ -1,0 +1,185 @@
+{
+ "area": "训练计划子系统（PlanView + planRules + exercises）",
+ "purpose": "计划页是产品的\"排课中枢\"：把用户档案（年龄、可用时间、器材、场地、需要避开的）+ 模式（大众/运动员）翻译成一周的逐日训练安排，并提供锁定、完成、替换、搬移、手工录入、版本历史这一整套\"人和计划讨价还价\"的编辑交互。同时它承担 F04（按器材/场地/时长/限制筛动作库并给出可解释的替换候选）与 F05（把当天可跟练的动作接到摄像头计数页）的入口职责。周视图是\"月历 + 当日详情\"两栏，另有\"四周周期\"第二视图展示周期阶段与负荷条；两条生成路径并存——内置规则（planRules，固定周一/三/五 3 天）与大模型（先问 1–3 个问题再生成草稿，用户可改后入库），二者共用同一套 Plan/PlanItem 数据结构与同一份本机版本历史。",
+ "files": [
+  {
+   "path": "d:/桌面/project/project/UI/src/views/PlanView.vue",
+   "role": "计划页全部 UI：页头、工具条（本周/四周周期 tabs + 版本区）、门槛提示、冲突列表、手工录入表单、月历 + 当日详情两栏、四周周期四卡、调整建议预览、本机版本历史。541 行 SFC，template/script/scoped-style 三段全塞在一个文件里。",
+   "lines": 541
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/planRules.ts",
+   "role": "规则排课引擎：buildDayPlan(date, profile, mode, version) → DayPlan{items, conflicts, auto, gateNote, ruleVersion}；blockers/pick 做器材·场地·时长·限制过滤；alternativesFor 给替换候选；导出 PLAN_VERSION=3、PLAN_RULES_VERSION='plan-rules-v3'、AUTO_RECOMMEND_MIN_AGE=18、TRAINING_WEEKDAYS=[1,3,5]。",
+   "lines": 209
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/exercises.ts",
+   "role": "动作库（30 条自编演示条目）：Exercise 接口（type/equipment/venues/minutes/sets/reps/holdSeconds/intensity/jumpFree/kneeFriendly/spineFriendly/howto/reason/camera/status/source）+ gateReason/passesRestrictions/hasEquipment/activeExercises/findExercise。只有 ex-chair-sitstand 与 ex-stand-curl 带 camera 配置。",
+   "lines": 128
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/stores/app.ts",
+   "role": "计划状态中枢：plans/planHistory、ensureWeekPlan/regenerateWeekPlan/weekPlan/dayPlanNotice、bumpVersion/acceptAdjustment/toggleItemLock/markItemCompleted/addManualItem、LLM 草稿状态机 planDraftState、acceptPlanDraft。全部落 localStorage key 'twopoles_state'。",
+   "lines": 962
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/types/domain.ts",
+   "role": "Plan / PlanItem / AlternativeExercise / PlanAdjustment / PlanChange / UserProfile / TrainingType / Mode 的定义；PlanItem.alternatives 与 exerciseId 目前无人读。",
+   "lines": 373
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/weekRules.ts",
+   "role": "周报口径与计划\"场次\"分母：buildWeeklyReport 用 isPlanDay(规则) 算 plannedDays → 完成率分母；loadOf（时长×RPE，缺一不出数）；weekStart/weekDates/WEEK_LABELS。",
+   "lines": 120
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/PlanDraftDialog.vue",
+   "role": "LLM 计划弹窗（挂在 AppShell 而非 PlanView，全站共享）：loading/questions/ready/error 四态、问题作答、草稿本地副本可编辑增删、确认入库。",
+   "lines": 461
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/services/llm.ts",
+   "role": "LLM 提示词与输出校验：buildPlanQuestionMessages/buildPlanMessages（大众 4–5 天、运动员 5–6 天的口径写在这里）、validatePlanQuestions/validatePlanDraft（日期白名单、每日 ≤6 项、时长 1–180、组 1–20、次数 0–200）。",
+   "lines": 522
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/utils/time.ts",
+   "role": "日期工具：toISODate/shortDate/eyebrowDate/monthCells（周一起始的月格），PlanView 的日历与文案都靠它。",
+   "lines": 36
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/views/DashboardView.vue",
+   "role": "计划的第二个消费方：L297 store.dayPlanNotice、L455 buildDayPlan 算\"下一次是什么\"、L334 buildWeeklyReport 的 plannedSessions。改排课口径必然牵连这里。",
+   "lines": 739
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/views/ExecutionView.vue",
+   "role": "跟练页：L344 findExercise(name)?.camera 取计数阈值，L518 figureJoint；PlanView 的\"开始跟练\"通过 /execution?exercise=<动作名> 跳过来。",
+   "lines": 885
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/views/OnboardingView.vue",
+   "role": "档案来源：L271 equipmentOptions、272 restrictionOptions、273 venueOptions、270 timeOptions；L377 复用 AUTO_RECOMMEND_MIN_AGE；L380 gateReason。",
+   "lines": 495
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/views/ReportView.vue",
+   "role": "周报页：L172 buildWeeklyReport → plannedSessions/completionRate，计划场次口径的第二个展示点。",
+   "lines": 413
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/layout/AppShell.vue",
+   "role": "L16 挂载 PlanDraftDialog —— LLM 计划弹窗是全局组件，不属于计划页。",
+   "lines": 59
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/styles/tokens.css",
+   "role": "设计令牌：--color-*/--hair-*/--radius-*/--space-*/--font-num/--tracking-micro/--motion-*/--breakpoint-*，含 html[data-theme=\"dark\"] 全量覆盖。PlanView 的 scoped CSS 全部依赖这些变量。",
+   "lines": 258
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/BaseCard.vue",
+   "role": "default/flush/ink 三种表面，通过 --card-pad 变量让调用方接管内距（PlanView 用它做日历卡与详情卡的零内距布局）。",
+   "lines": 70
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/BaseButton.vue",
+   "role": "primary/secondary/ghost/danger × sm/md/lg 按钮；PlanView 只用了 primary/ghost/sm 三种，其余按钮是自绘的。",
+   "lines": 9
+  },
+  {
+   "path": "d:/桌面/project/project/UI/src/components/common/StatusBadge.vue",
+   "role": "状态徽标（success/warning/danger/info/neutral），PlanView 用它显示\"已过去/待完成/休息日\"。",
+   "lines": 12
+  }
+ ],
+ "keyComponents": [
+  "page-head（L3-6）：左侧 eyebrow「TRAINING PLAN」+ h1「训练计划」+ 副标题，右侧一枚 BaseButton 切换手工录入表单的开合。",
+  "toolbar（L8-24）：左侧 tabs 切「本周 / 四周周期」；右侧版本区显示当前版本号 plan.version、模式 chip、「按规则重算」与「用模型规划」两枚自绘按钮（后者受 store.planLlmReady 门控）。",
+  "gate-note / conflicts（L26-30）：全宽提示条。gate-note 是 caution-soft 底 + 3px 左竖条，用于\"未满 18 岁 / 孕期或产后 / 伤病限制\"这类不生成推荐的说明；conflicts 是 neutral-soft 无序列表，逐条显示被筛掉的原因。",
+  "manual 表单（L32-42）：v-if 展开的 4 字段表单（日期 / 名称 / 时长 / 错误位），提交走 saveManual → store.addManualItem，保存即生成新版本。",
+  "周视图两栏 .layout（L44-117）：grid 1.05fr / 1fr，左侧 BaseCard 日历，右侧 BaseCard 详情，align-items:start 让两卡各自定高。",
+  "月历卡（L45-67）：月份头（上一月/下一月，canForward 限制在当前月 +3）+ 周标签行 + 7 列日历格（today 实心 accent、selected accent-soft + inset 描边、rest 灰字）+ 底部三色图例。",
+  "当日详情卡（L69-116）：detail-head（eyebrow + 日期 h2 + StatusBadge 状态）→ detail-hero（Dumbbell 图标 + 计划标题 + 副文案 + 锁定 Lock 图标）→ plan-item 列表 → rest-note 空态 → 替换候选区 → detail-actions。",
+  "plan-item 行（L83-94）：左图标（按 TrainingType 映射 lucide）+ 名称 + note（含「已锁定 / 已完成」em 标记）+ 时长数字 + 右侧「标记完成 / 锁定」两枚 aria-pressed 的 mini 按钮。",
+  "替换候选区（L98-105）：每行一个原动作名 + 最多 2 枚带 reason 的候选按钮；无候选时 replace-none 用文案解释\"被器材、场地或需要避开的筛掉了\"。",
+  "四周周期视图（L119-128）：4 个 phase 卡片（基础准备 / 强度建立 / 量化提升 / 减量与测试），每张含 phase-tag（当前/已过/计划中）、load-bar 百分比条、相对四周峰值负荷的百分比与该周起止日。",
+  "版本与调整卡（L130-154）：版本卡显示\"有 1 条调整建议等待确认\"并可展开预览（adjust-row 的「原安排 → 建议改为」对比 + 接受/保持原计划两个动作）。",
+  "本机计划历史卡（L156-163）：最近 6 个版本的账本行（版本号 / 模式 chip / reason / 创建时间）。",
+  "PlanDraftDialog（独立组件，AppShell 挂载）：LLM 的 loading → questions → ready → error 四态，questions 阶段是选项 chip + 自由输入，ready 阶段是可编辑的草稿表格（动作名/类型/时长/组/次 + 增删动作与训练日）。"
+ ],
+ "uiPatterns": [
+  "布局骨架：单页纵向 flow —— page-head → toolbar(tabs + 版本区) → 提示条(gate-note / ver-reason / conflicts) → 可折叠手工表单 → 主体（周视图两栏 或 周期四列）→ 版本卡 → 调整预览卡 → 历史卡。所有区块都是 BaseCard 堆叠，无抽屉、无分页。",
+  "卡片样式：BaseCard default 表面（白底 + 1px 发丝线 + inset 顶亮描边，无投影）；日历卡与详情卡通过 CSS 变量 --card-pad: 0 0 18px 覆写内距自己接管 padding，卡片内部分隔一律用 --hair-soft 发丝线而非边框或阴影。",
+  "状态呈现：日历格三态 today（accent 实心块 + 白字 + 反色小圆点）、selected（accent-soft 底 + inset accent-line 描边）、rest（--hair-strong 灰字）；条目状态用文本 em 标记（「· 已锁定」「· 已完成」）而不是形状/颜色区分；顶部状态用 StatusBadge（已过去=neutral / 待完成=info / 休息日=success）。",
+  "交互方式：整格可点的日历 button + 翻月箭头（canForward 限死到当前月 +3）；行内 mini 按钮做完成/锁定（aria-pressed 承担 pressed 语义）；替换候选做成带 reason 副标题的整块按钮；调整预览做成「原安排 → 建议改为」的对比行；无任何拖拽或手势。",
+  "空态：休息日用 Moon 图标 + 「这一天没有安排训练。它表示\"未安排\"，不代表没有活动」；无替换候选时用 replace-none 文案解释原因而不是留白；周期缺 cycleStartDate 时用 cycle-note 明说「负荷一律标为\"未记录\"——不用示例数字冒充你的数据」。",
+  "加载态：PlanView 本身没有 loading/骨架态（所有取数都是同步 computed）；LLM 的四态全在 PlanDraftDialog 里（loading 转圈 + 阶段文案「通常 10–60 秒」、error 带 warnings 列表、questions 表单、ready 可编辑草稿）。",
+  "响应式：900px 断点两栏塌成一栏、周期 4 列变 2 列；767px 断点 page-head 竖排、标题降为 28px、日历格高 46→42px、版本卡竖排。⚠ 其中 .page-head :deep(button){display:none} 会把「手工录入一项」按钮在手机端整个隐藏掉，没有任何替代入口。",
+  "入场动效：区块用 animations.css 的 .animate-slide-in-up，详情卡带 :key=\"selected\" 换日期时整卡重播入场，表单与调整卡用 .animate-scale-in；prefers-reduced-motion 下全部降为 0ms。"
+ ],
+ "styleApproach": "全部是 scoped CSS，无 CSS 预处理器、无 UI 组件库；图标统一用 lucide-vue-next。颜色/圆角/字号/间距/动效都从 tokens.css 的 CSS 变量取值（--color-*、--hair-soft/--hair-strong、--radius-sm..lg、--space-*、--font-num/Bahnschrift、--motion-fast、--tracking-micro），PlanView 里没有一处硬编码色值，深色主题靠 tokens 全量覆盖自动生效。但 PlanView 的 118 行 scoped CSS 里仍大量硬编码 px（gap:24px、padding:18px 0 16px、height:46px、font-size:11.5px 等），--space-* 这一整套间距令牌在 PlanView 里几乎没用。重复的自定义样式：① .eyebrow 在 PlanView L425、OnboardingView L441、SettingsView L415、InsightCard.vue L47 各定义一次，且 PlanView 是「14×1px 横线 + muted + uppercase」而另外两处是「6px 旋转 45° 方块 + accent」，两种形态并存；② .page-wrap 在 PlanView L423 / MealsView L543 / OnboardingView L439 / SettingsView L413 重复定义，max-width 还各不相同（1440 / 1440 / 760 / 860）；③ .page-head 在 PlanView L427、OnboardingView L440、SettingsView L414 重复定义；④ 周标签数组在 PlanView L188、weekRules.ts L7、utils/time.ts L1 三处各存一份；⑤ 按钮有三套并行的自绘实现（.regen、.mini、.alt、.tabs button、.month button），没有走 BaseButton 的 variant 体系，改主色要逐个改；⑥ .manual input（L448）重复了 globals.css L117-125 已经做过的 input 聚焦环与内阴影。",
+ "dataFlow": "【输入】store.userProfile（age / availableTimes '10 分钟' 这类字符串 / equipment / availableVenues / restrictions / cycleStartDate）、store.currentMode、store.plans + store.planHistory、store.sessions + store.meals。【规则路径】PlanView.itemsOn(L215) → planRules.buildDayPlan(date, profile, mode) → exercises.activeExercises() + blockers/passesRestrictions/hasEquipment → DayPlan{items, conflicts, auto, gateNote, ruleVersion} → PlanItem{id:`${date}-${ex.id}`, planId:'plan-v3', exerciseId, exerciseName, type, note(reason??howto), plannedDuration, plannedSets, plannedReps, locked(type==='坐站训练'), completed:false, alternatives(≤2)}。【落盘】store.ensureWeekPlan(L266) 把 7 天结果写进 plans[]，items 的 planId 被改写成真实 plan id；旧版本进 planHistory。【LLM 路径】PlanView「用模型规划」→ store.generatePlanQuestions() → llm.buildPlanQuestionMessages → /api/llm/chat 代理 → validatePlanQuestions → planDraftState.status='questions'；PlanDraftDialog 答题 → store.generatePlanDraft() → buildPlanMessages → validatePlanDraft → 'ready'（草稿存在 PlanDraftDialog 的 local 本地副本，用户可改）→ store.acceptPlanDraft() 写入 source:'llm' 的 Plan，旧版本进历史。【编辑】锁定/完成/替换/搬移/手工录入全部经 store.bumpVersion —— 一次改动 = 一个新版本，理由文本写进 plan.reason。【读取】store.weekPlan(date) 按 weekStartDate + mode 匹配；store.dayPlanNotice(date) 合并「已存计划 items」与「规则实时算出的 conflicts / gateNote / stale」。【周期负荷】PlanView.cyclePhases → weekRules.buildWeeklyReport(sessions, meals, refDate) → totalLoad。【持久化】全部走 localStorage key 'twopoles_state'（plans / planHistory / profile / sessions / meals 一起 JSON 化），无服务端。【props/emits】PlanView 是路由页，没有 props/emits；PlanDraftDialog 也没有 props，靠 store.planDraftState 单向驱动、确认/取消回写 store action —— 也就是说计划子系统没有组件级契约，改版要自己造。",
+ "stateModel": "视图局部状态：view: 'week' | 'cycle'（唯一真正的 tab 状态机）；cursor {year, month}；selected（ISO 日期字符串）；adjustOpen / adjustResolved（boolean）；manualOpen（boolean）；manual {date, name, minutes} + manualError。计划级：store.plans[] 是「每周一份当前计划」，无 plan 时 weekPlan 返回 null —— 页面因此存在「有落盘计划 / 只有规则实时预览」两种数据来源，PlanView.itemsOn(L215) 负责合并；Plan 有 version(number)、mode、source: 'rules' | 'llm'、locked、reason。规则级：DayPlan.auto(boolean) 表示是否允许自动推荐，false 时附 gateNote；DayPlan.conflicts: string[] 是无解原因列表而不是状态枚举；DayPlan.ruleVersion 恒为 'plan-rules-v3'。条目级：PlanItem.locked 与 PlanItem.completed 是两个独立布尔，不是互斥状态机（可以同时为真）；规则生成时 locked 恒等于 (type === '坐站训练')；替换动作通过 PlanChange{type:'unchanged'|'changed'|'locked'} 表达，但全项目实际只用过 'changed'，PlanAdjustment 类型则完全没被实例化。动作级：Exercise.status: 'active' | 'retired'；TrainingType 六个值（跑步/动态热身/坐站训练/站姿弯举/舒缓整理/其他）。LLM 草稿状态机（store.planDraftState.status）：idle → loading(loadingStage 'questions') → questions → loading('plan') → ready →（用户改 local 副本）→ acceptPlanDraft 落盘；任意阶段可进 error；planRequestId 用于丢弃过期响应（防止关闭弹窗后晚到结果又弹出来）。",
+ "coupling": "【跨组件 import】PlanView 同时 import 4 个 service 与 3 个 utils：planRules(buildDayPlan/alternativesFor)、exercises(findExercise)、weekRules(weekDates/weekStart/buildWeeklyReport)、utils/time(eyebrowDate/monthCells/shortDate/toISODate)。【共享 store 字段】plans、planHistory、currentMode、userProfile、sessions、meals、planDraftState、planLlmReady、collapsedCards、toasts。【共享类型】domain.ts 的 Plan / PlanItem / AlternativeExercise / UserProfile / TrainingType / Mode 被 exercises.ts、llm.ts、planRules.ts、app.ts、5 个 view 共用。TrainingType 枚举同时出现在 exercises.ts 的 type 字段、llm.ts 的 TRAINING_TYPES(L58)、PlanView 的 icons 映射(L198-205)、domain.ts 的联合类型，改动作类型要同步四处。【关键耦合点 1】排课规则不在 store 里，视图直接调 service：DashboardView L281/L455 与 weekRules L71 都直接 import buildDayPlan/isPlanDay —— 换掉排课引擎要同时改 planRules.ts、stores/app.ts、DashboardView.vue、weekRules.ts、OnboardingView.vue 五个文件。【关键耦合点 2】动作中文名是事实上的主键：findExercise(exercises L126) 用 name 查库、PlanView L250 用它找替换来源、ExecutionView L344/L518 用它取 camera 阈值、/execution?exercise=<中文名> 是跨页深链、PlanItem.id 在规则项里是 `${date}-${ex.id}` 而手工项是 `${date}-${name}-m${ts}`、LLM 项是 newId() —— 三种 id 格式并存。【关键耦合点 3】场地字符串 '宿舍或家'/'家'/'健身房'/'户外' 在档案里是自由字符串，靠 planRules L24-29 的 VENUE_LABELS 映射到 Venue 枚举，改档案选项要同步这张表。【关键耦合点 4】PlanDraftDialog 挂在 AppShell（L16）而非 PlanView，LLM 弹窗是全站共享的，改版时不能把它当计划页的私有子组件重写。【注释与实现不符的耦合】planRules L1 注释称\"周报与侧栏都用它\"，但 SidebarNav 现在只有导航项、根本不显示计划数；ReportView/DashboardView 用的是 weekRules 的 plannedSessions，不是 planRules 的 items。",
+ "designDebt": [
+  "planRules.ts L132-134 的 mainTypes 在 athlete 分支里算完就扔：mode==='athlete' 走的是 L136-145 的独立分支，mainTypes 只有 else 分支（L151）会读，athlete 那份 ['跑步','舒缓整理'] 永远没人用。",
+  "planRules.ts L19 TRAINING_WEEKDAYS=[1,3,5] 让规则计划一周固定只有 3 天，而 llm.ts L319 的提示词要求大众 4–5 天、运动员 5–6 天。两条生成路径的训练天数口径不一致，同一周里\"计划数\"有两个答案，用户在规则计划与模型计划之间来回切换会看到完全不同的排课密度。",
+  "weekRules.ts L71 的 plannedDays 只认 isPlanDay（规则），从不读 store.plans。用户接受了一份 5 天的模型计划后，DashboardView L88/L124/L197 与 ReportView L184 仍然显示\"3 场\"，完成率分母是错的。planRules.ts L1 注释宣称\"周报与侧栏都用它，避免'计划数'两处算得不一样\"——只统一了规则 vs 规则，规则 vs 已存计划这一对还没统一。",
+  "stores/app.ts L319-334 regenerateWeekPlan 把旧版本推进历史后调 ensureWeekPlan，而 ensureWeekPlan L283 永远写 version: 1；acceptPlanDraft L572 却用 (old?.version ?? 0) + 1。三处版本号口径不一致，\"按规则重算\"会让 PlanView L14 显示的版本号从 v3 退回 v1。",
+  "stores/app.ts L595 bumpVersion 原地改 plan 对象（plan.items = items; plan.version += 1），而 L624-638 的 toggleItemLock / markItemCompleted 每次点一下都调它 —— 锁一个动作、标一次完成各产生一条历史版本，planHistory 里全是无意义噪声，PlanView L211 recentHistory 只显示最近 6 条，真正有意义的版本被挤掉。",
+  "PlanView L340-348 applyReplace 的 newValue 只改 exerciseName / note / plannedReps，不改 type 也不改 plannedDuration，而 stores/app.ts L612 acceptAdjustment 直接 {...item, ...newValue} 覆盖。替换后 PlanView L239 planTitle、L313 iconFor、L241 firstExercise 用的都还是旧 type，会出现\"标题写'无器械基础体能'、图标是 PersonStanding、名字却已是弹力带弯举\"。",
+  "PlanView L241-243 firstExercise 只按 type 找（坐站训练/站姿弯举），但 exercises.ts 里 type='站姿弯举' 有三条（L63 站姿弯举、L64 弹力带弯举、L65 水瓶替代弯举），只有 L63 带 camera 配置。firstExercise 可能挑中一个没有 camera 的动作跳到 ExecutionView，而 ExecutionView L344-348 拿不到 camera 就 counter=null —— 跟练链路静默降级。",
+  "PlanView L62-66 的图例画了三种圆点（.dot.plan / .dot.locked / .dot.rest-dot），但 L59 日历格只渲染一个 <i>，后两种 class 只存在于 L474 的 CSS 里，日历网格根本区分不出\"锁定日\"。图例在骗人。",
+  "PlanView L540 的响应式规则 .page-head :deep(button){display:none} 会在 767px 以下把「手工录入一项」按钮整个隐藏，而手工录入是未满 18 岁用户的唯一安排入口（planRules L114 的 gateNote 就写着\"需要安排请在计划页手工录入\"）—— 手机端这条路径直接断掉。",
+  "planRules.ts L76-80：pick() 里时长超限的候选被 continue 掉且不留任何原因。同一类型池里若既有被限制筛掉的也有超时的，最终 conflicts 只报限制原因，超时原因静默丢失；反过来若池里全部因场地/器材被挡，blocked 非空，超时信息也永远看不到。",
+  "planRules.ts L57 的 `profile.equipment.length &&`：器材数组为空时整个器材过滤被跳过，等于\"没填 = 不过滤\"。而 OnboardingView L271 的器材选项里就有字面量 '无器材'，选了它反而不满足 hasEquipment，不选反而会被推荐\"坐站训练（需要椅子）\"。语义自相矛盾。",
+  "planRules.ts L55 的 `ex.status === 'retired'` 判断是死代码：pick(L71) 与 alternativesFor(L189) 都只遍历 activeExercises()，retired 条目永远进不来。这道防线目前只在 exercises.ts L3 的注释里。",
+  "planRules.ts L147-166 的排课顺序写死成\"取动作库池内第一个通过的条目\"：热身几乎恒为肩环绕（1min）、力量恒为靠墙静蹲、放松恒为大腿后侧拉伸。动作库 30 条里规则最多命中 8–9 条，弹力带划船、臀桥、鸟狗式、侧支撑、提踵、开合跳等永远进不了规则计划 —— 动作库相对于规则引擎是半成品，改版时\"丰富动作库\"不会改变界面输出。",
+  "planRules.ts L169-173 给每个 item 填 item.alternatives，但 PlanView L246-256 的 replaceTargets 完全不用它，而是重新调 alternativesFor —— 同一份候选算两遍；PlanItem.alternatives 这个字段全项目零读取点。",
+  "三个零引用的导出：planRules.ts L203 itemsFor、exercises.ts L6 EXERCISE_CATALOG_VERSION、exercises.ts L91 RESTRICTION_KEYS。其中 RESTRICTION_KEYS 的四个字符串在 exercises.ts L108-111 与 OnboardingView L272 各写一遍，改限制项要同步两处且没人会记得更新那个常量。",
+  "exercises.ts L126-128 findExercise 搜全部条目（含 retired），而 PlanView L250 正是用它找替换来源 —— 已停用的 L81 桥式滚颈可以作为\"替换候选的 origin\"被查出来。",
+  "PlanView L215-219 itemsOn 对每个日历格都跑一次 store.weekPlan(d)，没落盘就退化成 buildDayPlan(...)，而 L225 hasPlan 在模板里逐格调用 —— 一个月 31 格、每次重渲染都重算整套过滤规则，没有缓存，规则一改复杂度还会放大。",
+  "PlanView L413-419 的 watch 在选中日期或切换模式时调 ensureWeekPlan，把一份计划写进 localStorage —— 一个纯浏览动作产生持久化写入，也意味着\"没建档用户看一眼计划页\"会在本机留下 plans 记录。",
+  "PlanView L259-279 adjustment 把\"超预算检测 + 建议文案 + 目标日期\"揉在一个 computed 里：只检查选中当天、目标固定为\"明天\"（可能不是训练日、也不检查那天已排多满）、并且 acceptAdjustment 在 store 层根本不校验 locked/completed —— README 声称的\"锁定项与已完成项保持不变\"只是 UI 层 L247 的过滤。",
+  "PlanView L212 notice 取的是 store.dayPlanNotice 的复合返回，但 PlanView 只用其中 2 个字段（gateNote、conflicts）：stale（app.ts L314，这份计划是旧规则版本生成的）只在 DashboardView L32 用，DayPlan.auto 全项目无人消费。计划页看不到\"这份计划已过期\"。",
+  "DashboardView L455 upcoming 用 buildDayPlan 实时算未来 7 天，完全忽略已存的模型计划 —— 首页\"下一次是什么\"和计划页内容会不一致。",
+  "PlanView L14-15 的版本区同时显示 plan.mode 与 currentLabel 两个模式来源，切换模式后旧计划仍在 plans 里（app.ts L245-263 的 copyPlanToMode 是唯一显式复制入口），页面上会出现\"v3 运动员计划\"和\"大众模式\"并排的矛盾文案。",
+  "文档与实现三处对不上：README §2 训练计划 声称有「新建计划」按钮（当前 UI 没有，只有「按规则重算」「用模型规划」）；同一节说\"四周周期负荷条为演示数据\"（实际 PlanView L286-291 用 buildWeeklyReport 算真实负荷）；又说调整预览\"不写入持久化计划\"（实际 L363 acceptAdjustment 会 bumpVersion 落盘）。",
+  "PlanView 是 541 行单文件 SFC（template L1-165 / script L167-420 / scoped style L422-541），周视图、周期视图、历史列表、手工表单四个区块没有任何组件边界，模板里的 v-if 条件和 script 里的 computed 互相咬死 —— 这是本次改版最大的结构性障碍。",
+  "同一页并存三套按钮外观：BaseButton（primary/ghost）、自绘 .regen/.regen.ai（L437-440）、自绘 .mini（L492）、自绘 .alt（L501）、自绘 .tabs button（L432）、自绘 .month button（L457）。改主按钮样式需要同时改六处，且它们对 hover/disabled/pressed 的处理各不相同。",
+  "stores/app.ts L595 的 bumpVersion 函数签名与函数体挤在同一行（`function bumpVersion(...): Plan {    planHistory.value.push(...)`），格式化工具一旦介入会把这行炸开，改版前应先跑一次格式化以免 diff 噪音淹没真正的界面改动。"
+ ],
+ "constraints": [
+  "训练日固定为周一/三/五（planRules L19 TRAINING_WEEKDAYS=[1,3,5]）是产品口径（大众模式一周 3 次），改版只能改呈现不能改这个算法；模型路径的 4–5/5–6 天是另一条口径，两者要并存还是统一属于产品决策而非界面决策。",
+  "可用时间预算 = profile.availableTimes 里的最大值（planRules L42-45 budgetMinutes，parseInt 解析 '10 分钟' 这类字符串，无值时兜底 20 分钟）；时长的单位一律是分钟，且 PlanItem.plannedDuration 是唯一权威时长字段。",
+  "安全门槛不可弱化：未满 18 岁（AUTO_RECOMMEND_MIN_AGE）不生成任何自动推荐；命中 GATE_RESTRICTIONS（'孕期或产后'、'伤病或遵医嘱限制'）也不生成自动推荐，只能手工录入（exercises L97-103）。这两条是适用范围门槛而不是动作过滤器，界面上必须继续明确写出\"可以记录但不生成推荐\"，不能弱化成一句提示。",
+  "过滤口径一一对应且不可改语义：exercises.ts 的 jumpFree / kneeFriendly / spineFriendly 三个布尔 + intensity 四档，对应档案里的 '无跳跃' / '膝部负担小' / '腰部负担小' / '低强度起步'（exercises L105-114）；器材用 OR 语义（hasEquipment L117-120，动作器材与档案器材有任一交集即满足），场地用交集语义。",
+  "动作库条目带 source 标注「自编演示条目 · 参照常见居家训练动作，未经专业人士审核」（exercises L8）。任何新界面都不得把它呈现为专业处方；status:'retired' 的条目（L81）不得用于新推荐。",
+  "摄像头跟练只支持带 camera 配置的动作：ex-chair-sitstand（joint knee, neutral 168, bottom 100, minStageMs 220）与 ex-stand-curl（joint elbow, neutral 170, bottom 55, minStageMs 180）。这些角度阈值是 useRepCounter 状态机的识别口径（迟滞 8°、minRepMs 700、maxStageMs 6000、minVisibility 0.5），UI 层不能改；\"开始跟练\"入口必须继续只对有 camera 的动作开放。",
+  "持久化格式：localStorage key 'twopoles_state' 里存 plans / planHistory / profile / sessions / meals / unitGrams（app.ts L105、L138-151）。Plan / PlanItem 的字段改动必须向后兼容旧数据（app.ts init 只对 profile 做了 normalizeProfile，plans 没有兼容层，改结构要自己兜）。",
+  "版本语义：一次改动 = 一个新版本，旧版本永不静默覆盖，一律进 planHistory（app.ts L322 / L546 / L595）。这是产品承诺，界面改版不能改成\"就地保存\"。",
+  "负荷口径：缺 RPE 的天整日不计入、不按 0 补齐（weekRules L66-68、loadRules L104-107）；未记录 ≠ 没发生。计划页四周周期的负荷条依赖这个口径，不能为了好看而改成 0。",
+  "浏览器约束：localStorage 容量有限，persistState 写失败必须提示而不是静默丢数据（app.ts L151-166）；planHistory 随每次改动增长（app.ts L322/L546），改版若增加高频自动保存会加速撑爆配额。",
+  "跨页深链 /execution?exercise=<动作名> 是既有契约（PlanView L328 → ExecutionView L293-344），动作名同时是查库键；改动动作命名或链接参数会打断这条链路。",
+  "日期口径：全部用本地时区的 YYYY-MM-DD 字符串（utils/time.toISODate），周起点是周一（weekRules.weekStart 用 (d.getDay()+6)%7），月格也是周一起始（monthCells）。跨时区/跨月的边界计算不能改成 UTC 字符串。"
+ ],
+ "redesignHooks": [
+  "【整块可换 · 不动逻辑】月历卡 PlanView L45-67：输入只有 monthCells/cursor/selected，输出只有 select(day) 与 hasPlan(day) 两个语义。可以整体换成周视图、列表视图或横向时间轴而不碰任何规则代码。",
+  "【整块可换】当日详情里的 plan-item 列表 L83-94：输入是 PlanItem[]，输出动作只有 toggleComplete / toggleLock 两个。可以整块换成卡片堆叠、时间轴行、或右侧抽屉，逻辑不动。",
+  "【整块可换】四周周期四卡 L120-128：全部数据来自 cyclePhases 这个纯 computed（L282-307），没有副作用，可整块换成甘特条、环形图或阶段时间轴。",
+  "【整块可换】手工录入表单 L32-42 与本机版本历史卡 L156-163：一个 4 字段表单 + 一个纯展示列表，都与规则引擎零耦合。",
+  "【整块可换】工具条 L8-24：tabs 与版本区是纯展示 + 两个 store action 调用，可以换成任何形态的工具条；前提是先统一 L14-15 的版本号/模式双来源。",
+  "【整块可换】PlanDraftDialog 已经是独立组件（AppShell 挂载），461 行自成一体，不属于计划页内部结构；改版计划页时不必也不应该动它。",
+  "【必须先解耦 · 样式与逻辑揉在一起】PlanView 的 template 与 script 强耦合：detail / cycle / replace / manual 四个区块的显示条件散落在模板的 v-if 里，没有任何子组件边界。改版第一步应是抽出 PlanCalendar / PlanDetail / CyclePhases / ManualEntryForm 四个组件，computed 进 props、事件走 emits，然后再动样式。",
+  "【必须先解耦】replaceTargets（L246-256）被模板两处引用（L98 替换区、L114 按钮 disabled），且依赖 findExercise(L250) 这个\"用中文名反查动作库\"的耦合。应把候选计算下沉到 service 层，并改用 exerciseId 作为连接键（注意：LLM 生成的 PlanItem.exerciseId 是空的，需保留按名字兜底的路径）。",
+  "【必须先解耦】adjustment（L259-279）把超预算检测、建议文案、目标日期计算揉在一个 computed 里，UI 与算法没有分层。应抽成 planRules.adjustmentFor() 之类的纯函数，PlanView 只负责渲染。",
+  "【必须先解耦】cyclePhases（L282-307）在视图里现算 buildWeeklyReport，且 604800000 毫秒常量硬编码在 L293/L296。应下沉到 weekRules/loadRules，视图只拿卡片数据。",
+  "【必须先解耦】TrainingType → lucide 图标的映射（L198-205）把呈现决策写死在视图里；应改成可替换的 map，或让动作条目自带图标字段。",
+  "【必须先解耦】scoped CSS（L422-541）与 DOM 结构强耦合：.detail / .plan-item / .replace / .cycle / .phase 一整套子选择器都假设了当前的 flex 行布局与 20px 内边距；换布局必然要重写这一段，不能靠覆盖补丁。",
+  "【必须先解耦】store.dayPlanNotice 返回四个字段但只有两个被 PlanView 使用（stale 只在 DashboardView 用，auto 无人用）。应让 store 暴露更细的 selector（例如 planStale / planGate / planConflicts）并把 stale 真正显示在计划页上，再重画顶部提示区。",
+  "【必须先统一口径再改界面】\"计划数\"有规则与已存计划两套定义（weekRules L71 vs store.plans）。界面一旦要显示\"本周 N 场\"，必须先让 weekRules 的 plannedDays 优先读已存计划、规则只在没有计划时兜底，否则改版只会把矛盾固化到新 UI 上。",
+  "【可复用接缝】BaseCard / BaseButton / StatusBadge 已经是干净的替换位：日历卡与详情卡通过 --card-pad 覆写内距、tabs 与 regen 按钮是自绘的 —— 新设计可以直接换成组件库的 variant，不必再手写第三套按钮。",
+  "【可复用接缝】planRules 的 DayPlan{items, conflicts, auto, gateNote, ruleVersion} 本身就是一个完整的视图模型契约，界面只需要换渲染方式即可，不必让新组件去理解 blockers/pick 的内部逻辑。"
+ ]
+}
