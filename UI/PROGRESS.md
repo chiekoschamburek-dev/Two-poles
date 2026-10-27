@@ -66,6 +66,13 @@
 `bridgeRules`（运动 × 饮食同期对照，本轮新增）、`foodComposition`（56 条目录 + 单位↔克数换算）、
 `exercises`（动作库 + 场地/器材/限制过滤）、`demoCameraService`（按组时间线 + `summarizeSession`）。
 
+## 部署（EdgeOne Pages / ESA）
+
+- 线上 `/api/llm/chat`、`/api/llm/status` 由 Pages Functions 承载：`UI/functions/api/llm/*` 与仓库根 `functions/api/llm/*` 各一份，兼容 Pages 项目根目录的两种设置。
+- 默认模型从 `LLM_DEFAULT_BASE_URL` / `LLM_DEFAULT_API_KEY` / `LLM_DEFAULT_MODEL` 读取；密钥只在边缘函数运行时，`/api/llm/status` 只返回 `{available, model}`。
+- 自定义模型代理默认关闭；需要用户在设置页填自己的接口时，才在 ESA 设 `ALLOW_CUSTOM_LLM_PROXY=true`，并加频率限制（开放代理风险）。
+- 完整步骤、根目录选择与排障见 [`DEPLOY-ESA.md`](DEPLOY-ESA.md)。
+
 ## 质量门
 
 | 检查 | 现状 |
