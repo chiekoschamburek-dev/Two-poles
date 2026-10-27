@@ -18,7 +18,7 @@
 | 内容库 | 动作库 `services/exercises.ts` 27 条（含 1 条停用）带器材/场地/时长/强度/限制门槛与来源标注；食物目录 `services/foodComposition.ts` 56 条 + 22 种混合菜，全部 `verified: false` |
 | 摄像头资产 | 需先执行 `cd UI && npm run camera:assets`（拉取 5.5 MB 模型 + 27 MB wasm，已被 .gitignore 排除）；且页面必须走 **https 或 localhost**（`vite --host` 的局域网 http 地址无法调用摄像头） |
 | 模式切换 | ✅ **页头右侧的模式芯片**（UI 3.0 从侧栏迁来）与设置页切换都**先展示差异与未完成计划、确认后才生效**，取消则不改动任何数据；切换历史与当时未完成计划数落本机，旧模式计划仍可见（需明确复制才形成新模式计划） |
-| 后端 | 无账号后端；本地 `/api/llm/*` 由同源 Vite 中间件转发，线上由 EdgeOne Pages Functions（`functions/api/llm/*` + `LLM_DEFAULT_*` 环境变量）转发。服务端默认模型的密钥只存在于边缘函数运行时，浏览器只拿到 `{available, model}`；设置页自定义密钥只存本机。部署见 [DEPLOY-ESA.md](DEPLOY-ESA.md) |
+| 后端 | 无账号后端；本地 `/api/llm/*` 由同源 Vite 中间件转发，线上由阿里云 ESA 的单入口边缘函数 `UI/server/llm.js`（根 `esa.jsonc` 的 `entry`）转发。服务端默认模型的密钥只存在于 ESA 函数变量中，浏览器只拿到 `{available, model}`；设置页自定义密钥只存本机。部署见 [DEPLOY-ESA.md](DEPLOY-ESA.md) |
 
 下方"核心功能"章节描述的是**设计目标**，剩余未实现项已逐项标注。**后续怎么做（拍照识别热量的取舍、后端与前端如何对接、里程碑顺序）见仓库根 [`../plan.md`](../plan.md)。**
 
@@ -62,9 +62,9 @@ npm run build
 npm run typecheck
 ```
 
-### 部署到 EdgeOne Pages（ESA）
+### 部署到阿里云 ESA（函数和 Pages）
 
-模型默认密钥、`/api/llm/*` 的 Pages Functions 与环境变量配置，见 [DEPLOY-ESA.md](DEPLOY-ESA.md)。
+模型默认密钥、`/api/llm/*` 的单入口边缘函数 `UI/server/llm.js` 与函数变量配置，见 [DEPLOY-ESA.md](DEPLOY-ESA.md)。
 
 ## 📁 项目结构
 

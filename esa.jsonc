@@ -1,4 +1,7 @@
 {
+  "entry": "./UI/server/llm.js",
+  "installCommand": "cd UI && npm install --include=dev",
+  "buildCommand": "cd UI && npm install --include=dev && npm run build",
   "assets": {
     "directory": "./UI/dist",
     "notFoundStrategy": "singlePageApplication"

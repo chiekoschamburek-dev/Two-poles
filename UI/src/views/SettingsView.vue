@@ -105,7 +105,7 @@
       </div>
 
       <p class="fine">
-        浏览器直连第三方接口会被 CORS 拦掉，所以请求经同源 <code>/api/llm/chat</code> 转发：本地由 Vite 中间件，线上由 EdgeOne Pages Function。
+        浏览器直连第三方接口会被 CORS 拦掉，所以请求经同源 <code>/api/llm/chat</code> 转发：本地由 Vite 中间件，线上由阿里云 ESA 函数入口（<code>UI/server/llm.js</code>）。
         你自己的密钥只存在这台设备上，只在这次请求里经过同源代理，不写日志、不入库；
         服务端默认模型的密钥只存在于边缘函数环境变量里，不会下发到浏览器。两者都没有时，应用仍然按内置规则生成计划。
       </p>

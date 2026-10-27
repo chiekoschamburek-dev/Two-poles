@@ -467,7 +467,7 @@ export interface LlmCallOptions {
 /**
  * 通过同源代理调用模型。浏览器直连第三方 API 多数会被 CORS 拦掉，
  * 所以统一走 /api/llm/*：本地由 vite.config.ts 的中间件转发，
- * 线上由 EdgeOne Pages Function（functions/api/llm/*）转发。
+ * 线上由阿里云 ESA 函数入口（UI/server/llm.js，esa.jsonc 的 entry）转发。
  * 文本计划与照片识别共用这一条调用路径和同一份模型配置。
  */
 export async function callLlmChat(
@@ -497,10 +497,14 @@ export async function callLlmChat(
       const detail = typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`
       return { text: '', error: `模型接口返回错误：${detail}`, model }
     }
+    // ESA 函数会先发一个空格再流式写入 JSON；上游错误也会以 200 + {error} 的形式回来
+    if (typeof data?.error === 'string' && data.error.trim()) {
+      return { text: '', error: `模型接口返回错误：${data.error}`, model }
+    }
     if (typeof data?.text !== 'string' || !data.text.trim()) {
       return {
         text: '',
-        error: '模型代理没有返回内容：本地请用 npm run dev / npm run preview；线上请确认 /api/llm/chat 已由 Pages Function 处理，而不是被 SPA 回退成 index.html。',
+        error: '模型代理没有返回内容：本地请用 npm run dev / npm run preview；线上请确认 /api/llm/chat 已由 ESA 函数入口处理，而不是被 SPA 回退成 index.html。',
         model
       }
     }
@@ -510,7 +514,7 @@ export async function callLlmChat(
     if (msg.includes('Failed to fetch')) {
       return {
         text: '',
-        error: '连不上本地代理：本地请用 npm run dev / npm run preview；若已部署到 ESA，请确认 Pages Function 与 LLM_DEFAULT_* 环境变量已配置并重新部署。'
+        error: '连不上本地代理：本地请用 npm run dev / npm run preview；若已部署到 ESA，请确认函数入口（entry）和函数变量 LLM_DEFAULT_* 已配置并重新部署。'
       }
     }
     return { text: '', error: `调用失败：${msg}` }
