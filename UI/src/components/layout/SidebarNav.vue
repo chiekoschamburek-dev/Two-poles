@@ -244,8 +244,8 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
   gap: 2px;
   margin-top: 5px;
 }
-.nav-group.movement { --pole-color: var(--pole-movement); }
-.nav-group.nutrition { --pole-color: var(--pole-nutrition); }
+.nav-group.movement { --pole-color: var(--pole-movement); --pole-strong: var(--pole-movement-strong); }
+.nav-group.nutrition { --pole-color: var(--pole-nutrition); --pole-strong: var(--pole-nutrition-strong); }
 
 .group-head {
   width: 64px;
@@ -269,7 +269,7 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
   opacity: 0.5;
   flex: none;
 }
-.group-head.on { color: var(--pole-color); }
+.group-head.on { color: var(--pole-strong); }
 .group-head.on i { opacity: 1; }
 
 .nav-sep {

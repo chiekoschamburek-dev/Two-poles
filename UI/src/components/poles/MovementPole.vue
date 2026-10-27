@@ -554,7 +554,7 @@ function statusLabel(status: TrainingSession['completionStatus']) {
   gap: 3px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--pole-color);
+  color: var(--pole-strong);
   white-space: nowrap;
 }
 .head-link:hover {
@@ -584,7 +584,7 @@ function statusLabel(status: TrainingSession['completionStatus']) {
   font-family: var(--font-num);
   font-size: 10px;
   font-weight: 600;
-  color: var(--pole-color);
+  color: var(--pole-strong);
   font-variant-numeric: tabular-nums;
 }
 .step-rail {
@@ -647,7 +647,7 @@ function statusLabel(status: TrainingSession['completionStatus']) {
   flex: none;
   border-radius: var(--radius-sm);
   background: var(--pole-soft);
-  color: var(--pole-color);
+  color: var(--pole-strong);
 }
 .empty strong {
   display: block;
@@ -763,7 +763,7 @@ function statusLabel(status: TrainingSession['completionStatus']) {
   color: var(--pole-strong);
 }
 .day.today b {
-  color: var(--pole-color);
+  color: var(--pole-strong);
 }
 .day b {
   font-family: var(--font-num);
@@ -996,7 +996,7 @@ function statusLabel(status: TrainingSession['completionStatus']) {
 .text-action {
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--pole-color);
+  color: var(--pole-strong);
 }
 .text-action {
   display: inline-flex;
@@ -1065,7 +1065,7 @@ function statusLabel(status: TrainingSession['completionStatus']) {
 }
 .foot-btn:hover {
   border-color: var(--pole-color);
-  color: var(--pole-color);
+  color: var(--pole-strong);
 }
 
 @media (max-width: 1279px) {

@@ -83,7 +83,8 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--color-card);
+  /* 栏底色只给 4% 极色，内容卡仍是白纸：靠间隙与栏顶线区分两极，不把整页刷成两色 */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--pole-color) 4%, var(--color-card)) 0%, var(--color-card) 260px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--inner-light);
@@ -95,13 +96,13 @@ const emit = defineEmits<{
   --pole-strong: var(--pole-nutrition-strong);
 }
 
-/* 栏顶 3px 身份线：不靠满屏着色区分两极 */
+/* 栏顶 4px 身份线：不靠满屏着色区分两极 */
 .pole::before {
   content: '';
   position: absolute;
   inset: 0 0 auto;
-  height: 3px;
-  background: linear-gradient(90deg, var(--pole-color), color-mix(in srgb, var(--pole-color) 18%, transparent));
+  height: 4px;
+  background: linear-gradient(90deg, var(--pole-color), color-mix(in srgb, var(--pole-color) 22%, transparent));
   z-index: 1;
 }
 
@@ -109,7 +110,7 @@ const emit = defineEmits<{
   flex: none;
   padding: 17px 18px 12px;
   border-bottom: 1px solid var(--color-divider);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--pole-color) 5%, var(--color-card)), var(--color-card) 150px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--pole-color) 8%, var(--color-card)), var(--color-card) 180px);
 }
 
 .identity {
@@ -131,7 +132,7 @@ const emit = defineEmits<{
   letter-spacing: -0.01em;
 }
 .names .micro {
-  color: var(--pole-color);
+  color: var(--pole-strong);
   white-space: nowrap;
 }
 
@@ -159,7 +160,7 @@ const emit = defineEmits<{
   background: var(--color-text-muted);
 }
 .chip.ok {
-  color: var(--pole-color);
+  color: var(--pole-strong);
   border-color: var(--pole-line);
   background: var(--pole-soft);
 }

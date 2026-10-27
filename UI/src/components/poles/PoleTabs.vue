@@ -99,7 +99,7 @@ function onKeydown(event: KeyboardEvent) {
 }
 .tab.on {
   background: var(--color-card);
-  color: var(--color-ink);
+  color: var(--pole-strong, var(--color-ink));
   font-weight: 600;
   box-shadow: var(--shadow-sm);
 }

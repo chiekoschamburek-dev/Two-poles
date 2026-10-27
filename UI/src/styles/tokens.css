@@ -60,26 +60,27 @@
   --color-neutral-soft: #eeede7;
 
   /* === 品牌位 === */
-  /* 两仪的两极是全站唯一的"双色"场合：左极=运动，右极=饮食 */
-  --brand-pole-a: #0f766e;
-  --brand-pole-a-light: #3ec9b6;
-  --brand-pole-b: #24586f;
-  --brand-pole-b-light: #8fb8d8;
+  /* 两仪的两极：左极=运动（陶土），右极=饮食（松石）。
+     交互强调色仍是 --color-accent（松石）；运动侧是唯一的暖色身份。 */
+  --brand-pole-a: #a34d28;
+  --brand-pole-a-light: #d98b68;
+  --brand-pole-b: #0f766e;
+  --brand-pole-b-light: #4fa99d;
   --brand-pole-ring: #c9c6bb;
 
-  /* 双极工作台专用：左栏运动（青），右栏饮食（蓝）。
-     只用于身份条、栏顶细线、联动按钮与图标，不替代交互强调色。 */
-  --pole-movement: #0f766e;
-  --pole-movement-strong: #0b5b56;
-  --pole-movement-soft: #e4ede9;
-  --pole-movement-line: #c8d9d3;
-  --pole-nutrition: #24586f;
-  --pole-nutrition-strong: #1a4152;
-  --pole-nutrition-soft: #e7eef2;
-  --pole-nutrition-line: #c9d8e0;
+  /* 双极工作台专用：左栏运动（陶土），右栏饮食（松石）。
+     大色块只出现在栏顶线与数据条；文字一律优先用 *-strong，保证 A4 级对比度。 */
+  --pole-movement: #a34d28;
+  --pole-movement-strong: #843416;
+  --pole-movement-soft: #f7e9e3;
+  --pole-movement-line: #e8c9bc;
+  --pole-nutrition: #0f766e;
+  --pole-nutrition-strong: #0b5b56;
+  --pole-nutrition-soft: #e4ede9;
+  --pole-nutrition-line: #c8d9d3;
   /* 深底专用：两极提亮一档，否则在 #11161a 上读不出形状 */
-  --brand-pole-a-dark: #3ec9b6;
-  --brand-pole-b-dark: #7fa8c4;
+  --brand-pole-a-dark: #e6a17f;
+  --brand-pole-b-dark: #3ec9b6;
   --gradient-brand: linear-gradient(112deg, #151d23 0%, #11161a 60%, #0d1114 100%);
   --gradient-hero: linear-gradient(115deg, #131b20 0%, #11161a 62%, #0d1114 100%);
 
@@ -247,15 +248,20 @@ html[data-theme="dark"] {
   --color-neutral-soft: #242a30;
 
   --brand-pole-ring: #3a4249;
+  /* 深色主题下品牌弧线也用提亮值，否则侧栏的标志在深底上读不出来 */
+  --brand-pole-a: #e6a17f;
+  --brand-pole-a-light: #e6a17f;
+  --brand-pole-b: #3ec9b6;
+  --brand-pole-b-light: #3ec9b6;
 
-  --pole-movement: #3ec9b6;
-  --pole-movement-strong: #2ba89a;
-  --pole-movement-soft: #16302d;
-  --pole-movement-line: #24504a;
-  --pole-nutrition: #8fb8d8;
-  --pole-nutrition-strong: #a9c8e0;
-  --pole-nutrition-soft: #16262f;
-  --pole-nutrition-line: #2c4654;
+  --pole-movement: #e6a17f;
+  --pole-movement-strong: #f4c2a9;
+  --pole-movement-soft: #3a241c;
+  --pole-movement-line: #6c3a27;
+  --pole-nutrition: #3ec9b6;
+  --pole-nutrition-strong: #2ba89a;
+  --pole-nutrition-soft: #16302d;
+  --pole-nutrition-line: #24504a;
 
   --surface-glass: rgba(28, 33, 38, 0.86);
   --surface-glass-strong: rgba(28, 33, 38, 0.95);
