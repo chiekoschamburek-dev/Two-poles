@@ -423,7 +423,7 @@ watch(
 .page-wrap{max-width:var(--content-max-width);margin:auto}
 /* 小标签统一成 .micro 的样子：短横线 + 10px 大字距，不再用那枚旋转 45° 的小方块 */
 .eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-num);font-size:10px;letter-spacing:var(--tracking-micro);text-transform:uppercase;color:var(--color-text-muted);font-weight:600}
-.eyebrow::before{content:'';width:14px;height:1px;background:var(--color-accent);margin-right:0}
+.eyebrow::before{content:'';width:14px;height:1px;background:var(--pole-movement);margin-right:0}
 .page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;padding:18px 0 16px}
 .page-head h1{font-size:36px;letter-spacing:-.03em;margin:9px 0 0;color:var(--color-ink)}
 .page-head p{color:var(--color-text-muted);font-size:12.5px;margin:8px 0 0}
@@ -434,8 +434,8 @@ watch(
 .version{display:flex;align-items:center;gap:8px;font-family:var(--font-num);font-size:12px;color:var(--color-text-muted);font-variant-numeric:tabular-nums}
 .version strong{color:var(--color-ink);font-weight:600}
 .ver-mode{font-size:10.5px;letter-spacing:.04em;padding:2px 6px;border:1px solid var(--color-border);border-radius:var(--radius-sm);color:var(--color-text-secondary)}
-.regen{font-size:11.5px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);padding:5px 10px;border-radius:var(--radius-sm);min-height:28px;border:1px solid var(--color-accent-line);transition:border-color var(--motion-fast)}
-.regen:hover{border-color:var(--color-accent)}
+.regen{font-size:11.5px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);padding:5px 10px;border-radius:var(--radius-sm);min-height:28px;border:1px solid var(--pole-movement-line);transition:border-color var(--motion-fast)}
+.regen:hover{border-color:var(--pole-movement)}
 .regen.ai{background:var(--color-card)}
 .regen:disabled{opacity:.45;cursor:not-allowed}
 .gate-note{font-size:12.5px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:var(--radius-sm);padding:10px 12px;margin:0 0 10px;line-height:1.65;box-shadow:inset 3px 0 0 var(--color-caution)}
@@ -463,21 +463,21 @@ watch(
 .calendar-grid button{height:46px;border-radius:var(--radius-sm);position:relative;color:var(--color-text-secondary);font-family:var(--font-num);font-size:12.5px;font-variant-numeric:tabular-nums;transition:background var(--motion-fast),color var(--motion-fast)}
 .calendar-grid .blank{height:46px}
 .calendar-grid button:hover:enabled{background:var(--color-neutral-soft);color:var(--color-ink)}
-.calendar-grid button.today{background:var(--color-accent);color:var(--color-on-accent);font-weight:700}
-.calendar-grid button.selected:not(.today){background:var(--color-accent-soft);color:var(--color-accent-strong);font-weight:700;box-shadow:inset 0 0 0 1px var(--color-accent-line)}
+.calendar-grid button.today{background:var(--pole-movement);color:var(--color-on-accent);font-weight:700}
+.calendar-grid button.selected:not(.today){background:var(--pole-movement-soft);color:var(--pole-movement-strong);font-weight:700;box-shadow:inset 0 0 0 1px var(--pole-movement-line)}
 .calendar-grid button.rest:not(.today){color:var(--hair-strong)}
-.calendar-grid i{position:absolute;width:4px;height:4px;border-radius:50%;background:var(--color-accent);bottom:6px;left:50%;transform:translateX(-50%)}
+.calendar-grid i{position:absolute;width:4px;height:4px;border-radius:50%;background:var(--pole-movement);bottom:6px;left:50%;transform:translateX(-50%)}
 .calendar-grid .today i{background:var(--color-on-accent)}
 .legend{display:flex;gap:16px;margin:12px 18px 0;padding-top:10px;border-top:1px solid var(--hair-soft);font-size:10.5px;color:var(--color-text-muted)}
 .legend span{display:flex;align-items:center;gap:5px}
 .dot{display:inline-block;width:6px;height:6px;border-radius:50%}
-.dot.plan{background:var(--color-accent)}.dot.locked{background:var(--color-accent-strong)}.dot.rest-dot{background:transparent;box-shadow:inset 0 0 0 1px var(--hair-strong)}
+.dot.plan{background:var(--pole-movement)}.dot.locked{background:var(--pole-movement-strong)}.dot.rest-dot{background:transparent;box-shadow:inset 0 0 0 1px var(--hair-strong)}
 .detail{--card-pad:0 0 18px}
 .detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:13px 20px 11px;border-bottom:1px solid var(--hair-soft);margin-bottom:0}
 .detail-head h2{font-family:var(--font-num);font-size:19px;font-weight:600;letter-spacing:-.02em;margin-top:5px}
 /* 当日摘要：一条发丝线 + 一个小方块图标，不再是整块浅绿 */
 .detail-hero{display:flex;align-items:center;gap:12px;padding:13px 20px;border-bottom:1px dashed var(--color-divider)}
-.detail-icon{width:32px;height:32px;border-radius:var(--radius-sm);color:var(--color-accent);background:var(--color-accent-soft);display:grid;place-items:center;flex:none}
+.detail-icon{width:32px;height:32px;border-radius:var(--radius-sm);color:var(--pole-movement-strong);background:var(--pole-movement-soft);display:grid;place-items:center;flex:none}
 .detail-hero h3{font-size:14.5px;font-weight:600}.detail-hero p{font-size:11.5px;color:var(--color-text-muted);margin:3px 0 0}
 .detail-hero .lock{margin-left:auto;color:var(--color-text-muted)}
 /* 计划项：账本行，hover 只改底色，不做位移和图标旋转 */
@@ -486,12 +486,12 @@ watch(
 .item-icon{width:28px;height:28px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);color:var(--color-text-secondary);display:grid;place-items:center;flex:none}
 .item-info{flex:1;min-width:150px}.item-info strong,.item-info small{display:block}
 .item-info strong{font-size:13.5px;font-weight:600;color:var(--color-ink)}.item-info small{font-size:11.5px;color:var(--color-text-muted);margin-top:2px;line-height:1.5}
-.item-info em{font-style:normal;color:var(--color-accent)}
+.item-info em{font-style:normal;color:var(--pole-movement-strong)}
 .plan-item>span{font-family:var(--font-num);font-size:11.5px;color:var(--color-text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
 .item-actions{display:flex;gap:5px;flex-wrap:wrap}
 .mini{font-size:11px;padding:4px 9px;min-height:26px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--hair-strong);color:var(--color-text-muted);transition:border-color var(--motion-fast),color var(--motion-fast),background var(--motion-fast)}
 .mini:hover:enabled{border-color:var(--color-ink);color:var(--color-ink)}
-.mini[aria-pressed="true"]{background:var(--color-accent);border-color:var(--color-accent);color:var(--color-on-accent)}
+.mini[aria-pressed="true"]{background:var(--pole-movement);border-color:var(--pole-movement);color:var(--color-on-accent)}
 .mini:disabled{opacity:.4;cursor:not-allowed}
 .rest-note{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);padding:14px 20px}
 .replace{margin:2px 20px 0;padding-top:12px;border-top:1px solid var(--hair-soft);display:grid;gap:9px}
@@ -500,18 +500,18 @@ watch(
 .replace-row strong{font-size:12.5px;color:var(--color-ink);font-weight:600;margin-right:2px}
 .alt{display:grid;gap:2px;text-align:left;font-size:12px;font-weight:600;color:var(--color-text-secondary);background:var(--color-card);padding:6px 10px;border-radius:var(--radius-sm);min-height:40px;border:1px solid var(--hair-strong);transition:border-color var(--motion-fast),color var(--motion-fast)}
 .alt small{font-size:10px;font-weight:400;color:var(--color-text-muted)}
-.alt:hover{border-color:var(--color-accent);color:var(--color-accent)}
+.alt:hover{border-color:var(--pole-movement);color:var(--pole-movement-strong)}
 .replace-none{font-size:11.5px;color:var(--color-text-muted);margin:10px 20px 0;line-height:1.6}
 .detail-actions{display:flex;gap:8px;flex-wrap:wrap;margin:16px 20px 0;padding-top:14px;border-top:1px solid var(--hair-soft)}
 .cycle{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
 .phase{position:relative;--card-pad:16px 16px 15px}
-.phase.current{box-shadow:inset 0 0 0 1px var(--color-accent-line),var(--inner-light)}
+.phase.current{box-shadow:inset 0 0 0 1px var(--pole-movement-line),var(--inner-light)}
 .phase-tag{position:absolute;top:14px;right:14px;font-family:var(--font-num);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-text-muted);font-weight:600}
-.phase.current .phase-tag{color:var(--color-accent)}
+.phase.current .phase-tag{color:var(--pole-movement-strong)}
 .phase h3{font-size:15px;margin-bottom:5px}
 .phase p{font-size:11.5px;color:var(--color-text-muted);margin:0 0 12px;line-height:1.6}
 .load-bar{height:4px;background:var(--color-divider);border-radius:2px;overflow:hidden}
-.load-bar i{display:block;height:100%;background:var(--color-accent);border-radius:2px}
+.load-bar i{display:block;height:100%;background:var(--pole-movement);border-radius:2px}
 .phase small{display:block;margin-top:8px;font-size:10.5px;color:var(--color-text-muted);line-height:1.5}
 .cycle-note{grid-column:1/-1;font-size:12px;color:var(--color-text-secondary);background:var(--color-neutral-soft);border-radius:var(--radius-sm);padding:11px 13px;margin:0;line-height:1.65}
 .version-card{margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:16px}
@@ -536,6 +536,11 @@ watch(
 .verlist em{font-style:normal;flex:1;min-width:180px;color:var(--color-text-muted)}
 .verlist span{font-size:10.5px;color:var(--color-text-muted);padding:1px 5px;border:1px solid var(--color-border);border-radius:4px}
 .verlist small{font-family:var(--font-num);font-size:10.5px;color:var(--color-text-muted);font-variant-numeric:tabular-nums}
+/* 计划页属于运动侧：info 徽标与按钮焦点收到陶土色；success / caution / danger 继续承担状态语义 */
+.detail :deep(.badge.info){color:var(--pole-movement-strong);background:var(--pole-movement-soft);box-shadow:inset 0 0 0 1px var(--pole-movement-line)}
+.detail :deep(.badge.info .dot){background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
+.page-wrap :deep(.base-button:focus-visible){box-shadow:0 0 0 3px color-mix(in srgb,var(--pole-movement) 32%,transparent)}
+.page-wrap button:focus-visible,.page-wrap a:focus-visible,.page-wrap input:focus-visible,.page-wrap select:focus-visible,.page-wrap textarea:focus-visible{outline-color:var(--pole-movement)}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:767px){.page-head{flex-direction:column;align-items:stretch;gap:12px;padding:14px 0 12px}.page-head h1{font-size:28px}.page-head :deep(button){display:none}.toolbar{align-items:center;gap:10px;flex-wrap:wrap}.version{margin-left:auto}.calendar-grid button,.calendar-grid .blank{height:42px}.legend{gap:10px;font-size:10px;margin:10px 14px 0}.version-card{align-items:stretch;gap:14px;flex-direction:column}.version-card :deep(button){width:100%}.cycle{grid-template-columns:1fr}}
 </style>

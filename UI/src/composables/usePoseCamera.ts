@@ -54,14 +54,15 @@ export function usePoseCamera() {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     if (!landmarks.length) return
     const utils = new DrawingUtils(ctx)
-    // canvas 的 fillStyle/strokeStyle 不解析 CSS 变量，这里只能写字面色值
+    // canvas 的 fillStyle/strokeStyle 不解析 CSS 变量，这里只能写字面色值。
+    // 跟练属于运动侧：沿用运动陶土 #a34d28 与深底提亮值 #e6a17f。
     utils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
-      color: 'rgba(79, 209, 197, 0.85)',
+      color: 'rgba(230, 161, 127, 0.85)',
       lineWidth: 3
     })
     utils.drawLandmarks(landmarks, {
       color: '#ffffff',
-      fillColor: '#0f766e',
+      fillColor: '#a34d28',
       lineWidth: 1,
       radius: 3
     })

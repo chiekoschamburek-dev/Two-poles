@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <Teleport to="body">
     <div v-if="open" class="scrim" @click.self="close">
       <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="draft-title">
@@ -369,7 +369,7 @@ function confirm() {
 .state.err p { color: var(--color-danger); }
 .spin {
   display: inline-block; width: 22px; height: 22px; margin-bottom: 14px; border-radius: 50%;
-  border: 2px solid var(--color-accent-soft); border-top-color: var(--color-accent);
+  border: 2px solid var(--pole-movement-soft); border-top-color: var(--pole-movement);
   animation: spin 900ms linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -379,18 +379,18 @@ function confirm() {
 .answers-summary { list-style: none; margin: 10px 22px 0; padding: 0; display: grid; gap: 5px; }
 .answers-summary li { font-size: 11.5px; line-height: 1.6; color: var(--color-text-secondary); padding: 6px 9px; border-radius: 7px; background: var(--color-neutral-soft); }
 .draft-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 22px 0; }
-.edit-toggle { padding: 6px 11px; border-radius: 8px; font-size: 11.5px; font-weight: 600; color: var(--color-accent); background: var(--color-accent-soft); box-shadow: inset 0 0 0 1px var(--color-accent-line); }
-.edit-toggle:hover { background: var(--color-accent-line); }
+.edit-toggle { padding: 6px 11px; border-radius: 8px; font-size: 11.5px; font-weight: 600; color: var(--pole-movement-strong); background: var(--pole-movement-soft); box-shadow: inset 0 0 0 1px var(--pole-movement-line); }
+.edit-toggle:hover { background: var(--pole-movement-line); }
 
 .questions { overflow-y: auto; flex: 1; min-height: 0; padding: 8px 22px 4px; display: grid; gap: 12px; }
 .question { padding: 12px; border-radius: var(--radius-md); background: var(--color-neutral-soft); box-shadow: inset 0 0 0 1px var(--color-border); }
 .q-head { display: flex; align-items: baseline; gap: 8px; }
-.q-no { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; flex: none; font-family: var(--font-num); font-size: 10px; font-weight: 700; color: var(--color-accent); background: var(--color-accent-soft); }
+.q-no { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; flex: none; font-family: var(--font-num); font-size: 10px; font-weight: 700; color: var(--pole-movement-strong); background: var(--pole-movement-soft); }
 .q-head p { margin: 0; font-size: 13px; font-weight: 600; color: var(--color-ink); line-height: 1.6; }
 .q-why { display: block; margin: 4px 0 0 28px; font-size: 11px; color: var(--color-text-muted); line-height: 1.6; }
 .q-options { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0 0 28px; }
 .q-options button { padding: 6px 10px; border-radius: 8px; font-size: 11.5px; color: var(--color-text-secondary); background: var(--color-card); box-shadow: inset 0 0 0 1px var(--color-border); }
-.q-options button.on { color: var(--color-accent); background: var(--color-accent-soft); box-shadow: inset 0 0 0 1px var(--color-accent-line); font-weight: 600; }
+.q-options button.on { color: var(--pole-movement-strong); background: var(--pole-movement-soft); box-shadow: inset 0 0 0 1px var(--pole-movement-line); font-weight: 600; }
 .q-input { width: calc(100% - 28px); margin: 8px 0 0 28px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 12.5px; font-family: inherit; color: var(--color-ink); background: var(--surface-field); }
 
 .days { overflow-y: auto; padding: 8px 22px 4px; flex: 1; min-height: 0; }
@@ -421,11 +421,12 @@ function confirm() {
 }
 .rm { font-size: 11px; color: var(--color-text-muted); padding: 4px 6px; border-radius: 6px; white-space: nowrap; }
 .rm:hover { color: var(--color-danger); background: var(--color-danger-soft); }
-.add-item { margin-top: 5px; padding: 5px 9px; border-radius: 7px; font-size: 11px; font-weight: 600; color: var(--color-accent); background: var(--color-accent-soft); }
+.add-item { margin-top: 5px; padding: 5px 9px; border-radius: 7px; font-size: 11px; font-weight: 600; color: var(--pole-movement-strong); background: var(--pole-movement-soft); }
 .add-day { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 22px 0; padding: 9px 11px; border-radius: 9px; background: var(--color-neutral-soft); }
 .add-label { font-size: 11.5px; color: var(--color-text-secondary); }
 .add-day select { padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 7px; font-size: 12px; font-family: inherit; color: var(--color-ink); background: var(--surface-field); }
-.add-day button { padding: 6px 10px; border-radius: 7px; font-size: 11.5px; font-weight: 600; color: var(--color-accent); background: var(--color-accent-soft); }
+.add-day button { padding: 6px 10px; border-radius: 7px; font-size: 11.5px; font-weight: 600; color: var(--pole-movement-strong); background: var(--pole-movement-soft); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline-color: var(--pole-movement); }
 .day-empty { font-size: 12px; color: var(--color-text-muted); margin: 2px 0 6px; }
 .fine { font-size: 11.5px; color: var(--color-text-muted); line-height: 1.7; margin: 10px 22px 14px; }
 
