@@ -24,6 +24,7 @@ import {
 } from '@/services/llm'
 import type { LlmConfig, LlmDefaultStatus, PlanDraft, PlanDraftState } from '@/services/llm'
 import { weekStart } from '@/services/weekRules'
+import { WELLNESS_DISMISS_KEY } from '@/services/wellnessCards'
 import { toISODate } from '@/utils/time'
 
 export interface NewMealInput {
@@ -881,6 +882,8 @@ export const useAppStore = defineStore('app', () => {
     unitGrams.value = {}
     applyTheme()
     localStorage.removeItem('twopoles_state')
+    // 每日养生的「今日不再出现」也是本机偏好；清除数据后应回到进站即弹
+    localStorage.removeItem(WELLNESS_DISMISS_KEY)
     void clearMealPhotos().catch(() => { /* 照片库清理失败时至少保留了主数据清除结果 */ })
     showToast({
       type: 'success',

@@ -1,5 +1,5 @@
 <template>
-  <BaseCard class="wellness" :class="{ open: expanded }" @click="expand">
+  <BaseCard class="wellness" :class="{ open: expanded, compact }" @click="expand">
     <button
       ref="toggleBtn"
       type="button"
@@ -88,8 +88,13 @@ const props = withDefaults(
   defineProps<{
     /** 首页传入统一的 now，避免卡片与页面标题跨到不同日期 */
     date?: Date
+    /**
+     * 紧凑形态给悬浮小卡片：去掉外层卡面与 margin，
+     * 展开详解强制单列——否则会被视口宽度的两栏规则撑成 1fr + 340px。
+     */
+    compact?: boolean
   }>(),
-  { date: () => new Date() }
+  { date: () => new Date(), compact: false }
 )
 
 const store = useAppStore()
@@ -120,6 +125,41 @@ async function collapseFromBottom() {
 .wellness:hover { border-color: var(--hair-strong); }
 .wellness.open,
 .wellness.open:hover { border-color: var(--color-accent-line); cursor: default; }
+
+/* 浮窗形态：卡面由外层的 .wk-float 提供，这里只保留内容与排版 */
+.wellness.compact {
+  margin-top: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+.wellness.compact:hover,
+.wellness.compact.open,
+.wellness.compact.open:hover { border-color: transparent; }
+.wellness.compact .w-toggle {
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 13px 15px 12px;
+  border-radius: 0;
+}
+.wellness.compact .w-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+}
+.wellness.compact .w-title { font-size: 15.5px; }
+.wellness.compact .w-summary { font-size: 12px; }
+.wellness.compact .w-detail {
+  display: block;
+  padding: 13px 15px 15px;
+}
+.wellness.compact .w-side {
+  padding-left: 0;
+  border-left: 0;
+  margin-top: 14px;
+}
+.wellness.compact .w-collapse { margin-top: 12px; }
 
 .w-toggle {
   display: grid;

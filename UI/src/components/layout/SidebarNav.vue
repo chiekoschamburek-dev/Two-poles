@@ -81,17 +81,46 @@
       </RouterLink>
     </nav>
 
-    <div class="rail-foot">
-      <RouterLink to="/onboarding" class="nav-item" title="个人档案" @click="emit('close')">
-        <UserRound :size="18" />
-        <span class="short">档案</span>
-        <span class="full">个人档案</span>
-      </RouterLink>
-      <RouterLink to="/settings" class="nav-item" title="个人设置" @click="emit('close')">
-        <Settings :size="18" />
-        <span class="short">设置</span>
-        <span class="full">个人设置</span>
-      </RouterLink>
+    <div class="rail-bottom">
+      <!-- 进站弹窗关掉后落到这里；点它把养生小卡片浮到旁边 -->
+      <Transition name="wk-rail">
+        <button
+          v-if="wellnessReady && !wellnessModalOpen"
+          id="wellness-rail-trigger"
+          type="button"
+          class="rail-wellness"
+          :class="{ on: wellnessCardOpen }"
+          data-wellness-trigger
+          aria-haspopup="dialog"
+          :aria-expanded="wellnessCardOpen"
+          :aria-controls="wellnessCardOpen ? 'wellness-float' : undefined"
+          :title="`今日养生：${wellnessCard.title}`"
+          @click="openWellness"
+        >
+          <span class="rw-icon" aria-hidden="true">
+            <Leaf v-if="wellnessCard.category === '饮食'" :size="16" />
+            <HeartPulse v-else :size="16" />
+          </span>
+          <span class="rw-text">
+            <span class="short">养生</span>
+            <span class="full">今日养生</span>
+            <span class="rw-sub">{{ wellnessCard.category }} · 点开小卡片</span>
+          </span>
+        </button>
+      </Transition>
+
+      <div class="rail-foot">
+        <RouterLink to="/onboarding" class="nav-item" title="个人档案" @click="emit('close')">
+          <UserRound :size="18" />
+          <span class="short">档案</span>
+          <span class="full">个人档案</span>
+        </RouterLink>
+        <RouterLink to="/settings" class="nav-item" title="个人设置" @click="emit('close')">
+          <Settings :size="18" />
+          <span class="short">设置</span>
+          <span class="full">个人设置</span>
+        </RouterLink>
+      </div>
     </div>
   </aside>
 </template>
@@ -99,7 +128,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { CalendarDays, Dumbbell, Utensils, CircleDot, ClipboardList, Settings, UserRound } from 'lucide-vue-next'
+import {
+  CalendarDays,
+  Dumbbell,
+  Utensils,
+  CircleDot,
+  ClipboardList,
+  HeartPulse,
+  Leaf,
+  Settings,
+  UserRound
+} from 'lucide-vue-next'
+import { useWellnessDock } from '@/composables/useWellnessDock'
 
 defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -107,6 +147,20 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 const route = useRoute()
 const movementActive = computed(() => route.path.startsWith('/plan') || route.path.startsWith('/execution'))
 const nutritionActive = computed(() => route.path.startsWith('/meals'))
+
+const {
+  ready: wellnessReady,
+  modalOpen: wellnessModalOpen,
+  cardOpen: wellnessCardOpen,
+  card: wellnessCard,
+  toggleCard: toggleWellnessCard
+} = useWellnessDock()
+
+function openWellness() {
+  toggleWellnessCard()
+  // 手机端从抽屉里点开：先把抽屉收掉，否则抽屉会盖住浮卡片
+  emit('close')
+}
 
 /** 脊上放短标签（86px 装不下全称），title 与移动端抽屉里给全称 */
 const movementItems = [
@@ -226,8 +280,70 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
   flex: none;
 }
 
-.rail-foot { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 10px; }
+/* 底部整体：养生小卡片 + 档案/设置。margin-top:auto 把这一组压到图标脊下方 */
+.rail-bottom {
+  margin-top: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.rail-foot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 10px; width: 100%; }
 .rail-foot .nav-item { font-size: 9.5px; padding: 7px 0 6px; }
+
+/* 每日养生：不是导航项，是一张可以随时点开的小卡片 */
+.rail-wellness {
+  width: 64px;
+  min-height: 58px;
+  margin-bottom: 8px;
+  padding: 7px 0 6px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  color: var(--color-text-secondary);
+  text-align: center;
+  transition: border-color var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
+}
+.rail-wellness:hover {
+  border-color: var(--color-accent-line);
+  color: var(--color-accent-strong);
+}
+.rail-wellness.on {
+  border-color: var(--color-accent-line);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  box-shadow: var(--shadow-card);
+}
+.rw-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  flex: none;
+}
+.rail-wellness.on .rw-icon { background: var(--color-card); }
+.rw-text { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.rail-wellness .full { display: none; }
+.rail-wellness .short { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.2; }
+.rw-sub { display: none; }
+
+.wk-rail-enter-active,
+.wk-rail-leave-active {
+  transition: opacity var(--motion-base) var(--easing-ease-out), transform var(--motion-base) var(--easing-ease-out);
+}
+.wk-rail-enter-from,
+.wk-rail-leave-to { opacity: 0; transform: translateY(6px) scale(0.97); }
 
 @media (max-width: 1099px) {
   .rail {
@@ -270,8 +386,29 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
   .group-head i { width: 6px; height: 6px; }
   .nav-sep { width: calc(100% - 24px); margin: 9px 12px 5px; }
 
-  .rail-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--color-divider); }
+  .rail-bottom { align-items: stretch; }
+  .rail-wellness {
+    width: 100%;
+    min-height: 52px;
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    text-align: left;
+  }
+  .rail-wellness .rw-text { align-items: flex-start; }
+  .rail-wellness .short { display: none; }
+  .rail-wellness .full { display: block; font-size: 13px; font-weight: 600; }
+  .rw-sub { display: block; margin-top: 1px; font-size: 10.5px; font-weight: 500; color: var(--color-text-muted); }
+
+  .rail-foot { padding-top: 10px; border-top: 1px solid var(--color-divider); }
   .rail-foot .nav-item { font-size: 13.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wk-rail-enter-active,
+  .wk-rail-leave-active { transition: none; }
 }
 
 @media (prefers-reduced-transparency: reduce) {

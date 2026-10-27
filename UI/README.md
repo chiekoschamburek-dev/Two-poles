@@ -78,8 +78,9 @@ UI/
 │   │   ├── poles/           # PoleShell / PoleTabs / PoleMark / MovementPole / NutritionPole
 │   │   │                    # + BridgeBand（底部同期对照）/ BridgeDialog（完整协同弹层）
 │   │   ├── meals/           # FoodCaptureDialog（拍照/同意/识别结果/轻量修改）+ MealForm（保存后的可选编辑）
+│   │   ├── wellness/        # DailyWellnessCard（每日养生内容）/ WellnessDock（进站弹窗 + 导航小卡 + 贴边浮卡）
 │   │   └── layout/          # AppShell / TopBar（58px 纸面页头，含模式芯片）/ SidebarNav（86px 图标脊）/ MobileNav
-│   ├── composables/         # usePoseCamera.ts + poseEngine.ts + poseInference.worker.ts（端侧姿态识别：worker/GPU 推理、骨架、可见度、关节角）· useRepCounter.ts（计数状态机）
+│   ├── composables/         # usePoseCamera.ts + poseEngine.ts + poseInference.worker.ts（端侧姿态识别：worker/GPU 推理、骨架、可见度、关节角）· useRepCounter.ts（计数状态机）· useWellnessDock.ts（每日养生弹窗/小卡状态与当天去重）
 │   ├── views/               # TwoPolesView（首屏双极）+ Onboarding / Plan / Execution / Meals / Report / Settings
 │   ├── stores/              # app.ts（mode、profile、sessions、meals、privacy、toast）
 │   ├── services/            # bridgeRules（运动×饮食同期对照）、foodRecognition（云端/本机可替换识别）、mealRules（结构规则与餐次时间窗）、foodComposition（目录/估算）、llm（计划模型与代理）、planRules、weekRules、loadRules 等
@@ -110,6 +111,7 @@ UI/
 - ✅ 底部「合」区：双极环（本周有记录天数占比）、今日数字、最多两条联动提示、「展开协同」完整弹层
 - ✅ 跨栏脚注：「去看看」在桌面高亮另一栏、手机交换卡片；两栏身份条的「协同」直接打开弹层
 - ✅ 导航分组：左侧图标脊是「运动 → 计划 / 跟练」「饮食 → 记录」两级；「两仪」「周报」在一级；当前分组点亮，计划 / 跟练 / 记录的激条分别用运动青、饮食蓝；手机抽屉同一套分组
+- ✅ 每日养生：每次整页进入时以弹窗出现；X 只关这一次，「今日不再出现」按本机日期记住；关闭后落到导航脊下方的「养生」小卡片，点开为贴着导航浮在主页上的小卡（无遮罩）；手机端小卡在抽屉底部，点开时先收起抽屉；清除数据会重置该日期标记
 
 ### 1. 双模式系统
 - ✅ **页头右侧的模式芯片**可切换（UI 3.0 从侧栏迁来），切换前先列差异与未完成计划，确认后写入 localStorage 并弹 Toast
@@ -307,6 +309,7 @@ npm run camera:assets
 > 2026-10-16 那轮在浏览器里逐项目测过的标 ✅；未跑过的保持 [ ]。**深色模式已经实现（第十六轮，三态：跟随系统/浅色/深色）**，第十八轮又跟着新令牌重新取值。
 
 - [x] 双极工作台：1440 两栏 / 390 叠卡交换 / 768 平板 / 深色 / 空档案 / 协同弹层（无头截图；横向溢出 0）
+- [x] 每日养生：进站弹窗 / X 关闭后导航小卡 / 点开贴边浮卡 / 展开详解 / 今日不再出现 / 刷新后不再弹
 - [x] 建档三步流程（校验、回顾、写入 localStorage）
 - [x] 模式切换生效并落盘（含运动员模式展示分支）
 - [x] 跟练：跳过 / 结束记录 / 手动修正 / RPE 反馈 / 结果落盘

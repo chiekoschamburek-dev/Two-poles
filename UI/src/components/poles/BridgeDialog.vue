@@ -101,7 +101,6 @@
               <p class="ver">规则版本 {{ BRIDGE_RULE_VERSION }} · 数据只存本机浏览器</p>
             </section>
 
-            <DailyWellnessCard :date="date" />
           </div>
         </section>
       </div>
@@ -112,7 +111,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ArrowRight, X } from 'lucide-vue-next'
-import DailyWellnessCard from '@/components/wellness/DailyWellnessCard.vue'
 import PoleMark from './PoleMark.vue'
 import {
   BRIDGE_LIMITS,
@@ -128,7 +126,6 @@ const props = defineProps<{
   day: DayFacts
   week: WeekFacts
   signals: BridgeSignal[]
-  date: Date
 }>()
 
 const emit = defineEmits<{

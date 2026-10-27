@@ -533,6 +533,9 @@ export const wellnessCards: WellnessCard[] = [
   }
 ]
 
+/** 「今日不再出现」记的日期；与每日养生内容同属一个领域，避免 key 散落 */
+export const WELLNESS_DISMISS_KEY = 'twopoles_wellness_dismissed'
+
 /** 当天实际展示的卡片：同一天重复调用结果稳定，不使用随机数 */
 export function pickDailyWellnessCard(date: Date): WellnessCard {
   // 用本机日期分量构造稳定天数，避免 toISOString 带来的时区跨日

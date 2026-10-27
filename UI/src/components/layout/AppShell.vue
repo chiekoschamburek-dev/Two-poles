@@ -13,6 +13,7 @@
       </RouterView>
     </main>
     <MobileNav />
+    <WellnessDock />
     <PlanDraftDialog />
     <ToastRegion />
   </div>
@@ -26,11 +27,14 @@ import SidebarNav from './SidebarNav.vue'
 import MobileNav from './MobileNav.vue'
 import ToastRegion from '../common/ToastRegion.vue'
 import PlanDraftDialog from '../common/PlanDraftDialog.vue'
+import WellnessDock from '@/components/wellness/WellnessDock.vue'
 import { useAppStore } from '@/stores/app'
+import { useWellnessDock } from '@/composables/useWellnessDock'
 
 const mobileOpen = ref(false)
 const route = useRoute()
 const store = useAppStore()
+const { init: initWellnessDock } = useWellnessDock()
 /** 双极工作台自己管理两栏的滚动，外壳不再让整页滚动 */
 const isWorkspace = computed(() => route.meta.workspace === true)
 
@@ -38,7 +42,11 @@ watch(() => route.fullPath, () => {
   mobileOpen.value = false
 })
 
-onMounted(() => store.init())
+onMounted(() => {
+  store.init()
+  // 放在 store.init() 之后：弹窗里的卡片能读到持久化的模式（运动员补充）
+  initWellnessDock()
+})
 </script>
 
 <style scoped>

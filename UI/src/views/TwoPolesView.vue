@@ -87,7 +87,6 @@
       :day="todayFacts"
       :week="weekFacts"
       :signals="signals"
-      :date="now"
       @close="bridgeOpen = false"
       @action="onSignal"
     />
