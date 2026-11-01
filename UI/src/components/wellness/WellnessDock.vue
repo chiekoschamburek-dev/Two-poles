@@ -9,16 +9,16 @@
           class="wk-modal"
           role="dialog"
           aria-modal="true"
-          aria-label="今日养生"
+          aria-label="今日 Tips"
           tabindex="-1"
         >
           <div class="wk-modal-bar">
-            <span class="micro">Daily wellness</span>
+            <span class="micro">Daily tips</span>
             <div class="wk-controls">
               <button type="button" class="wk-no-more" data-wellness-dismiss @click="dismiss">
                 今日不再出现
               </button>
-              <button type="button" class="wk-x" aria-label="关闭今日养生" @click="closeModal">
+              <button type="button" class="wk-x" aria-label="关闭今日 Tips" @click="closeModal">
                 <X :size="17" />
               </button>
             </div>
@@ -39,12 +39,12 @@
         class="wk-float"
         role="dialog"
         aria-modal="false"
-        aria-label="今日养生小卡片"
+        aria-label="今日 Tips 小卡片"
         tabindex="-1"
       >
         <div class="wk-float-bar">
-          <span class="micro">Daily wellness</span>
-          <button type="button" class="wk-x" aria-label="关闭今日养生小卡片" @click="closeCard">
+          <span class="micro">Daily tips</span>
+          <button type="button" class="wk-x" aria-label="关闭今日 Tips 小卡片" @click="closeCard">
             <X :size="16" />
           </button>
         </div>
@@ -82,7 +82,7 @@ function dismiss() {
     type: persisted ? 'info' : 'warning',
     title: persisted ? '今天不再自动弹出' : '本次已关闭，但没能记住',
     message: persisted
-      ? '导航栏里的「养生」小卡片仍然可以随时打开'
+      ? '导航栏里的「Tips」小卡片仍然可以随时打开'
       : '浏览器存储不可用，刷新后还会弹出；小卡片仍可随时打开',
     duration: 4000
   })

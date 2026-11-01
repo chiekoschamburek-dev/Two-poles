@@ -15,7 +15,7 @@
       </span>
       <span class="w-text">
         <span class="w-eyebrow micro">
-          今日养生 · {{ card.category }} / {{ card.topic }}
+          今日 Tips · {{ card.category }} / {{ card.topic }}
           <em v-if="store.isAthleteMode" class="w-mode">运动员补充</em>
         </span>
         <span class="w-title">{{ card.title }}</span>
@@ -74,7 +74,7 @@
 
 <script setup lang="ts">
 /**
- * 首页「今日养生」每日卡片。
+ * 首页「今日 Tips」每日卡片。
  * 展开态只是组件内的临时 UI 状态：不写 localStorage、不走 store.toggleCard，
  * 也不改变当天取到哪一条（内容只由本机日期决定）。
  */

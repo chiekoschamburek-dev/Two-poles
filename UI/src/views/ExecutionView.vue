@@ -4,7 +4,7 @@
       <div>
         <span class="micro kick"><i></i>Camera guided training</span>
         <h1>{{ exercise.name }} · 第 {{ displaySet }} 组</h1>
-        <p>{{ live ? '实时摄像头 · 画面只在本机，不上传' : mode === 'camera' ? '实时摄像头 · 正在连接' : '演示回放 · 摄像头原始画面默认不上传' }}</p>
+        <p>左侧跟随演示动作，右侧开启摄像头后由端侧关键点计数；画面只在本机，不上传</p>
         <div class="exercise-switch">
           <button
             v-for="opt in demoExercises"
@@ -14,31 +14,46 @@
             @click="selectExercise(opt.name)"
           >{{ opt.name }} · {{ opt.sets }}×{{ opt.repsPerSet }}</button>
         </div>
-        <div class="source-switch">
-          <button class="chip" :class="{ active: mode === 'demo' }" @click="switchMode('demo')">演示回放</button>
-          <button class="chip" :class="{ active: mode === 'camera' }" :disabled="!store.privacy.cameraEnabled" @click="switchMode('camera')">实时摄像头</button>
-          <button v-if="pose.errorMessage.value && store.privacy.cameraEnabled" class="chip retry" @click="retryCamera">重试摄像头</button>
-          <span class="cam-note" aria-live="polite">{{ sourceNote }}</span>
-        </div>
-        <p v-if="pose.errorMessage.value" class="cam-error" role="alert">{{ pose.errorMessage.value }}</p>
       </div>
       <BaseButton variant="secondary" :icon="X" @click="leave">结束</BaseButton>
     </div>
 
-    <div class="execution-grid">
-      <BaseCard class="stage-card glass animate-slide-in-up">
-        <div class="stage-container">
+    <!-- 组数 / 次数 / 时长：横贯两栏的进度条（放上面，两块画面共享） -->
+    <div class="count-strip animate-slide-in-up" role="group" aria-label="训练进度">
+      <div class="strip-cell">
+        <span class="strip-label">当前组数</span>
+        <div class="strip-num">{{ displaySet }}<i>/{{ exercise.sets }}</i></div>
+        <div class="strip-bar"><div class="strip-fill" :style="{ width: setProgress + '%' }"></div></div>
+      </div>
+      <div class="strip-cell primary">
+        <span class="strip-label">本组完成次数</span>
+        <div class="strip-num">{{ displayReps }}<i>/{{ exercise.repsPerSet }}</i></div>
+        <div class="strip-dots" :style="{ gridTemplateColumns: 'repeat(' + Math.min(exercise.repsPerSet, 10) + ', 1fr)' }">
+          <span v-for="n in exercise.repsPerSet" :key="n" :class="{ done: n <= displayReps }"></span>
+        </div>
+      </div>
+      <div class="strip-cell">
+        <span class="strip-label">已用时长</span>
+        <div class="strip-num">{{ durationLabel }}</div>
+        <p class="strip-sub">{{ paused ? '已暂停' : phaseLabel }}</p>
+      </div>
+    </div>
+
+    <div class="stage-grid">
+      <!-- 左：演示动作（始终播放；摄像头开启时剪影同步被识别到的阶段） -->
+      <BaseCard class="pane pane-demo glass animate-slide-in-up">
+        <div class="pane-head">
+          <span class="pane-title">演示动作</span>
+          <span class="pane-note">跟随示意节奏</span>
+        </div>
+        <div class="pane-body">
           <div class="demo-frame">
-            <template v-if="mode === 'camera'">
-              <video ref="videoRef" class="cam-feed" muted playsinline></video>
-              <canvas ref="canvasRef" class="cam-overlay"></canvas>
-            </template>
-            <div v-else class="skeleton-overlay">
+            <div class="skeleton-overlay">
               <!-- 3/4 视角的人体。三个要点：
                    1) 远侧四肢压暗、近侧提亮，躯干与头用渐变做出体积，不再是平涂剪影；
                    2) 每个关节都是一个 <g>（髋/膝/踝、肩/肘），下蹲是腿真的折起来，不是整张图压扁；
                    3) 骨线、关节点、哑铃跟四肢同组，所以会跟着关节一起动。 -->
-              <svg class="figure" :class="[stageClass, figureJoint]" viewBox="0 0 560 760" aria-hidden="true">
+              <svg class="figure" :class="[stageClass, figureKind]" viewBox="0 0 560 760" aria-hidden="true">
                 <defs>
                   <linearGradient id="fxNear" gradientUnits="userSpaceOnUse" x1="150" y1="0" x2="430" y2="0">
                     <stop offset="0" stop-color="#626e79" />
@@ -154,11 +169,11 @@
                 </g>
               </svg>
             </div>
-            <div v-if="mode === 'demo' || live" class="stage-overlay">
+            <div class="stage-overlay">
               <span class="confidence-badge animate-fade-in" :class="confidenceClass" :key="confidenceClass">{{ confidenceText }}</span>
               <span class="phase-badge" :class="{ 'animate-pulse': status === 'resting' }">{{ phaseLabel }}</span>
             </div>
-            <div class="frame-sheen gradient-shimmer" v-if="mode === 'demo' && !finished && !paused"></div>
+            <div class="frame-sheen gradient-shimmer" v-if="!finished && !paused"></div>
             <!-- F17 组间休息页：预显下一组的动作与起始姿势；面板不吞点击，跳过走两步确认（plan.md §4.2） -->
             <div v-if="status === 'resting' && !finished" class="rest-overlay">
               <div class="rest-panel">
@@ -179,122 +194,122 @@
             </div>
             <p v-else class="stage-live" aria-live="polite">{{ stageMessage }}</p>
           </div>
-          <div class="stage-hint">{{ stageHint }}</div>
         </div>
-        <div class="stage-controls">
-          <button class="ctrl-btn secondary" :aria-label="paused ? '继续' : '暂停'" :disabled="finished || cameraConnecting" @click="togglePause">
-            <Pause v-if="!paused" :size="20" /><Play v-else :size="20" />
-          </button>
-          <button class="ctrl-btn secondary" aria-label="跳过本组" :disabled="finished || cameraConnecting" @click="skipSet">
-            <SkipForward :size="20" />
-          </button>
-          <button class="ctrl-btn danger" aria-label="结束并记录" :disabled="finished || cameraConnecting" @click="stopAndRecord">
-            <Square :size="18" />
-          </button>
-        </div>
+        <div class="pane-foot">{{ demoHint }}</div>
       </BaseCard>
 
-      <div class="info-cards">
-        <BaseCard class="count-card animate-slide-in-up">
-          <div class="count-label">当前组数</div>
-          <div class="count-big">{{ displaySet }} <span>/ {{ exercise.sets }}</span></div>
-          <div class="count-progress"><div class="progress-fill" :style="{ width: setProgress + '%' }"></div></div>
-        </BaseCard>
+      <!-- 右：实时摄像头（独立开关，与演示同屏） -->
+      <BaseCard class="pane pane-cam glass animate-slide-in-up">
+        <div class="pane-head">
+          <span class="pane-title">实时摄像头</span>
+          <span class="pane-note">{{ camNote }}</span>
+        </div>
+        <div class="pane-body">
+          <div class="cam-frame">
+            <video ref="videoRef" v-show="camRequested" class="cam-feed" muted playsinline></video>
+            <canvas ref="canvasRef" v-show="camRequested" class="cam-overlay"></canvas>
 
-        <BaseCard class="count-card primary animate-slide-in-up">
-          <div class="count-label">本组完成次数</div>
-          <div class="count-big">{{ displayReps }} <span>/ {{ exercise.repsPerSet }}</span></div>
-          <div class="reps-grid" :style="{ gridTemplateColumns: 'repeat(' + exercise.repsPerSet + ', 1fr)' }">
-            <span v-for="n in exercise.repsPerSet" :key="n" :class="{ done: n <= displayReps }"></span>
-          </div>
-        </BaseCard>
-
-        <BaseCard class="animate-slide-in-up">
-          <div class="status-item">
-            <Activity :size="18" class="status-icon" />
-            <div><strong>{{ phaseLabel }}</strong><small>{{ message || '保持动作流畅' }}</small></div>
-          </div>
-          <div class="status-item">
-            <Gauge :size="18" class="status-icon teal" />
-            <div><strong>{{ live ? '关键点可见度' : '识别置信度' }}: {{ Math.round(shownConfidence * 100) }}%</strong><small>{{ confidenceText }}</small></div>
-          </div>
-          <div class="status-item" v-if="live">
-            <Ruler :size="18" class="status-icon teal" />
-            <div>
-              <strong>膝 {{ pose.kneeAngle ?? '—' }}° · 髋 {{ pose.hipAngle ?? '—' }}° · 肘 {{ pose.elbowAngle ?? '—' }}°</strong>
-              <small>取左侧关键点。{{ camJoint === 'knee' ? '计数看膝角' : '计数看肘角' }}，其余角度只作参考，不判断姿势是否标准。</small>
+            <div v-if="!camRequested" class="cam-idle">
+              <Camera :size="26" aria-hidden="true" />
+              <p>画面只在本机做姿态推理，不上传、不落盘</p>
+              <button v-if="store.privacy.cameraEnabled" type="button" class="cam-main-btn" @click="startCamera">开启摄像头</button>
+              <small v-else>摄像头已在设置中关闭；到「设置 → 隐私」可重新打开</small>
             </div>
-          </div>
-          <div v-if="live && counter" class="calib">
-            <button class="calib-btn" :disabled="calibrating" @click="runCalibrate">{{ calibrating ? '校准中…' : '校准机位' }}</button>
-            <small>{{ counter.calibratedNeutral !== null ? `起始位 ${counter.calibratedNeutral}°` : '未校准：用动作库默认阈值' }}</small>
-          </div>
-          <div class="status-item">
-            <Timer :size="18" class="status-icon teal" />
-            <div><strong>{{ Math.floor(elapsedMs / 1000) }}s</strong><small>已用时长</small></div>
-          </div>
-        </BaseCard>
-
-        <BaseCard v-if="!finished" class="actions-card animate-slide-in-up">
-          <h3>完成后记录</h3>
-          <p>完成次数可以修正。看不清时暂停计数，不输出姿势安全结论。共 {{ exercise.sets }} 组，每组 {{ exercise.repsPerSet }} 次，组间休息 {{ exercise.restDuration / 1000 }} 秒。</p>
-          <BaseButton variant="secondary" size="sm" :icon="Edit3" @click="toggleEdit">手动修正</BaseButton>
-          <div v-if="editOpen" class="correct-form">
-            <input v-model.number="editValue" type="number" min="0" :max="exercise.repsPerSet" aria-label="修正本组次数" />
-            <BaseButton size="sm" @click="applyCorrection">确认</BaseButton>
-          </div>
-          <BaseButton variant="ghost" size="sm" :icon="FileText" @click="leave">放弃本次记录</BaseButton>
-        </BaseCard>
-
-        <BaseCard v-else class="actions-card summary animate-slide-in-up">
-          <h3>本次已记录</h3>
-          <ul class="summary-list">
-            <li><span>动作</span><b>{{ exercise.name }}</b></li>
-            <li><span>完成组数</span><b>{{ repsBySet.length }} / {{ exercise.sets }}</b></li>
-            <li><span>总次数</span><b>{{ totalReps }} / {{ exercise.sets * exercise.repsPerSet }}</b></li>
-            <li><span>平均置信度</span><b>{{ Math.round(averageConfidence * 100) }}%</b></li>
-            <li><span>手动修正</span><b>{{ manualCorrections }} 次</b></li>
-            <li><span>状态</span><b>{{ completionLabel }}</b></li>
-            <li><span>RPE</span><b>{{ feedbackSaved ? (rpe === null ? '未记录' : rpe) : '待反馈' }}</b></li>
-          </ul>
-
-          <div v-if="!feedbackSaved" class="feedback">
-            <h4>这次感觉怎么样？</h4>
-            <div class="field">
-              <span class="field-label">RPE 主观用力程度（0 几乎不费力 · 10 力竭）</span>
-              <div class="rpe-row">
-                <button
-                  v-for="n in RPE_SCALE"
-                  :key="n"
-                  class="rpe-chip"
-                  :class="{ active: rpe === n }"
-                  :aria-pressed="rpe === n"
-                  @click="rpe = n"
-                >{{ n }}</button>
-              </div>
-              <small>不选就是"未记录"——周报会把它算作数据缺失，而不是 0 负荷。</small>
+            <div v-else-if="cameraConnecting" class="cam-idle">
+              <p>{{ pose.startingStage.value === 'camera' ? '正在请求摄像头权限…' : '相机已连接，正在加载端侧姿态模型（首次约 5.5 MB）…' }}</p>
+              <button type="button" class="cam-main-btn ghost" @click="stopCamera">取消</button>
             </div>
-            <label class="check"><input v-model="discomfort" type="checkbox" /> 训练中有不适或疼痛</label>
-            <div v-if="completionLabel === '部分完成'" class="field">
-              <span class="field-label">没完成的原因</span>
-              <input v-model="reasonText" type="text" placeholder="例如：时间不够、状态不好" />
+            <div v-else-if="camErrored" class="cam-idle">
+              <p class="cam-error" role="alert">{{ pose.errorMessage.value }}</p>
+              <button v-if="store.privacy.cameraEnabled" type="button" class="cam-main-btn" @click="startCamera">重试</button>
+              <button type="button" class="cam-main-btn ghost" @click="stopCamera">关闭</button>
             </div>
-            <div class="field">
-              <span class="field-label">备注（可选）</span>
-              <textarea v-model="notesText" rows="2" placeholder="想记下的细节…"></textarea>
-            </div>
-            <BaseButton size="sm" @click="saveFeedback">保存反馈</BaseButton>
-            <BaseButton variant="ghost" size="sm" @click="feedbackSaved = true">先跳过</BaseButton>
+            <template v-else-if="live">
+              <div class="cam-angles" aria-hidden="true">膝 {{ pose.kneeAngle ?? '—' }}° · 髋 {{ pose.hipAngle ?? '—' }}° · 肘 {{ pose.elbowAngle ?? '—' }}°</div>
+              <button
+                class="cam-calib"
+                :disabled="calibrating || !counter"
+                @click="runCalibrate"
+              >{{ calibrating ? '校准中…' : counter ? '校准机位' : '该动作无计数规则' }}</button>
+            </template>
           </div>
-          <p v-else class="feedback-saved">
-            反馈{{ rpe === null && !discomfort ? '已跳过' : '已保存' }}：RPE {{ rpe === null ? '未记录' : rpe }} · {{ discomfort ? '有不适' : '无不适' }}
-          </p>
+        </div>
+        <div class="pane-foot">{{ camHint }}</div>
+      </BaseCard>
+    </div>
 
-          <p class="stored-note">{{ recordedNote }}</p>
-          <BaseButton size="sm" :icon="Play" @click="restart">再练一遍</BaseButton>
-          <BaseButton variant="secondary" size="sm" @click="leave">返回概览</BaseButton>
-        </BaseCard>
-      </div>
+    <div class="stage-controls">
+      <button class="ctrl-btn secondary" :aria-label="paused ? '继续' : '暂停'" :disabled="finished" @click="togglePause">
+        <Pause v-if="!paused" :size="20" /><Play v-else :size="20" />
+      </button>
+      <button class="ctrl-btn secondary" aria-label="跳过本组" :disabled="finished" @click="skipSet">
+        <SkipForward :size="20" />
+      </button>
+      <button class="ctrl-btn danger" aria-label="结束并记录" :disabled="finished" @click="stopAndRecord">
+        <Square :size="18" />
+      </button>
+    </div>
+
+    <div class="after-area">
+      <BaseCard v-if="!finished" class="actions-card animate-slide-in-up">
+        <h3>完成后记录</h3>
+        <p>完成次数可以修正。看不清时暂停计数，不输出姿势安全结论。共 {{ exercise.sets }} 组，每组 {{ exercise.repsPerSet }} 次，组间休息 {{ exercise.restDuration / 1000 }} 秒。</p>
+        <BaseButton variant="secondary" size="sm" :icon="Edit3" @click="toggleEdit">手动修正</BaseButton>
+        <div v-if="editOpen" class="correct-form">
+          <input v-model.number="editValue" type="number" min="0" :max="exercise.repsPerSet" aria-label="修正本组次数" />
+          <BaseButton size="sm" @click="applyCorrection">确认</BaseButton>
+        </div>
+        <BaseButton variant="ghost" size="sm" :icon="FileText" @click="leave">放弃本次记录</BaseButton>
+      </BaseCard>
+
+      <BaseCard v-else class="actions-card summary animate-slide-in-up">
+        <h3>本次已记录</h3>
+        <ul class="summary-list">
+          <li><span>动作</span><b>{{ exercise.name }}</b></li>
+          <li><span>完成组数</span><b>{{ repsBySet.length }} / {{ exercise.sets }}</b></li>
+          <li><span>总次数</span><b>{{ totalReps }} / {{ exercise.sets * exercise.repsPerSet }}</b></li>
+          <li><span>平均置信度</span><b>{{ Math.round(averageConfidence * 100) }}%</b></li>
+          <li><span>手动修正</span><b>{{ manualCorrections }} 次</b></li>
+          <li><span>状态</span><b>{{ completionLabel }}</b></li>
+          <li><span>RPE</span><b>{{ feedbackSaved ? (rpe === null ? '未记录' : rpe) : '待反馈' }}</b></li>
+        </ul>
+
+        <div v-if="!feedbackSaved" class="feedback">
+          <h4>这次感觉怎么样？</h4>
+          <div class="field">
+            <span class="field-label">RPE 主观用力程度（0 几乎不费力 · 10 力竭）</span>
+            <div class="rpe-row">
+              <button
+                v-for="n in RPE_SCALE"
+                :key="n"
+                class="rpe-chip"
+                :class="{ active: rpe === n }"
+                :aria-pressed="rpe === n"
+                @click="rpe = n"
+              >{{ n }}</button>
+            </div>
+            <small>不选就是"未记录"——周报会把它算作数据缺失，而不是 0 负荷。</small>
+          </div>
+          <label class="check"><input v-model="discomfort" type="checkbox" /> 训练中有不适或疼痛</label>
+          <div v-if="completionLabel === '部分完成'" class="field">
+            <span class="field-label">没完成的原因</span>
+            <input v-model="reasonText" type="text" placeholder="例如：时间不够、状态不好" />
+          </div>
+          <div class="field">
+            <span class="field-label">备注（可选）</span>
+            <textarea v-model="notesText" rows="2" placeholder="想记下的细节…"></textarea>
+          </div>
+          <BaseButton size="sm" @click="saveFeedback">保存反馈</BaseButton>
+          <BaseButton variant="ghost" size="sm" @click="feedbackSaved = true">先跳过</BaseButton>
+        </div>
+        <p v-else class="feedback-saved">
+          反馈{{ rpe === null && !discomfort ? '已跳过' : '已保存' }}：RPE {{ rpe === null ? '未记录' : rpe }} · {{ discomfort ? '有不适' : '无不适' }}
+        </p>
+
+        <p class="stored-note">{{ recordedNote }}</p>
+        <BaseButton size="sm" :icon="Play" @click="restart">再练一遍</BaseButton>
+        <BaseButton variant="secondary" size="sm" @click="leave">返回概览</BaseButton>
+      </BaseCard>
     </div>
   </div>
 </template>
@@ -302,7 +317,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { X, Pause, Play, SkipForward, Square, Activity, Gauge, Edit3, FileText, Timer, Ruler } from 'lucide-vue-next'
+import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import { useAppStore } from '@/stores/app'
@@ -348,7 +363,8 @@ const feedbackSaved = ref(false)
 const pose = usePoseCamera()
 /** F19：只播节奏与计时（组数/次数/休息），不做动作纠错；开关在设置页，默认关 */
 const { speak } = useSpeech()
-const mode = ref<'demo' | 'camera'>('demo')
+/** 双栏同屏：演示一直播放；摄像头是独立开关，开启后由端侧关键点接管计数 */
+const camRequested = ref(false)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -358,7 +374,7 @@ const camJoint = ref<'knee' | 'elbow'>('knee')
 const calibrating = ref(false)
 /** session-RPE 量表含 0 档：0 表示几乎不费力 */
 const RPE_SCALE = Array.from({ length: 11 }, (_, i) => i)
-/** 用户手工修正过本组次数后，状态机不再回写 reps */
+/** 用户手工修正过（或摄像头中途计过）本组次数后，时间线不再回写 reps */
 let corrected = false
 
 function buildCounter() {
@@ -418,87 +434,88 @@ let confidenceSum = 0
 let confidenceCount = 0
 let recorded = false
 
-const live = computed(() => mode.value === 'camera' && pose.status.value === 'live')
-const cameraConnecting = computed(() => mode.value === 'camera' && pose.status.value === 'starting')
-const stageMessage = computed(() => {
-  if (mode.value === 'camera' && pose.status.value !== 'live') {
-    if (pose.status.value === 'starting') {
-      return pose.startingStage.value === 'camera'
-        ? '正在请求摄像头权限…'
-        : '相机已连接，正在加载姿态模型…'
-    }
-    return pose.errorMessage.value || '摄像头未就绪'
-  }
-  return message.value
-})
-const shownConfidence = computed(() => (live.value ? pose.visibility.value : confidence.value))
-const confidenceLevel = computed(() => getConfidenceLevel(shownConfidence.value))
-const confidenceClass = computed(() => confidenceLevel.value.level)
-const confidenceText = computed(() => confidenceLevel.value.text)
+// ——— 摄像头开关（与演示同屏，不再互斥） ———
+const live = computed(() => camRequested.value && pose.status.value === 'live')
+const cameraConnecting = computed(() => camRequested.value && pose.status.value === 'starting')
+const camErrored = computed(() => camRequested.value && ['denied', 'error', 'unsupported'].includes(pose.status.value))
 
-const sourceNote = computed(() => {
-  if (cameraConnecting.value) {
-    return pose.startingStage.value === 'camera'
-      ? '正在请求摄像头权限…'
-      : '相机已就绪，正在加载端侧姿态模型（首次约 5.5 MB）…'
-  }
-  if (live.value) {
-    const where = pose.runsIn.value === 'main' ? ' · 推理回落主线程' : ''
-    return `${pose.fps.value} FPS · ${pose.delegate.value === 'GPU' ? 'GPU' : 'CPU'} 推理${where} · 画面只在本机，不上传`
-  }
-  if (!store.privacy.cameraEnabled) return '摄像头已在设置中关闭，当前只有演示回放'
-  return '按预设时间线回放，不需要摄像头'
-})
-const stageHint = computed(() => {
-  if (cameraConnecting.value) {
-    return pose.startingStage.value === 'camera'
-      ? '等待摄像头授权…'
-      : '相机已连接 · 正在准备端侧姿态模型…'
-  }
-  if (mode.value === 'camera' && !live.value) return pose.errorMessage.value || '摄像头未就绪'
-  if (!live.value) return '关键点示意图 · 实际使用时在本地处理'
-  const c = counter.value
-  if (!c) return '识别：端侧关键点 · 该动作暂无计数规则，可用手工修正'
-  return `识别：端侧关键点实时驱动计数（${camJoint.value === 'knee' ? '膝角' : '肘角'}）· 阈值 ${Math.round(c.lowThreshold)}° · ${c.calibratedNeutral !== null ? '已按你的机位校准' : '未校准，用规则默认阈值'}`
-})
-
-async function switchMode(next: 'demo' | 'camera') {
-  if (next === mode.value) return
-  if (next === 'camera' && !store.privacy.cameraEnabled) return
-  if (next === 'camera') {
-    mode.value = 'camera'
-    counter.value = null
-    await nextTick()
-    if (!videoRef.value || !canvasRef.value) {
-      mode.value = 'demo'
-      pose.errorMessage.value = '摄像头画面容器没有准备好，请重试。'
-      return
-    }
-    await pose.start(videoRef.value, canvasRef.value)
-    if (mode.value !== 'camera') return
-    if (pose.status.value === 'live') {
-      restart()
-    } else {
-      mode.value = 'demo'
-      counter.value = null
-      restart()
-    }
+async function startCamera() {
+  if (!store.privacy.cameraEnabled || camRequested.value) return
+  camRequested.value = true
+  await nextTick()
+  if (!videoRef.value || !canvasRef.value) {
+    camRequested.value = false
+    pose.errorMessage.value = '摄像头画面容器没有准备好，请重试。'
     return
   }
+  await pose.start(videoRef.value, canvasRef.value)
+  if (!camRequested.value) return
+  if (pose.status.value === 'live') onCameraLive()
+}
+
+function onCameraLive() {
+  buildCounter()
+  // 中途接入：已完成的组与已用时长保留，当前组交给端侧计数，从 0 重新计
+  if (!finished.value && status.value === 'playing') {
+    reps.value = 0
+    corrected = false
+    counter.value?.reset('摄像头已接入：请回到起始姿势开始计数')
+    store.showToast({ type: 'success', title: '摄像头已接入', message: '本组改由端侧关键点计数，从 0 开始', duration: 3000 })
+  }
+}
+
+function stopCamera() {
+  if (!camRequested.value) return
+  camRequested.value = false
   pose.stop()
   pose.errorMessage.value = ''
   counter.value = null
-  mode.value = 'demo'
-  restart()
+  if (!finished.value && status.value === 'playing') {
+    if (reps.value > 0) {
+      // 摄像头计到的次数保留：时间线不再回写次数，本组仍按演示节奏走到完成
+      corrected = true
+    } else {
+      // 一次都没计到：演示时间线回到本组开头重放
+      eventIndex = 0
+      setElapsed = 0
+    }
+  }
 }
 
-async function retryCamera() {
-  if (!store.privacy.cameraEnabled) return
-  pose.stop()
-  pose.errorMessage.value = ''
-  mode.value = 'demo'
-  await nextTick()
-  await switchMode('camera')
+// ——— F17 组间休息页 ———
+/** 休息剩余秒数（reactive）：tick 里只写 restElapsed，这里每秒刷新倒计时显示 */
+const restLeft = ref(0)
+/** 跳过休息的两步确认：第一下进入确认态，3 秒内不按自动回落继续等待 */
+const skipArmed = ref(false)
+let skipArmTimer = 0
+/** "组间剩 5 秒"只播一次 */
+let restFiveSaid = false
+
+const nextSetNo = computed(() => Math.min(setIndex.value + 1, exercise.value.sets))
+/** 预显的起始姿势：动作库要领 + 摄像头计数需要的站位（识别取左侧关键点，要左侧面朝镜头） */
+const startPoseHint = computed(() => {
+  const lib = findExercise(exercise.value.name)
+  const station = lib?.camera
+    ? `左侧面向镜头、全身完整入镜，${lib.camera.joint === 'knee' ? '左膝' : '左肘'}保持清晰`
+    : '该动作没有摄像头计数规则，开启摄像头可跟随节奏，次数可用手工修正'
+  return [lib?.howto, station].filter(Boolean).join('；')
+})
+
+function disarmSkip() {
+  window.clearTimeout(skipArmTimer)
+  skipArmed.value = false
+}
+
+function onRestSkipClick() {
+  // 两步确认（plan.md §4.2）：第一下只进入确认态、继续等待，第二下才真的跳过
+  if (!skipArmed.value) {
+    skipArmed.value = true
+    window.clearTimeout(skipArmTimer)
+    skipArmTimer = window.setTimeout(() => { skipArmed.value = false }, 3000)
+    return
+  }
+  disarmSkip()
+  skipSet()
 }
 
 function tweenRepsTo(target: number) {
@@ -530,63 +547,62 @@ const phaseLabel = computed(() => {
   if (finished.value) return '已完成'
   if (status.value === 'resting') return '组间休息'
   if (paused.value) return '已暂停'
-  return getPhaseText(phase.value)
+  return getPhaseText(phase.value, exercise.value.kind)
 })
 const stageClass = computed(() =>
   paused.value || status.value === 'resting' ? 'held' : phase.value
 )
-/** 演示剪影按动作切姿态：弯举看肘、坐站看膝。和计数用的 camJoint 分开——演示模式下也要对 */
-const figureJoint = computed(() => findExercise(exercise.value.name)?.camera?.joint ?? 'knee')
-
-// ——— F17 组间休息页 ———
-/** 休息剩余秒数（reactive）：tick 里只写 restElapsed，这里每秒刷新倒计时显示 */
-const restLeft = ref(0)
-/** 跳过休息的两步确认：第一下进入确认态，3 秒内不按自动回落继续等待 */
-const skipArmed = ref(false)
-let skipArmTimer = 0
-/** "组间剩 5 秒"只播一次 */
-let restFiveSaid = false
-
-const nextSetNo = computed(() => Math.min(setIndex.value + 1, exercise.value.sets))
-/** 预显的起始姿势：动作库要领 + 摄像头计数需要的站位（识别取左侧关键点，要左侧面朝镜头） */
-const startPoseHint = computed(() => {
-  const lib = findExercise(exercise.value.name)
-  const station = lib?.camera
-    ? `左侧面向镜头、全身完整入镜，${lib.camera.joint === 'knee' ? '左膝' : '左肘'}保持清晰`
-    : '该动作没有摄像头计数规则，可用"手动修正"记录次数'
-  return [lib?.howto, station].filter(Boolean).join('；')
-})
-
-function disarmSkip() {
-  window.clearTimeout(skipArmTimer)
-  skipArmed.value = false
-}
-
-function onRestSkipClick() {
-  // 两步确认（plan.md §4.2）：第一下只进入确认态、继续等待，第二下才真的跳过
-  if (!skipArmed.value) {
-    skipArmed.value = true
-    window.clearTimeout(skipArmTimer)
-    skipArmTimer = window.setTimeout(() => { skipArmed.value = false }, 3000)
-    return
-  }
-  disarmSkip()
-  skipSet()
-}
-
+/** 演示剪影姿态类别：弯举看肘、坐站/台阶/热身看膝、肩环绕看肩、提踵看踵 */
+const figureKind = computed(() => exercise.value.kind)
 const totalReps = computed(() => repsBySet.value.reduce((sum, n) => sum + n, 0))
 const averageConfidence = computed(() => (confidenceCount ? confidenceSum / confidenceCount : 0))
 const completionLabel = computed(() => {
   const target = exercise.value.sets * exercise.value.repsPerSet
   return repsBySet.value.length >= exercise.value.sets && totalReps.value >= target ? '全部完成' : '部分完成'
 })
+const durationLabel = computed(() => {
+  const total = Math.floor(elapsedMs.value / 1000)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+})
+const jointLabel = computed(() => (camJoint.value === 'knee' ? '膝角' : '肘角'))
+
+const stageMessage = computed(() => message.value)
+const shownConfidence = computed(() => (live.value ? pose.visibility.value : confidence.value))
+const confidenceLevel = computed(() => getConfidenceLevel(shownConfidence.value))
+const confidenceClass = computed(() => confidenceLevel.value.level)
+const confidenceText = computed(() => confidenceLevel.value.text)
+
+const demoHint = computed(() =>
+  live.value
+    ? '摄像头开启中：剪影跟随端侧识别到的动作阶段'
+    : '按预设时间线回放，不需要摄像头；骨架为关键点示意图'
+)
+
+const camNote = computed(() => {
+  if (cameraConnecting.value) return '连接中…'
+  if (live.value) {
+    const where = pose.runsIn.value === 'main' ? ' · 推理回落主线程' : ''
+    return `${pose.fps.value} FPS · ${pose.delegate.value === 'GPU' ? 'GPU' : 'CPU'} 推理${where}`
+  }
+  if (camErrored.value) return '不可用'
+  return '未开启'
+})
+
+const camHint = computed(() => {
+  if (!store.privacy.cameraEnabled) return '摄像头已在设置中关闭；到「设置 → 隐私」可重新打开'
+  if (cameraConnecting.value) {
+    return pose.startingStage.value === 'camera' ? '等待摄像头授权…' : '相机已连接 · 正在准备端侧姿态模型…'
+  }
+  if (camErrored.value) return pose.errorMessage.value || '摄像头不可用'
+  if (live.value) {
+    const c = counter.value
+    if (!c) return '识别：端侧关键点 · 该动作暂无计数规则，本组按演示节奏计次，可用手工修正'
+    return `识别：端侧关键点实时驱动计数（${jointLabel.value}）· 阈值 ${Math.round(c.lowThreshold)}° · ${c.calibratedNeutral !== null ? '已按你的机位校准' : '未校准，用规则默认阈值'}`
+  }
+  return '开启后画面只在本机做姿态推理，不上传、不落盘'
+})
 
 function tick(ts: number) {
-  // 相机正在授权/加载模型时不继续演示时间线，避免两套计数混在一起
-  if (mode.value === 'camera' && !live.value) {
-    if (!finished.value) rafId = requestAnimationFrame(tick)
-    return
-  }
   if (!lastTs) lastTs = ts
   // 后台标签页回来时 ts 会一次性跳大，钳制增量以免事件被成批吞掉
   const dt = Math.min(ts - lastTs, 250)
@@ -594,8 +610,8 @@ function tick(ts: number) {
 
   if (!paused.value && status.value === 'playing') {
     elapsedMs.value += dt
-    setElapsed += dt
     if (live.value && counter.value) {
+      // 摄像头计数接管：演示时间线时钟冻结在原地，关掉摄像头后从原点继续
       const c = counter.value
       const angle = camJoint.value === 'knee' ? pose.kneeAngle.value : pose.elbowAngle.value
       const res = c.feed(angle, pose.visibility.value, ts)
@@ -614,6 +630,8 @@ function tick(ts: number) {
         finishSet()
       }
     } else {
+      // 演示时间线推进计数；无计数规则的动作在摄像头开启时也走这里
+      setElapsed += dt
       const events = exercise.value.setEvents
       while (eventIndex < events.length && events[eventIndex].time <= setElapsed) {
         applyEvent(events[eventIndex])
@@ -638,9 +656,9 @@ function tick(ts: number) {
 
 function applyEvent(event: DemoEvent) {
   if (event.count !== undefined) {
-    reps.value = event.count
-    // 完成事件后面紧跟"本组完成"，别让最后一个数字把那句打断
-    if (event.state !== 'complete') speak(String(event.count))
+    // 摄像头中途计过（corrected）或用户手工修正过时，时间线只负责节奏与完成事件
+    if (!corrected) reps.value = event.count
+    if (event.state !== 'complete' && !corrected) speak(String(event.count))
   }
   if (event.confidence > 0) {
     confidenceSum += event.confidence
@@ -799,6 +817,7 @@ function restart() {
   restLeft.value = Math.ceil(exercise.value.restDuration / 1000)
   restFiveSaid = false
   disarmSkip()
+  // 摄像头是独立开关：切动作/重开不关摄像头，只按新动作重建计数规则
   if (live.value) buildCounter()
   rafId = requestAnimationFrame(tick)
   // 课次开始也是节奏的一部分；浏览器在没有用户激活时会把这句静默拒掉，不报错
@@ -824,23 +843,37 @@ onUnmounted(() => {
 .page-header h1{font-size:28px;margin:7px 0 5px}
 .page-header p{color:var(--color-text-muted);font-size:13px;margin:0}
 .exercise-switch{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-.source-switch{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
-.cam-note{font-size:12px;color:var(--color-text-muted)}
-.chip.retry{background:var(--color-card);color:var(--color-caution);box-shadow:inset 0 0 0 1px rgba(138,90,0,.28)}
-.cam-error{margin:9px 0 0;padding:8px 11px;border-radius:8px;background:var(--color-caution-soft);color:var(--color-caution);font-size:12px;line-height:1.65}
-.cam-feed,.cam-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-.cam-feed{background:#0d1f2c}
-.cam-overlay{pointer-events:none}
 .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);transition:all var(--motion-fast)}
 .chip.active{background:var(--pole-movement);color:var(--color-on-accent)}
 .chip:hover:enabled{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
 .chip:disabled{opacity:.45;cursor:not-allowed}
-.execution-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
-.stage-card{padding:0!important;overflow:hidden}
-.stage-container{padding:24px;background:var(--color-neutral-soft)}
+
+/* 计数条：横贯两栏，放两块画面上面 */
+.count-strip{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:14px;margin-bottom:14px}
+.strip-cell{padding:14px 18px;border-radius:var(--radius-md);background:var(--color-card);border:1px solid var(--color-divider)}
+.strip-label{display:block;font-size:11px;color:var(--color-text-muted)}
+.strip-num{font-family:var(--font-num);font-size:34px;font-weight:600;letter-spacing:-.03em;line-height:1.15;font-variant-numeric:tabular-nums;color:var(--color-ink)}
+.strip-num i{font-style:normal;font-size:15px;color:var(--color-text-muted);letter-spacing:0;margin-left:2px}
+.strip-cell.primary .strip-num{color:var(--pole-movement)}
+.strip-bar{height:5px;background:var(--color-divider);border-radius:6px;overflow:hidden;margin-top:8px}
+.strip-fill{height:100%;background:linear-gradient(90deg,var(--pole-movement),var(--pole-movement-strong));border-radius:6px;transition:width var(--motion-slow) var(--easing-ease-out)}
+.strip-dots{display:grid;gap:4px;margin-top:9px}
+.strip-dots span{height:4px;border-radius:2px;background:var(--color-divider)}
+.strip-dots span.done{background:var(--pole-movement);animation:scaleIn var(--motion-base) var(--easing-spring) both}
+.strip-sub{margin:9px 0 0;font-size:12px;color:var(--color-text-secondary)}
+
+/* 双栏：左演示，右摄像头，同屏 */
+.stage-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px}
+.pane{padding:0!important;overflow:hidden;display:flex;flex-direction:column}
+.pane-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--color-divider)}
+.pane-title{font-size:13px;font-weight:700;color:var(--color-ink)}
+.pane-note{font-size:11px;color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pane-body{padding:14px;background:var(--color-neutral-soft);flex:1;display:flex}
+.pane-foot{padding:10px 18px;font-size:11px;line-height:1.6;color:var(--color-text-muted);text-align:center;border-top:1px solid var(--color-divider)}
+
 /* 取景框：镜头画面本来就是暗的，用深底比浅灰底更像"正在看摄像头"；
    高度跟视口走，别让 4:5 把整页拉到两千像素高 */
-.demo-frame{height:min(64vh,580px);background:radial-gradient(120% 100% at 50% 0%,#263038 0%,#14191d 55%,#0c1013 100%);border-radius:var(--radius-md);position:relative;overflow:hidden;display:grid;place-items:center}
+.demo-frame{height:min(58vh,540px);background:radial-gradient(120% 100% at 50% 0%,#263038 0%,#14191d 55%,#0c1013 100%);border-radius:var(--radius-md);position:relative;overflow:hidden;display:grid;place-items:center;width:100%}
 /* 骨架配色见下方 .figure 段（3/4 视角 + 关节层级） */
 /* 人物：远侧压暗、近侧提亮，躯干与头用渐变做体积；关节各是一个 <g>，动作靠转关节而不是压扁整张图 */
 .skeleton-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:14px 0 74px}
@@ -861,8 +894,8 @@ onUnmounted(() => {
 .figure .joint{fill:var(--brand-pole-a-dark)}
 .figure .headring{fill:none;stroke:color-mix(in srgb,var(--brand-pole-a-dark) 40%,transparent);stroke-width:1.6;stroke-dasharray:3 8}
 .figure .db{fill:#2c363e;stroke:var(--brand-pole-a-dark);stroke-width:1.4}
-/* 坐站训练不握器械：只在弯举这类肘主导的动作里画哑铃 */
-.figure.knee .db{display:none}
+/* 坐站/台阶/热身类不握器械：只在弯举与划船这类肘主导的动作里画哑铃 */
+.figure.knee .db,.figure.shoulder .db,.figure.calf .db{display:none}
 
 /* ——— 关节：每个 <g> 一个转轴（transform-box:view-box 让坐标就是画布坐标） ——— */
 .figure .pelvis,
@@ -885,13 +918,23 @@ onUnmounted(() => {
 .figure .arm-near .upper{transform-origin:226px 212px}
 .figure .arm-near .fore{transform-origin:200px 322px}
 
-/* 弯举：前臂绕肘转、肩略抬；远侧滞后一点，两根手臂不再是同步的杆 */
-.figure.up.elbow .arm-near .fore{transform:rotate(-168deg)}
-.figure.up.elbow .arm-far .fore{transform:rotate(-152deg)}
-.figure.up.elbow .arm-near .upper{transform:rotate(-7deg)}
-.figure.up.elbow .arm-far .upper{transform:rotate(-4deg)}
+/* 弯举：计数语义里 'down' 是弯起（肘角变小），前臂绕肘卷起来；远侧滞后一点，两根手臂不再是同步的杆 */
+.figure.down.elbow .arm-near .fore{transform:rotate(-168deg)}
+.figure.down.elbow .arm-far .fore{transform:rotate(-152deg)}
+.figure.down.elbow .arm-near .upper{transform:rotate(-7deg)}
+.figure.down.elbow .arm-far .upper{transform:rotate(-4deg)}
 
-/* 坐站：骨盆沉降 + 大腿前折并缩短（透视）+ 小腿回收 + 脚掌压平 */
+/* 肩环绕：'up' 是手臂上举过顶的一段圆弧 */
+.figure.up.shoulder .arm-near .upper{transform:rotate(-118deg)}
+.figure.up.shoulder .arm-far .upper{transform:rotate(-100deg)}
+.figure.up.shoulder .arm-near .fore{transform:rotate(-14deg)}
+.figure.up.shoulder .arm-far .fore{transform:rotate(-9deg)}
+
+/* 提踵：'up' 是脚跟提起，身体整体升高一点，投影收紧 */
+.figure.up.calf .pelvis{transform:translate(0,-12px)}
+.figure.up.calf .shadow{transform:scale(.94)}
+
+/* 坐站/台阶：骨盆沉降 + 大腿前折并缩短（透视）+ 小腿回收 + 脚掌压平 */
 .figure.knee.down .pelvis{transform:translate(-8px,46px)}
 .figure.knee.down .thigh{transform:rotate(15deg) scaleY(.73)}
 .figure.knee.down .shin{transform:rotate(-32deg)}
@@ -925,37 +968,32 @@ onUnmounted(() => {
 .rest-skip.armed{background:var(--color-caution)}
 .rest-stop{background:rgba(255,255,255,.14);color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
 .rest-note{font-size:11px;color:rgba(242,244,246,.6)}
-.stage-hint{padding:12px 24px;font-size:11px;color:var(--color-text-muted);text-align:center;background:var(--color-card);border-top:1px solid var(--color-divider)}
-.stage-controls{display:flex;justify-content:center;gap:12px;padding:20px;background:var(--color-neutral-soft)}
+
+/* 摄像头栏：未开启/连接中/出错都是同一块深底上的说明层 */
+.cam-frame{position:relative;height:min(58vh,540px);background:#0d1f2c;border-radius:var(--radius-md);overflow:hidden;display:grid;place-items:center;width:100%}
+.cam-feed,.cam-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.cam-overlay{pointer-events:none}
+.cam-idle{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;text-align:center;color:rgba(242,244,246,.85)}
+.cam-idle p{margin:0;font-size:13px;line-height:1.7;max-width:36ch}
+.cam-idle small{font-size:11px;color:rgba(242,244,246,.6);line-height:1.6}
+.cam-idle .cam-error{background:rgba(138,90,0,.28);color:#ffd9a8;border-radius:10px;padding:9px 12px;font-size:12px;max-width:40ch}
+.cam-main-btn{min-height:40px;padding:0 18px;border-radius:11px;font-size:13px;font-weight:700;background:var(--pole-movement);color:var(--color-on-accent);transition:all var(--motion-fast)}
+.cam-main-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+.cam-main-btn.ghost{background:transparent;color:rgba(242,244,246,.85);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}
+.cam-angles{position:absolute;left:12px;right:12px;bottom:54px;margin:0;text-align:center;font-family:var(--font-num);font-size:12px;color:rgba(242,244,246,.88);background:rgba(13,31,44,.55);backdrop-filter:blur(6px);border-radius:9px;padding:7px 10px;pointer-events:none}
+.cam-calib{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;font-size:12px;font-weight:700;color:#fff;background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);padding:8px 14px;border-radius:999px;min-height:36px;transition:all var(--motion-fast)}
+.cam-calib:hover:not(:disabled){background:rgba(255,255,255,.22)}
+.cam-calib:disabled{opacity:.5;cursor:not-allowed}
+
+.stage-controls{display:flex;justify-content:center;gap:12px;padding:16px 0}
 .ctrl-btn{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;transition:all var(--motion-fast)}
 .ctrl-btn.secondary{background:var(--pole-movement-soft);color:var(--pole-movement-strong)}
 .ctrl-btn.secondary:hover:enabled{background:var(--pole-movement);color:var(--color-on-accent);transform:scale(1.08)}
 .ctrl-btn.danger{background:var(--color-danger-soft);color:var(--color-danger)}
 .ctrl-btn.danger:hover:enabled{background:var(--color-danger);color:var(--color-on-danger)}
 .ctrl-btn:disabled{opacity:.4;cursor:not-allowed}
-.info-cards{display:grid;gap:18px}
-.count-card{text-align:center;padding:22px!important}
-.count-label{font-size:12px;color:var(--color-text-muted);margin-bottom:8px}
-.count-big{font-family:var(--font-num);font-size:64px;font-weight:600;letter-spacing:-.045em;line-height:1;margin-bottom:14px;font-variant-numeric:tabular-nums;color:var(--color-ink)}
-.count-big span{font-size:18px;color:var(--color-text-muted);-webkit-text-fill-color:currentColor;letter-spacing:0}
-.count-card.primary .count-big{color:var(--pole-movement)}
-.count-progress{height:6px;background:var(--color-divider);border-radius:10px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(21,24,27,.1)}
-.progress-fill{height:100%;background:linear-gradient(90deg,var(--pole-movement),var(--pole-movement-strong));border-radius:10px;box-shadow:0 0 10px color-mix(in srgb,var(--pole-movement) 45%,transparent);transition:width var(--motion-slow) var(--easing-ease-out)}
-.reps-grid{display:grid;gap:6px;margin-top:4px}
-.reps-grid span{height:5px;background:var(--color-divider);border-radius:3px}
-.reps-grid span.done{background:var(--pole-movement);animation:scaleIn var(--motion-base) var(--easing-spring) both}
-.status-item{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-divider)}
-.status-item:last-child{border:0}
-.status-icon{color:var(--color-text-secondary);margin-top:2px}
-.status-icon.teal{color:var(--pole-movement)}
-.status-item strong,.status-item small{display:block}
-.status-item strong{font-size:14px}
-.status-item small{font-size:12px;color:var(--color-text-muted);margin-top:3px}
-.calib{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:2px 0 4px}
-.calib-btn{font-size:12px;font-weight:700;color:var(--pole-movement-strong);background:var(--pole-movement-soft);padding:9px 14px;border-radius:10px;min-height:44px;transition:all var(--motion-fast)}
-.calib-btn:hover:not(:disabled){background:var(--pole-movement-line)}
-.calib-btn:disabled{opacity:.55;cursor:progress}
-.calib small{font-size:11px;color:var(--color-text-muted)}
+
+.after-area{max-width:760px;margin:0 auto;width:100%}
 .actions-card h3{font-size:16px;margin-bottom:8px}
 .actions-card p{font-size:13px;color:var(--color-text-secondary);margin-bottom:16px;line-height:1.6}
 .actions-card :deep(button){width:100%;margin-bottom:8px}
@@ -981,6 +1019,30 @@ onUnmounted(() => {
 .feedback-saved{font-size:13px;color:var(--pole-movement-strong);border-top:1px solid var(--color-divider);margin:14px 0 0;padding-top:14px;text-align:left}
 .execution-page :deep(.base-button:focus-visible){box-shadow:0 0 0 3px color-mix(in srgb,var(--pole-movement) 32%,transparent)}
 .execution-page button:focus-visible,.execution-page a:focus-visible,.execution-page input:focus-visible,.execution-page select:focus-visible,.execution-page textarea:focus-visible{outline-color:var(--pole-movement)}
-@media(max-width:1024px){.execution-grid{grid-template-columns:1fr}.info-cards{grid-template-columns:repeat(2,1fr)}.actions-card{grid-column:1/-1}}
-@media(max-width:767px){.page-header{align-items:flex-start}.page-header h1{font-size:22px}.info-cards{grid-template-columns:1fr}}
+
+@media(max-width:1024px){
+  .stage-grid{grid-template-columns:1fr}
+  .count-strip{grid-template-columns:1fr 1.4fr 1fr}
+}
+/* 手机：摄像头缩成演示画面右上角的小框（PiP），其余内容单列 */
+@media(max-width:767px){
+  .page-header{align-items:flex-start}
+  .page-header h1{font-size:22px}
+  .stage-grid{display:block;position:relative}
+  .pane-demo{margin-bottom:12px}
+  .pane-cam{position:absolute;top:8px;right:8px;width:min(138px,40vw);z-index:7;box-shadow:var(--shadow-md);border-radius:var(--radius-md)}
+  .pane-cam .pane-head,.pane-cam .pane-foot{display:none}
+  .pane-cam .pane-body{padding:6px}
+  .pane-cam .cam-frame{height:calc(min(138px,40vw)*1.5)}
+  .pane-cam .cam-angles,.pane-cam .cam-calib{display:none}
+  .pane-cam .cam-idle{padding:6px;gap:5px}
+  .pane-cam .cam-idle p{font-size:10px}
+  /* 错误文案在小窗里压紧，别把按钮挤出 overflow:hidden 的取景框 */
+  .pane-cam .cam-idle .cam-error{font-size:9.5px;line-height:1.5;padding:6px 8px;max-width:none}
+  .pane-cam .cam-main-btn{min-height:28px;padding:0 8px;font-size:10.5px}
+  .stage-overlay{flex-direction:column;align-items:flex-start;gap:6px}
+  .count-strip{grid-template-columns:1fr 1.4fr}
+  .count-strip .strip-cell:last-child{display:none}
+  .after-area{max-width:none}
+}
 </style>

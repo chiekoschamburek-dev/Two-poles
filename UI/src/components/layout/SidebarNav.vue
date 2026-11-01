@@ -82,7 +82,7 @@
     </nav>
 
     <div class="rail-bottom">
-      <!-- 进站弹窗关掉后落到这里；点它把养生小卡片浮到旁边 -->
+      <!-- 进站弹窗关掉后落到这里；点它把 Tips 小卡片浮到旁边 -->
       <Transition name="wk-rail">
         <button
           v-if="wellnessReady && !wellnessModalOpen"
@@ -94,7 +94,7 @@
           aria-haspopup="dialog"
           :aria-expanded="wellnessCardOpen"
           :aria-controls="wellnessCardOpen ? 'wellness-float' : undefined"
-          :title="`今日养生：${wellnessCard.title}`"
+          :title="`今日 Tips：${wellnessCard.title}`"
           @click="openWellness"
         >
           <span class="rw-icon" aria-hidden="true">
@@ -102,8 +102,8 @@
             <HeartPulse v-else :size="16" />
           </span>
           <span class="rw-text">
-            <span class="short">养生</span>
-            <span class="full">今日养生</span>
+            <span class="short">Tips</span>
+            <span class="full">今日 Tips</span>
             <span class="rw-sub">{{ wellnessCard.category }} · 点开小卡片</span>
           </span>
         </button>
@@ -280,7 +280,7 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
   flex: none;
 }
 
-/* 底部整体：养生小卡片 + 档案/设置。margin-top:auto 把这一组压到图标脊下方 */
+/* 底部整体：Tips 小卡片 + 档案/设置。margin-top:auto 把这一组压到图标脊下方 */
 .rail-bottom {
   margin-top: auto;
   width: 100%;
@@ -293,7 +293,7 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
 .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 10px; width: 100%; }
 .rail-foot .nav-item { font-size: 9.5px; padding: 7px 0 6px; }
 
-/* 每日养生：不是导航项，是一张可以随时点开的小卡片 */
+/* 每日 Tips：不是导航项，是一张可以随时点开的小卡片 */
 .rail-wellness {
   width: 64px;
   min-height: 58px;

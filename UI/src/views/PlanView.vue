@@ -108,7 +108,7 @@
           <BaseButton
             :icon="Play"
             :disabled="!firstExercise"
-            :title="firstExercise ? '用摄像头跟练这一项' : '今天的项目里没有摄像头能计数的动作（只有坐站训练 / 站姿弯举可跟练）'"
+            :title="firstExercise ? '到跟练页跟练这一项' : '今天的项目里没有可跟练的动作；可以去跟练页自己挑一个'"
             @click="start"
           >开始跟练</BaseButton>
           <BaseButton variant="secondary" :icon="RefreshCw" :disabled="!replaceTargets.length" @click="showReplaceHelp">替换说明</BaseButton>
@@ -179,6 +179,7 @@ import type { AlternativeExercise, PlanItem, TrainingType } from '@/types/domain
 import { eyebrowDate, monthCells, shortDate, toISODate } from '@/utils/time'
 import { buildDayPlan, alternativesFor } from '@/services/planRules'
 import { findExercise } from '@/services/exercises'
+import { demoExercises } from '@/services/demoCameraService'
 import { weekDates, weekStart, buildWeeklyReport } from '@/services/weekRules'
 
 const router = useRouter()
@@ -237,8 +238,10 @@ const selectedDateLabel = computed(() =>
 const eyebrow = computed(() => eyebrowDate(selectedDate.value).toUpperCase())
 const isPast = computed(() => selected.value < toISODate(now))
 const planTitle = computed(() => (planForSelected.value.some(i => i.type === '坐站训练') ? '无器械基础体能' : '今日安排'))
+/** 可跟练 = 跟练页有演示时间线的动作（与 demoExercises 同一份名单，新增动作自动跟宽） */
+const FOLLOWABLE_NAMES = new Set(demoExercises.map(d => d.name))
 const firstExercise = computed(() => {
-  const target = planForSelected.value.find(i => i.type === '坐站训练' || i.type === '站姿弯举')
+  const target = planForSelected.value.find(i => FOLLOWABLE_NAMES.has(i.exerciseName))
   return target ? target.exerciseName : ''
 })
 

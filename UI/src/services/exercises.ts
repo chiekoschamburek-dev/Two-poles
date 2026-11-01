@@ -21,6 +21,9 @@ export interface CameraConfig {
   minStageMs: number
 }
 
+/** 有摄像头计数规则的动作名；跟练入口用它在计划里找可跟练项 */
+export const CAMERA_COUNTABLE = ['坐站训练', '站姿弯举', '弹力带弯举', '水瓶替代弯举', '弹力带划船', '高抬腿走', '动态弓步转体', '台阶上下'] as const
+
 export interface Exercise {
   id: string
   name: string
@@ -54,19 +57,19 @@ export const exercises: Exercise[] = [
   // ===== 动态热身 =====
   E({ id: 'ex-shoulder-roll', name: '肩环绕', type: '动态热身', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 1, sets: 1, reps: 10, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '双肩向后画圆，幅度以不引起不适为准', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-hip-swing', name: '髋部摆动', type: '动态热身', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 2, sets: 1, reps: 10, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '单扶墙，另一腿前后摆动', status: 'active', source: EXERCISE_SOURCE }),
-  E({ id: 'ex-mark-march', name: '高抬腿走', type: '动态热身', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 3, sets: 1, reps: 20, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: false, howto: '原地交替抬膝至髋高，不跑跳', status: 'active', source: EXERCISE_SOURCE }),
+  E({ id: 'ex-mark-march', name: '高抬腿走', type: '动态热身', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 3, sets: 1, reps: 20, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: false, howto: '原地交替抬膝至髋高，不跑跳', camera: { joint: 'knee', neutral: 172, bottom: 100, minStageMs: 150 }, status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-cat-cow', name: '猫式伸展', type: '动态热身', equipment: [], venues: ['宿舍或家', '健身房'], minutes: 2, sets: 1, reps: 8, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '四点支撑，交替拱背与塌腰', status: 'active', source: EXERCISE_SOURCE }),
-  E({ id: 'ex-lunge-twist', name: '动态弓步转体', type: '动态热身', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 3, sets: 1, reps: 8, intensity: '中', jumpFree: true, kneeFriendly: false, spineFriendly: true, howto: '前弓步同时向同侧转体', status: 'active', source: EXERCISE_SOURCE }),
+  E({ id: 'ex-lunge-twist', name: '动态弓步转体', type: '动态热身', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 3, sets: 1, reps: 8, intensity: '中', jumpFree: true, kneeFriendly: false, spineFriendly: true, howto: '前弓步同时向同侧转体', camera: { joint: 'knee', neutral: 175, bottom: 105, minStageMs: 200 }, status: 'active', source: EXERCISE_SOURCE }),
 
   // ===== 两个可跟练计数的动作（F05） =====
   E({ id: 'ex-chair-sitstand', name: '坐站训练', type: '坐站训练', equipment: ['椅子'], venues: ['宿舍或家', '健身房'], minutes: 3, sets: 2, reps: 8, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '坐稳后站起再坐下，全程不憋气', reason: '低冲击，只需一把椅子', camera: { joint: 'knee', neutral: 168, bottom: 100, minStageMs: 220 }, status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-stand-curl', name: '站姿弯举', type: '站姿弯举', equipment: ['哑铃', '弹力带'], venues: ['宿舍或家', '健身房'], minutes: 3, sets: 2, reps: 10, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '大臂贴身，屈肘举起再放下', camera: { joint: 'elbow', neutral: 170, bottom: 55, minStageMs: 180 }, status: 'active', source: EXERCISE_SOURCE }),
-  E({ id: 'ex-band-curl', name: '弹力带弯举', type: '站姿弯举', equipment: ['弹力带'], venues: ['宿舍或家', '健身房'], minutes: 3, sets: 2, reps: 10, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '踩住带中段，屈肘拉起', reason: '同等负荷，关节压力更小', status: 'active', source: EXERCISE_SOURCE }),
-  E({ id: 'ex-bottle-curl', name: '水瓶替代弯举', type: '站姿弯举', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 3, sets: 2, reps: 12, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '双手各持一瓶水屈肘举起', reason: '无器材时的等效动作', status: 'active', source: EXERCISE_SOURCE }),
+  E({ id: 'ex-band-curl', name: '弹力带弯举', type: '站姿弯举', equipment: ['弹力带'], venues: ['宿舍或家', '健身房'], minutes: 3, sets: 2, reps: 10, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '踩住带中段，屈肘拉起', reason: '同等负荷，关节压力更小', camera: { joint: 'elbow', neutral: 170, bottom: 55, minStageMs: 180 }, status: 'active', source: EXERCISE_SOURCE }),
+  E({ id: 'ex-bottle-curl', name: '水瓶替代弯举', type: '站姿弯举', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 3, sets: 2, reps: 12, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '双手各持一瓶水屈肘举起', reason: '无器材时的等效动作', camera: { joint: 'elbow', neutral: 170, bottom: 55, minStageMs: 180 }, status: 'active', source: EXERCISE_SOURCE }),
 
   // ===== 力量与稳定 =====
   E({ id: 'ex-wall-sit', name: '靠墙静蹲', type: '其他', equipment: [], venues: ['宿舍或家', '健身房'], minutes: 4, sets: 2, holdSeconds: 30, intensity: '中', jumpFree: true, kneeFriendly: false, spineFriendly: true, howto: '背靠墙屈膝下蹲，不超过膝盖明显疼痛为界', status: 'active', source: EXERCISE_SOURCE }),
-  E({ id: 'ex-band-row', name: '弹力带划船', type: '其他', equipment: ['弹力带'], venues: ['宿舍或家', '健身房'], minutes: 4, sets: 2, reps: 12, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '带绕脚底，屈肘向后拉至躯干两侧', status: 'active', source: EXERCISE_SOURCE }),
+  E({ id: 'ex-band-row', name: '弹力带划船', type: '其他', equipment: ['弹力带'], venues: ['宿舍或家', '健身房'], minutes: 4, sets: 2, reps: 12, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '带绕脚底，屈肘向后拉至躯干两侧', camera: { joint: 'elbow', neutral: 168, bottom: 80, minStageMs: 200 }, status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-knee-pushup', name: '跪姿俯卧撑', type: '其他', equipment: [], venues: ['宿舍或家', '健身房'], minutes: 4, sets: 2, reps: 8, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: false, howto: '膝着地，身体保持一条直线', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-glute-bridge', name: '臀桥', type: '其他', equipment: [], venues: ['宿舍或家', '健身房'], minutes: 4, sets: 2, reps: 12, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '仰卧屈膝，抬臀至髋与膝同高', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-dead-bug', name: '死虫式', type: '其他', equipment: [], venues: ['宿舍或家', '健身房'], minutes: 4, sets: 2, reps: 10, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '腰背贴地，对侧手脚缓慢伸出', status: 'active', source: EXERCISE_SOURCE }),
@@ -75,7 +78,7 @@ export const exercises: Exercise[] = [
   E({ id: 'ex-plank', name: '平板支撑', type: '其他', equipment: [], venues: ['宿舍或家', '健身房'], minutes: 3, sets: 2, holdSeconds: 30, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: false, howto: '前臂支撑，躯干成一直线', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-calf-raise', name: '提踵', type: '其他', equipment: ['椅子'], venues: ['宿舍或家', '健身房'], minutes: 3, sets: 2, reps: 15, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '扶椅背，缓慢抬起脚跟再落下', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-band-walk', name: '弹力带侧向行走', type: '其他', equipment: ['弹力带'], venues: ['宿舍或家', '健身房', '户外'], minutes: 4, sets: 2, reps: 12, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '带套膝上，半蹲姿势侧向迈步', status: 'active', source: EXERCISE_SOURCE }),
-  E({ id: 'ex-step-up', name: '台阶上下', type: '其他', equipment: ['椅子'], venues: ['宿舍或家', '健身房'], minutes: 5, sets: 2, reps: 10, intensity: '中', jumpFree: true, kneeFriendly: false, spineFriendly: true, howto: '用稳固台阶或低凳，单腿踩上再下', status: 'active', source: EXERCISE_SOURCE }),
+  E({ id: 'ex-step-up', name: '台阶上下', type: '其他', equipment: ['椅子'], venues: ['宿舍或家', '健身房'], minutes: 5, sets: 2, reps: 10, intensity: '中', jumpFree: true, kneeFriendly: false, spineFriendly: true, howto: '用稳固台阶或低凳，单腿踩上再下', camera: { joint: 'knee', neutral: 175, bottom: 100, minStageMs: 220 }, status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-jumping-jack', name: '开合跳', type: '其他', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 3, sets: 2, reps: 20, intensity: '高', jumpFree: false, kneeFriendly: false, spineFriendly: true, howto: '连续开合，落地前脚掌先着地', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-squat-jump', name: '深蹲跳', type: '其他', equipment: [], venues: ['宿舍或家', '健身房'], minutes: 3, sets: 2, reps: 10, intensity: '高', jumpFree: false, kneeFriendly: false, spineFriendly: false, howto: '下蹲后向上跳起，落地微屈缓冲', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-neck-bridge', name: '桥式滚颈', type: '其他', equipment: [], venues: ['宿舍或家'], minutes: 2, sets: 1, reps: 5, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: false, howto: '头部承重翻转，颈椎风险高', status: 'retired', source: `${EXERCISE_SOURCE}；因颈部承压风险已停用，不可用于新推荐` }),

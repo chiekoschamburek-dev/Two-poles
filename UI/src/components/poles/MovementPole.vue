@@ -271,6 +271,7 @@ import PoleShell from './PoleShell.vue'
 import { useAppStore } from '@/stores/app'
 import type { DayFacts } from '@/services/bridgeRules'
 import { buildDayPlan } from '@/services/planRules'
+import { demoExercises } from '@/services/demoCameraService'
 import { buildWeeklyReport, WEEK_LABELS, weekDates, weekStart } from '@/services/weekRules'
 import { buildLoadSeries, intensitySplit, loadZone, LOAD_ZONE_TEXT } from '@/services/loadRules'
 import { eyebrowDate, shortDate, toISODate } from '@/utils/time'
@@ -309,7 +310,9 @@ const mainItem = computed(() => {
   return [...list].sort((a, b) => (b.plannedDuration ?? 0) - (a.plannedDuration ?? 0))[0]
 })
 const totalMinutes = computed(() => items.value.reduce((sum, item) => sum + (item.plannedDuration ?? 0), 0))
-const followable = computed(() => items.value.find(i => i.type === '坐站训练' || i.type === '站姿弯举') ?? null)
+/** 可跟练 = 跟练页有演示时间线的动作（与 demoExercises 同一份名单，新增动作自动跟宽） */
+const FOLLOWABLE_NAMES = new Set(demoExercises.map(d => d.name))
+const followable = computed(() => items.value.find(i => FOLLOWABLE_NAMES.has(i.exerciseName)) ?? null)
 
 const timeline = computed(() => items.value.map(item => {
   const bits: string[] = []
