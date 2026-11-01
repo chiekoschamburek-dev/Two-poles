@@ -358,6 +358,13 @@ export interface PrivacySettings {
   saveFoodPhotoLocally: boolean
 }
 
+/** F19 语音节奏播报：默认关闭，避免与读屏的 aria-live 提示双声道同时发声 */
+export interface SpeechSettings {
+  enabled: boolean
+  /** 本机中文音色的 voiceURI；空串 = 用枚举到的第一个中文音色 */
+  voiceURI: string
+}
+
 /** 三态而不是开关：调研指出"半适配深色"和"强制深色"都是高频差评，默认跟随系统 */
 export type ThemePreference = 'system' | 'light' | 'dark'
 

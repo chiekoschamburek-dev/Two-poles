@@ -170,6 +170,40 @@
       </div>
     </BaseCard>
 
+    <!-- 语音播报（F19）：本机 speechSynthesis，零上传；默认关闭避免与读屏双声道 -->
+    <BaseCard class="section animate-slide-in-up">
+      <h2>语音播报</h2>
+      <p class="sub">用设备自带的中文音色播报组数、次数与休息计时，声音只在本机合成，不上传任何内容。默认关闭：开启后可能与读屏软件的提示同时发声，读屏用户建议保持关闭，页面文字提示始终可用。</p>
+
+      <label class="toggle">
+        <input type="checkbox" role="switch" :checked="store.speech.enabled" @change="setSpeechEnabled(($event.target as HTMLInputElement).checked)" />
+        <span class="tg"><i></i></span>
+        <span class="tlabel"><strong>开启语音节奏播报</strong><small>只播"第 2 组开始""组间剩 5 秒""本组完成"这类节奏与计时，不做动作纠错，也不输出姿势安全结论。</small></span>
+      </label>
+
+      <div class="fields speech-fields">
+        <div class="field">
+          <span class="field-label">音色（本机枚举到的中文音色）</span>
+          <select
+            :value="store.speech.voiceURI || firstVoiceURI"
+            :disabled="!store.speech.enabled || !chineseVoices.length"
+            aria-label="选择播报音色"
+            @change="onVoiceChange"
+          >
+            <option v-if="!chineseVoices.length" value="">暂无可用中文音色</option>
+            <option v-for="v in chineseVoices" :key="v.voiceURI" :value="v.voiceURI">{{ v.name }}（{{ v.lang }}）</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="field-label">试听</span>
+          <BaseButton size="sm" variant="secondary" :disabled="!store.speech.enabled || !chineseVoices.length" @click="previewVoice">播一句试试</BaseButton>
+        </div>
+      </div>
+
+      <p v-if="speechDegrade" class="fine">{{ speechDegrade }}</p>
+      <p v-else class="fine">没有枚举到音色、设备静音或浏览器不支持时，播报会静默跳过，不报错也不显示"已播报"；开关与音色选择保存在本机。</p>
+    </BaseCard>
+
     <BaseCard class="section animate-slide-in-up">
       <h2>外观</h2>
       <p class="sub">默认跟随系统。手动选浅色或深色后就固定下来，不再跟着系统变；这个偏好只存在本机。</p>
@@ -229,6 +263,7 @@ import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
+import { useSpeech } from '@/composables/useSpeech'
 import type { PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { goalSummary } from '@/services/profileRules'
@@ -349,6 +384,26 @@ function setPrivacy<K extends keyof PrivacySettings>(key: K, value: PrivacySetti
   store.showToast({ type: 'success', title: '设置已保存', message: '只写在本机 localStorage', duration: 2000 })
 }
 
+// ——— 语音播报（F19）———
+const { chineseVoices, degradeReason: speechDegrade, preview: speakPreview } = useSpeech()
+// 空选择 = 用第一个中文音色（useSpeech.findVoice 的回落语义），下拉框把实际生效的显示出来
+const firstVoiceURI = computed(() => chineseVoices.value[0]?.voiceURI ?? '')
+
+function setSpeechEnabled(on: boolean) {
+  store.updateSpeech({ enabled: on })
+  // 开启的同时给一句试听：用户手势刚发生，浏览器允许发声，立刻能确认效果
+  if (on) speakPreview('第 2 组开始')
+}
+
+function onVoiceChange(e: Event) {
+  store.updateSpeech({ voiceURI: (e.target as HTMLSelectElement).value })
+  speakPreview('第 2 组开始')
+}
+
+function previewVoice() {
+  speakPreview('第 2 组开始，共 10 次')
+}
+
 function csvCell(value: unknown): string {
   return `"${String(value ?? '').replace(/"/g, '""')}"`
 }
@@ -448,6 +503,9 @@ function wipe() {
 .field{display:block}
 .field-label{display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:7px}
 .field input{width:100%;padding:11px 13px;border:1px solid var(--color-border);border-radius:12px;font-size:14px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
+.field select{width:100%;padding:11px 13px;border:1px solid var(--color-border);border-radius:12px;font-size:14px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
+.field select:disabled{opacity:.5;cursor:not-allowed}
+.speech-fields{align-items:end}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{padding:9px 14px;border-radius:999px;font-size:12px;font-weight:600;color:var(--color-text-secondary);background:var(--color-neutral-soft);transition:all var(--motion-fast)}
 .chip:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}

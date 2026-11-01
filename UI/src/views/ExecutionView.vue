@@ -159,7 +159,25 @@
               <span class="phase-badge" :class="{ 'animate-pulse': status === 'resting' }">{{ phaseLabel }}</span>
             </div>
             <div class="frame-sheen gradient-shimmer" v-if="mode === 'demo' && !finished && !paused"></div>
-            <p class="stage-live" aria-live="polite">{{ stageMessage }}</p>
+            <!-- F17 组间休息页：预显下一组的动作与起始姿势；面板不吞点击，跳过走两步确认（plan.md §4.2） -->
+            <div v-if="status === 'resting' && !finished" class="rest-overlay">
+              <div class="rest-panel">
+                <span class="rest-kick">组间休息</span>
+                <div class="rest-count" aria-hidden="true">{{ restLeft }}<small>秒</small></div>
+                <div class="rest-next" aria-live="polite">
+                  <strong>下一个：{{ exercise.name }} · 第 {{ nextSetNo }}/{{ exercise.sets }} 组 · 每组 {{ exercise.repsPerSet }} 次</strong>
+                  <p>{{ startPoseHint }}</p>
+                </div>
+                <div class="rest-actions">
+                  <button type="button" class="rest-skip" :class="{ armed: skipArmed }" @click="onRestSkipClick">
+                    {{ skipArmed ? '再按一次确认跳过' : '跳过休息' }}
+                  </button>
+                  <button type="button" class="rest-stop" @click="stopAndRecord">结束并记录</button>
+                </div>
+                <small class="rest-note">跳过需连按两次确认，防止误触</small>
+              </div>
+            </div>
+            <p v-else class="stage-live" aria-live="polite">{{ stageMessage }}</p>
           </div>
           <div class="stage-hint">{{ stageHint }}</div>
         </div>
@@ -290,6 +308,7 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import { useAppStore } from '@/stores/app'
 import { usePoseCamera } from '@/composables/usePoseCamera'
 import { useRepCounter } from '@/composables/useRepCounter'
+import { useSpeech } from '@/composables/useSpeech'
 import { findExercise } from '@/services/exercises'
 import type { DemoEvent, ExercisePhase } from '@/types/domain'
 import {
@@ -327,6 +346,8 @@ const reasonText = ref('')
 const notesText = ref('')
 const feedbackSaved = ref(false)
 const pose = usePoseCamera()
+/** F19：只播节奏与计时（组数/次数/休息），不做动作纠错；开关在设置页，默认关 */
+const { speak } = useSpeech()
 const mode = ref<'demo' | 'camera'>('demo')
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -516,6 +537,43 @@ const stageClass = computed(() =>
 )
 /** 演示剪影按动作切姿态：弯举看肘、坐站看膝。和计数用的 camJoint 分开——演示模式下也要对 */
 const figureJoint = computed(() => findExercise(exercise.value.name)?.camera?.joint ?? 'knee')
+
+// ——— F17 组间休息页 ———
+/** 休息剩余秒数（reactive）：tick 里只写 restElapsed，这里每秒刷新倒计时显示 */
+const restLeft = ref(0)
+/** 跳过休息的两步确认：第一下进入确认态，3 秒内不按自动回落继续等待 */
+const skipArmed = ref(false)
+let skipArmTimer = 0
+/** "组间剩 5 秒"只播一次 */
+let restFiveSaid = false
+
+const nextSetNo = computed(() => Math.min(setIndex.value + 1, exercise.value.sets))
+/** 预显的起始姿势：动作库要领 + 摄像头计数需要的站位（识别取左侧关键点，要左侧面朝镜头） */
+const startPoseHint = computed(() => {
+  const lib = findExercise(exercise.value.name)
+  const station = lib?.camera
+    ? `左侧面向镜头、全身完整入镜，${lib.camera.joint === 'knee' ? '左膝' : '左肘'}保持清晰`
+    : '该动作没有摄像头计数规则，可用"手动修正"记录次数'
+  return [lib?.howto, station].filter(Boolean).join('；')
+})
+
+function disarmSkip() {
+  window.clearTimeout(skipArmTimer)
+  skipArmed.value = false
+}
+
+function onRestSkipClick() {
+  // 两步确认（plan.md §4.2）：第一下只进入确认态、继续等待，第二下才真的跳过
+  if (!skipArmed.value) {
+    skipArmed.value = true
+    window.clearTimeout(skipArmTimer)
+    skipArmTimer = window.setTimeout(() => { skipArmed.value = false }, 3000)
+    return
+  }
+  disarmSkip()
+  skipSet()
+}
+
 const totalReps = computed(() => repsBySet.value.reduce((sum, n) => sum + n, 0))
 const averageConfidence = computed(() => (confidenceCount ? confidenceSum / confidenceCount : 0))
 const completionLabel = computed(() => {
@@ -543,6 +601,7 @@ function tick(ts: number) {
       const res = c.feed(angle, pose.visibility.value, ts)
       if (res.counted) {
         store.showToast({ type: 'success', title: `第 ${c.count} 次`, message: '关键点回到起始位，计为一次', duration: 1200 })
+        speak(String(c.count))
       }
       confidence.value = pose.visibility.value
       confidenceSum += pose.visibility.value
@@ -564,7 +623,13 @@ function tick(ts: number) {
   } else if (!paused.value && status.value === 'resting') {
     elapsedMs.value += dt
     restElapsed += dt
-    message.value = `组间休息 ${Math.max(Math.ceil((exercise.value.restDuration - restElapsed) / 1000), 0)} 秒`
+    const remaining = Math.max(Math.ceil((exercise.value.restDuration - restElapsed) / 1000), 0)
+    restLeft.value = remaining
+    message.value = `组间休息 ${remaining} 秒`
+    if (!restFiveSaid && remaining <= 5) {
+      restFiveSaid = true
+      speak('组间剩 5 秒')
+    }
     if (restElapsed >= exercise.value.restDuration) startNextSet()
   }
 
@@ -572,7 +637,11 @@ function tick(ts: number) {
 }
 
 function applyEvent(event: DemoEvent) {
-  if (event.count !== undefined) reps.value = event.count
+  if (event.count !== undefined) {
+    reps.value = event.count
+    // 完成事件后面紧跟"本组完成"，别让最后一个数字把那句打断
+    if (event.state !== 'complete') speak(String(event.count))
+  }
   if (event.confidence > 0) {
     confidenceSum += event.confidence
     confidenceCount++
@@ -592,12 +661,16 @@ function finishSet() {
   if (setIndex.value < exercise.value.sets) {
     status.value = 'resting'
     restElapsed = 0
+    restFiveSaid = false
+    restLeft.value = Math.ceil(exercise.value.restDuration / 1000)
+    speak('本组完成')
   } else {
     complete()
   }
 }
 
 function startNextSet() {
+  disarmSkip()
   setIndex.value++
   reps.value = 0
   eventIndex = 0
@@ -606,6 +679,7 @@ function startNextSet() {
   counter.value?.reset('新一组开始：请回到起始姿势')
   status.value = 'playing'
   message.value = `第 ${setIndex.value} 组开始`
+  speak(`第 ${setIndex.value} 组开始`)
 }
 
 function skipSet() {
@@ -629,6 +703,8 @@ function complete() {
   status.value = 'idle'
   phase.value = 'complete'
   message.value = '训练完成'
+  disarmSkip()
+  speak('训练完成')
   record()
 }
 
@@ -680,6 +756,7 @@ function togglePause() {
   paused.value = !paused.value
   if (paused.value) lastTs = 0
   message.value = paused.value ? '已暂停' : '继续训练'
+  speak(paused.value ? '已暂停' : '继续训练')
 }
 
 function selectExercise(name: string) {
@@ -719,8 +796,13 @@ function restart() {
   confidenceCount = 0
   recorded = false
   corrected = false
+  restLeft.value = Math.ceil(exercise.value.restDuration / 1000)
+  restFiveSaid = false
+  disarmSkip()
   if (live.value) buildCounter()
   rafId = requestAnimationFrame(tick)
+  // 课次开始也是节奏的一部分；浏览器在没有用户激活时会把这句静默拒掉，不报错
+  speak('第 1 组开始')
 }
 
 function leave() {
@@ -731,6 +813,7 @@ onMounted(() => restart())
 onUnmounted(() => {
   cancelAnimationFrame(rafId)
   cancelAnimationFrame(tweenRaf)
+  disarmSkip()
 })
 </script>
 
@@ -826,6 +909,22 @@ onUnmounted(() => {
 .confidence-badge.low{color:var(--color-danger);border-left:3px solid var(--color-danger)}
 .phase-badge{color:var(--pole-movement-strong);border-left:3px solid var(--pole-movement)}
 .stage-live{position:absolute;left:16px;right:16px;bottom:16px;margin:0;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);font-size:13px;font-weight:600;color:#15181b;text-align:center;box-shadow:var(--shadow-sm)}
+/* F17 休息页：面板盖住画面但 pointer-events:none，点击只会落到按钮上；倒计时数字不做循环动画 */
+.rest-overlay{position:absolute;inset:0;display:grid;place-items:center;padding:20px;pointer-events:none;background:rgba(10,14,17,.58);backdrop-filter:blur(2px)}
+.rest-panel{width:min(360px,100%);text-align:center;color:#f2f4f6;display:grid;gap:12px}
+.rest-kick{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(242,244,246,.72)}
+.rest-count{font-family:var(--font-num);font-size:72px;font-weight:600;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.rest-count small{font-size:18px;font-weight:500;margin-left:6px;color:rgba(242,244,246,.7)}
+.rest-next{padding:12px 14px;border-radius:12px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16)}
+.rest-next strong{display:block;font-size:14px}
+.rest-next p{margin:6px 0 0;font-size:12px;line-height:1.65;color:rgba(242,244,246,.78);text-align:left}
+.rest-actions{display:flex;gap:10px;justify-content:center}
+.rest-actions button{pointer-events:auto;min-height:44px;padding:0 18px;border-radius:12px;font-size:13px;font-weight:700;transition:all var(--motion-fast)}
+.rest-actions button:hover{transform:translateY(-1px)}
+.rest-skip{background:var(--pole-movement);color:var(--color-on-accent)}
+.rest-skip.armed{background:var(--color-caution)}
+.rest-stop{background:rgba(255,255,255,.14);color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
+.rest-note{font-size:11px;color:rgba(242,244,246,.6)}
 .stage-hint{padding:12px 24px;font-size:11px;color:var(--color-text-muted);text-align:center;background:var(--color-card);border-top:1px solid var(--color-divider)}
 .stage-controls{display:flex;justify-content:center;gap:12px;padding:20px;background:var(--color-neutral-soft)}
 .ctrl-btn{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;transition:all var(--motion-fast)}

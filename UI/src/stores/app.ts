@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { FoodCategory, Meal, MealItem, MealType, Mode, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
+import type { FoodCategory, Meal, MealItem, MealType, Mode, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
@@ -61,6 +61,8 @@ export const useAppStore = defineStore('app', () => {
     showEnergyEstimate: false,
     saveFoodPhotoLocally: true
   })
+  /** F19 语音节奏播报：默认关闭，避免与读屏的 aria-live 双声道同时发声（plan.md §4.4） */
+  const speech = ref<SpeechSettings>({ enabled: false, voiceURI: '' })
   const toasts = ref<Toast[]>([])
   const initialized = ref(false)
   /** 被用户收起的解释/洞察类卡片 id。调研结论：这类卡片必须可隐藏，不能常驻占位 */
@@ -113,6 +115,9 @@ export const useAppStore = defineStore('app', () => {
         sessions.value = Array.isArray(data.sessions) ? data.sessions : []
         meals.value = Array.isArray(data.meals) ? data.meals : []
         if (data.privacy) privacy.value = { ...privacy.value, ...data.privacy }
+        if (data.speech && typeof data.speech.enabled === 'boolean') {
+          speech.value = { enabled: data.speech.enabled, voiceURI: typeof data.speech.voiceURI === 'string' ? data.speech.voiceURI : '' }
+        }
         if (Array.isArray(data.collapsed)) collapsedCards.value = data.collapsed
         if (data.theme === 'light' || data.theme === 'dark' || data.theme === 'system') themePref.value = data.theme
         applyTheme()
@@ -142,6 +147,7 @@ export const useAppStore = defineStore('app', () => {
       sessions: sessions.value,
       meals: meals.value,
       privacy: privacy.value,
+      speech: speech.value,
       collapsed: collapsedCards.value,
       theme: themePref.value,
       plans: plans.value,
@@ -833,6 +839,12 @@ export const useAppStore = defineStore('app', () => {
     persistState()
   }
 
+  /** 语音播报开关与音色（F19）：选择存进偏好并落盘，刷新后保持 */
+  function updateSpeech(patch: Partial<SpeechSettings>) {
+    speech.value = { ...speech.value, ...patch }
+    persistState()
+  }
+
   /** 记下"这个食物的这个单位等于几克"，只影响本机的后续估算 */
   function rememberUnitGrams(foodName: string, unit: string, grams: number) {
     if (!foodName || !unit || !Number.isFinite(grams) || grams <= 0) return false
@@ -877,6 +889,7 @@ export const useAppStore = defineStore('app', () => {
     modeLog.value = []
     pendingSwitch.value = null
     privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json', showEnergyEstimate: false, saveFoodPhotoLocally: true }
+    speech.value = { enabled: false, voiceURI: '' }
     collapsedCards.value = []
     themePref.value = 'system'
     unitGrams.value = {}
@@ -900,6 +913,7 @@ export const useAppStore = defineStore('app', () => {
     sessions,
     meals,
     privacy,
+    speech,
     toasts,
     initialized,
     collapsedCards,
@@ -938,6 +952,7 @@ export const useAppStore = defineStore('app', () => {
     removeMeal,
     updateMealType,
     updatePrivacy,
+    updateSpeech,
     rememberUnitGrams,
     forgetUnitGrams,
     toggleCard,
