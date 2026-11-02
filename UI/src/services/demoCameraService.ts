@@ -3,20 +3,29 @@
 
 import type { DemoEvent, ExercisePhase, TrainingType, TrainingSession } from '@/types/domain'
 
+/** 课次类型（F18）：reps 计次 / time 计时保持 / steps 计步（DeviceMotion，降级手动计时） */
+export type FollowMode = 'reps' | 'time' | 'steps'
+
 export interface DemoExercise {
   name: string
   type: TrainingType
   /** 演示剪影与阶段文案按哪套姿态渲染：knee 下蹲起身 / elbow 弯举还原 / shoulder 上举下摆 / calf 提踵落下 */
   kind: FigureKind
+  mode: FollowMode
   sets: number
+  /** reps 模式每组次数 */
   repsPerSet: number
+  /** time 模式每组保持秒数 */
+  holdSeconds?: number
+  /** steps 模式目标时长（分钟） */
+  targetMinutes?: number
   /** 单次行程的演示时长，ms；快动作（高抬腿）要短一些 */
   repMs: number
   /** length of one set timeline, ms */
   setDuration: number
   /** rest between sets, ms */
   restDuration: number
-  /** events for a single set; `count` restarts at 1 every set */
+  /** events for a single set; `count` restarts at 1 every set（仅 reps 模式） */
   setEvents: DemoEvent[]
 }
 
@@ -71,6 +80,7 @@ function makeExercise(
     name,
     type,
     kind,
+    mode: 'reps',
     sets,
     repsPerSet,
     repMs,
@@ -80,9 +90,44 @@ function makeExercise(
   }
 }
 
+/** 计时保持型（F18）：每组按 holdSeconds 倒计时，没有次数 */
+function makeHold(name: string, type: TrainingType, sets: number, holdSeconds: number): DemoExercise {
+  return {
+    name,
+    type,
+    kind: 'knee',
+    mode: 'time',
+    sets,
+    repsPerSet: 0,
+    holdSeconds,
+    repMs: 0,
+    setDuration: holdSeconds * 1000,
+    restDuration: 6000,
+    setEvents: []
+  }
+}
+
+/** 计步型（F18）：一组到底，DeviceMotion 计步，传感器不可用时退回手动计时 */
+function makeSteps(name: string, type: TrainingType, targetMinutes: number): DemoExercise {
+  return {
+    name,
+    type,
+    kind: 'knee',
+    mode: 'steps',
+    sets: 1,
+    repsPerSet: 0,
+    targetMinutes,
+    repMs: 0,
+    setDuration: targetMinutes * 60_000,
+    restDuration: 0,
+    setEvents: []
+  }
+}
+
 // 演示条目与动作库同名（exercises.ts），摄像头计数规则在库里按动作配置。
 // 坐站训练放第一位：没有带 exercise 参数进入时默认跟练它。
 export const demoExercises: DemoExercise[] = [
+  // —— 计次型 ——
   makeExercise('坐站训练', '坐站训练', 'knee', 2, 8, 2600, buildSet(8, 'up', 'down', 2600, 8000)),
   makeExercise('肩环绕', '动态热身', 'shoulder', 1, 10, 2000, buildSet(10, 'down', 'up', 2000)),
   makeExercise('髋部摆动', '动态热身', 'knee', 1, 10, 2400, buildSet(10, 'up', 'down', 2400)),
@@ -93,11 +138,27 @@ export const demoExercises: DemoExercise[] = [
   makeExercise('水瓶替代弯举', '站姿弯举', 'elbow', 2, 12, 2400, buildSet(12, 'down', 'up', 2400)),
   makeExercise('弹力带划船', '其他', 'elbow', 2, 12, 2600, buildSet(12, 'down', 'up', 2600)),
   makeExercise('台阶上下', '其他', 'knee', 2, 10, 2800, buildSet(10, 'up', 'down', 2800)),
-  makeExercise('提踵', '其他', 'calf', 2, 15, 1800, buildSet(15, 'up', 'down', 1800))
+  makeExercise('提踵', '其他', 'calf', 2, 15, 1800, buildSet(15, 'up', 'down', 1800)),
+  // —— 计时保持型（F18）——
+  makeHold('靠墙静蹲', '其他', 2, 30),
+  makeHold('平板支撑', '其他', 2, 30),
+  makeHold('侧支撑（屈膝）', '其他', 2, 20),
+  makeHold('大腿后侧拉伸', '舒缓整理', 2, 25),
+  makeHold('腹式呼吸放松', '舒缓整理', 1, 60),
+  // —— 计步型（F18）——
+  makeSteps('快走', '跑步', 20),
+  makeSteps('轻松跑', '跑步', 20)
 ]
 
 export function getDemoExercise(name: string | undefined): DemoExercise {
   return demoExercises.find(e => e.name === name) || demoExercises[0]
+}
+
+/** 动作选择 chip 的文案：计次 2×8 / 计时 2×30秒 / 计步 20分钟 */
+export function exerciseChipLabel(e: DemoExercise): string {
+  if (e.mode === 'time') return `${e.sets}×${e.holdSeconds}秒`
+  if (e.mode === 'steps') return `${e.targetMinutes}分钟`
+  return `${e.sets}×${e.repsPerSet}`
 }
 
 /** 阶段文案按姿态类别区分：同一个 'down'，蹲类是"下蹲"，弯举类是"弯起" */
@@ -141,35 +202,66 @@ export function getConfidenceLevel(confidence: number): {
 
 export interface SessionInput {
   exercise: DemoExercise
+  /** 已完成的组数（三种模式通用） */
   setsCompleted: number
+  /** reps 模式每组次数；time/steps 模式传空数组 */
   repsBySet: number[]
+  /** steps 模式：DeviceMotion 计到的步数（0 = 未计步，落库时不写 actualReps） */
+  steps?: number
   averageConfidence: number
   manualCorrections: number
   elapsedMs: number
 }
 
 /**
- * Turn a played demo run into a training session record
+ * 把一次跟练写成训练记录（按课次类型分型，F18）。
+ * actualDuration 的契约是「分钟」（weekRules.loadOf 按分钟×RPE 算负荷），
+ * 之前写成秒是单位错误，这里统一按分钟落库，短于 1 分钟记 0.5 的倍数。
  */
 export function summarizeSession(input: SessionInput): Omit<TrainingSession, 'id' | 'userId' | 'createdAt'> {
   const { exercise, setsCompleted, repsBySet } = input
-  const plannedReps = exercise.repsPerSet * exercise.sets
-  const actualReps = repsBySet.reduce((sum, n) => sum + n, 0)
-  const allSetsDone = setsCompleted >= exercise.sets && repsBySet.length === exercise.sets
-
-  return {
+  const minutes = Math.max(Math.round((input.elapsedMs / 60_000) * 10) / 10, 0.1)
+  const base = {
     planItemId: undefined,
     date: new Date().toISOString().slice(0, 10),
     exerciseName: exercise.name,
     type: exercise.type,
-    actualDuration: Math.round(input.elapsedMs / 1000),
-    actualSets: repsBySet.length,
-    actualReps,
-    completionStatus: allSetsDone && actualReps >= plannedReps ? 'completed' : 'partial',
+    actualDuration: minutes,
+    actualSets: setsCompleted,
     rpe: null,
     discomfort: false,
+    cameraUsed: false,
+    manualCorrections: input.manualCorrections
+  }
+
+  if (exercise.mode === 'time') {
+    return {
+      ...base,
+      actualReps: undefined,
+      completionStatus: setsCompleted >= exercise.sets ? 'completed' : 'partial',
+      confidence: Math.round(input.averageConfidence * 100) / 100
+    }
+  }
+
+  if (exercise.mode === 'steps') {
+    const hitTarget = input.elapsedMs >= (exercise.targetMinutes ?? 0) * 60_000
+    return {
+      ...base,
+      // 计步口径（plan.md §4.3）：只给步数与时长；距离要么标估算要么不给——这里不给
+      actualReps: input.steps && input.steps > 0 ? input.steps : undefined,
+      completionStatus: hitTarget ? 'completed' : 'partial',
+      confidence: undefined
+    }
+  }
+
+  const plannedReps = exercise.repsPerSet * exercise.sets
+  const actualReps = repsBySet.reduce((sum, n) => sum + n, 0)
+  const allSetsDone = setsCompleted >= exercise.sets && repsBySet.length === exercise.sets
+  return {
+    ...base,
     cameraUsed: true,
-    manualCorrections: input.manualCorrections,
+    actualReps,
+    completionStatus: allSetsDone && actualReps >= plannedReps ? 'completed' : 'partial',
     confidence: Math.round(input.averageConfidence * 100) / 100
   }
 }
