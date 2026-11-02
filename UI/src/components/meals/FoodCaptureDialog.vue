@@ -417,9 +417,9 @@ const missingToday = computed(() => {
 
 watch(() => props.open, (open) => {
   if (open) {
+    // 锁滚动由 reset() 统一处理（先保存原值再上锁）；在这里再读一次 body.overflow，
+    // 读到的是 reset() 刚写进去的 'hidden'，会把它当"原值"存下来，关闭时原样写回——页面从此划不动
     reset()
-    previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', onKeydown)
   } else {
     cleanup()

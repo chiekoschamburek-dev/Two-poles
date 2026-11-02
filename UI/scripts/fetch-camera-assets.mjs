@@ -1,5 +1,5 @@
 // 把 MediaPipe 的 wasm 与姿态模型复制到 public/mediapipe/，让摄像头跟练可以离线运行。
-// 这些二进制被 .gitignore 排除，换新机器或重新 clone 后先跑：npm run camera:assets
+// 这些二进制已提交进仓库，部署不需要跑本脚本；仅在本机重新生成/更换资源时使用：npm run camera:assets
 import { cpSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { createWriteStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
