@@ -237,6 +237,8 @@ export interface MealItem {
   photoConfidence?: number
   /** 识别模型明确标记不确定，或类别只能落到"其他" */
   uncertain?: boolean
+  /** 用户已逐项确认过；覆盖低置信度与"其他"类别的待确认标记 */
+  userConfirmed?: boolean
   /** 识别模型给出的粗略热量区间，旧记录没有这个字段 */
   modelEnergy?: ModelEnergyEstimate
 }
@@ -250,6 +252,8 @@ export interface MealDraft {
   source?: 'manual' | 'photo'
   photoConfidence?: number
   uncertain?: boolean
+  /** 用户已明确确认这一项（识别结果或手动录入） */
+  userConfirmed?: boolean
   modelEnergy?: ModelEnergyEstimate
 }
 

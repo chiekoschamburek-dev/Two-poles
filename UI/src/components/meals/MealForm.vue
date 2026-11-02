@@ -20,11 +20,15 @@
           @input="onName(row); dropPer(row)"
         />
         <span v-if="row.source === 'photo'" class="badge-photo">照片 {{ Math.round((row.photoConfidence ?? 0) * 100) }}%</span>
+        <span v-if="needsReview(row)" class="badge-review">
+          待确认
+          <button type="button" class="badge-confirm" @click="confirmRow(row)">确认无误</button>
+        </span>
         <select
           v-model="row.category"
           class="r-cat"
           :aria-label="`第 ${i + 1} 项类别`"
-          @change="row.catAuto = false"
+          @change="onCategoryChange(row)"
         >
           <option v-for="c in FOOD_CATEGORIES" :key="c" :value="c">{{ c }}</option>
         </select>
@@ -116,6 +120,7 @@ import { Check, ChevronDown, Plus, Search, X } from 'lucide-vue-next'
 import BaseButton from '../common/BaseButton.vue'
 import { useAppStore } from '@/stores/app'
 import { FOOD_CATEGORIES, frequentFoods, isMixed, suggestCategory } from '@/services/mealRules'
+import { LOW_CONFIDENCE } from '@/services/foodRecognition'
 import type { FrequentFood } from '@/services/mealRules'
 import {
   ESTIMATE_BAND, estimateEnergy, findFood, foodTable, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey
@@ -168,21 +173,42 @@ onMounted(async () => {
 
 function blankRow(): Row {
   // 类别先落"其他"（即待确认），由名称推断改写——固定默认谷薯类会让"苹果"记成谷薯类
-  return { foodName: '', category: '其他', portionSize: '', portionUnit: '碗', catAuto: true }
+  return { foodName: '', category: '其他', portionSize: '', portionUnit: '碗', catAuto: true, userConfirmed: true }
 }
 
 /** 名称变化时推断类别；用户手动改过类别（catAuto=false）就不再改写 */
 function onName(row: Row) {
+  // 用户改过名称就等于看过这一项，不再挂着"待确认"
+  row.userConfirmed = true
   if (!row.catAuto) return
   const inferred = suggestCategory(row.foodName)
   row.category = inferred ?? '其他'
 }
 
+function onCategoryChange(row: Row) {
+  row.catAuto = false
+  row.userConfirmed = true
+}
+
+/** 低置信度、类别落在"其他"或混合菜需要用户看一眼；确认过的条目不再提示 */
+function needsReview(row: Row): boolean {
+  if (row.userConfirmed) return false
+  return row.uncertain === true
+    || row.category === '其他'
+    || isMixed(row.foodName)
+    || (row.source === 'photo' && (row.photoConfidence ?? 1) < LOW_CONFIDENCE)
+}
+
+function confirmRow(row: Row) {
+  row.userConfirmed = true
+  row.uncertain = false
+}
+
 function catHint(row: Row) {
   const name = row.foodName.trim()
   if (!name) return ''
-  if (isMixed(name)) return '混合菜：类别与热量待确认，可拆成原料'
-  if (row.category === '其他') return '未命中参考表，类别请人工确认'
+  if (isMixed(name)) return row.userConfirmed ? '混合菜已由你确认；仍不参与热量估算' : '混合菜：类别与热量待确认，可拆成原料'
+  if (row.category === '其他') return row.userConfirmed ? '类别由你确认为"其他"' : '未命中参考表，类别请人工确认'
   return row.catAuto ? `类别按参考表推断为${row.category}，可改` : ''
 }
 
@@ -418,6 +444,9 @@ function submit() {
 .cand-add:hover{background:var(--color-accent);color:var(--color-on-accent)}
 .photo-note{font-size:11px;color:var(--color-text-muted);line-height:1.7;margin:10px 0 0}
 .badge-photo{font-size:11px;color:var(--color-accent);background:var(--color-accent-soft);padding:4px 9px;border-radius:999px;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(15,118,110,.16);font-variant-numeric:tabular-nums}
+.badge-review{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;color:var(--color-caution);background:var(--color-caution-soft);padding:3px 8px;border-radius:999px;box-shadow:inset 0 0 0 1px rgba(138,90,0,.22);white-space:nowrap}
+.badge-confirm{font-family:inherit;font-size:10.5px;font-weight:600;color:var(--color-accent);background:var(--color-card);padding:2px 7px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--color-accent-line);transition:background var(--motion-fast),color var(--motion-fast)}
+.badge-confirm:hover{background:var(--color-accent);color:var(--color-on-accent)}
 .kc{font-size:11px;color:var(--color-caution);background:var(--color-caution-soft);padding:4px 9px;border-radius:999px;white-space:nowrap;box-shadow:inset 0 0 0 1px rgba(215,165,75,.28);font-variant-numeric:tabular-nums}
 .kc-sum{font-size:13px;color:var(--color-ink);background:var(--color-neutral-soft);border-radius:12px;padding:11px 13px;margin:0;box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgba(21,24,27,.05)}
 .kc-sum small{display:block;font-size:11px;color:var(--color-text-muted);margin-top:3px;line-height:1.6}

@@ -104,6 +104,8 @@ const mi = (foodName: string, category: MealItem['category'], portionSize?: numb
   ({ id: foodName, mealId: 'm1', foodId: foodName, foodName, category, portionSize, portionUnit, confirmed: true })
 const an = analyzeMeal([mi('苹果', '水果类', 1, '个'), mi('饺子', '其他', 8, '个')], [], true)
 ok('混合菜进待确认清单', an.unknownItems.includes('饺子'))
+const anConfirmed = analyzeMeal([{ ...mi('饺子', '其他', 8, '个'), userConfirmed: true }], [], false)
+ok('用户确认后不再进待确认清单', !anConfirmed.unknownItems.includes('饺子'))
 ok('含估算时免责清单改写', an.limitations.some(l => l.includes('区间粗估')) && !an.limitations.some(l => l.includes('hasNutritionEstimate = false')))
 ok('不含估算时仍声明无估算', buildLimitations(false).some(l => l.includes('hasNutritionEstimate = false')))
 ok('规则版本已升代', RULE_VERSION === 'diet-rules-v2')
@@ -285,6 +287,30 @@ ok('落库的估算带上本机口径', ref0?.unitOwn === true && ref0?.grams ==
 ok('换算口径随状态一起落盘', JSON.parse(mem.get('twopoles_state') || '{}').unitGrams?.[unitKey('苹果', '个')] === 120)
 ok('撤销本机口径后退回演示假设', store.forgetUnitGrams('苹果', '个') && resolveUnitGrams('苹果', '个', store.unitGrams)?.own === false)
 store.rememberUnitGrams('苹果', '个', 120)
+const reviewMeal = store.addMeal({
+  date: '2026-10-15', mealType: 'snack', time: '16:00',
+  items: [{ foodName: '神秘汤', category: '其他', portionSize: 1, portionUnit: '碗', source: 'photo', photoConfidence: 0.3, uncertain: true }]
+})
+const storedReview = store.meals.find(m => m.id === reviewMeal.id)!
+ok('低置信度条目进入待确认清单', storedReview.analysis?.unknownItems?.includes('神秘汤') === true)
+store.confirmMealItem(storedReview.id, storedReview.items[0].id)
+ok('逐项确认后不再待确认', storedReview.items[0].userConfirmed === true
+  && storedReview.items[0].uncertain === false
+  && !storedReview.analysis?.unknownItems?.includes('神秘汤'))
+const deleteMeal = store.addMeal({
+  date: '2026-10-16', mealType: 'lunch', time: '12:00',
+  items: [
+    { foodName: '苹果', category: '水果类', portionSize: 1, portionUnit: '个' },
+    { foodName: '米饭', category: '谷薯类', portionSize: 1, portionUnit: '碗' }
+  ]
+})
+const storedDelete = store.meals.find(m => m.id === deleteMeal.id)!
+ok('删除错误条目后记录保留并重算', store.removeMealItem(storedDelete.id, storedDelete.items[0].id)
+  && storedDelete.items.length === 1
+  && storedDelete.items[0].foodName === '米饭'
+  && storedDelete.completeness === 'complete')
+ok('最后一项不能单独删除', store.removeMealItem(storedDelete.id, storedDelete.items[0].id) === false
+  && storedDelete.items.length === 1)
 store.clearAllData()
 ok('清除数据也抹掉换算口径', Object.keys(store.unitGrams).length === 0)
 

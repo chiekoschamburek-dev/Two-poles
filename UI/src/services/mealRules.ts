@@ -129,13 +129,13 @@ export function analyzeMeal(
   const unknown: string[] = []
 
   for (const item of items) {
-    // 混合菜即使被归到某个类别，也只是按主料猜的，进"待确认"
-    if (item.category === '其他' || isMixedFood(item.foodName)) {
-      if (!unknown.includes(item.foodName)) unknown.push(item.foodName)
-      if (item.category !== '其他') present.add(item.category)
-      continue
+    // 混合菜即使被归到某个类别，也只是按主料猜的，进"待确认"。
+    // 用户逐项确认过之后不再计入待确认，但类别覆盖仍按原类别统计。
+    const needsReview = item.category === '其他' || isMixedFood(item.foodName)
+    if (needsReview && !item.userConfirmed && !unknown.includes(item.foodName)) {
+      unknown.push(item.foodName)
     }
-    present.add(item.category)
+    if (item.category !== '其他') present.add(item.category)
   }
 
   const dayPresent = new Set<FoodCategory>([...dayCategories, ...present])

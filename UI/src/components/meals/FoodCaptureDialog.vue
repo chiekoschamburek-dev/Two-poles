@@ -159,9 +159,20 @@
                   {{ confidencePct(item) }}%
                 </span>
                 <span v-if="item.uncertain" class="flag">待确认</span>
+                <button v-if="item.uncertain" type="button" class="text-btn confirm-item" @click="confirmItem(item)">
+                  确认无误
+                </button>
+                <span v-else-if="wasUnsure(item)" class="flag ok">已确认</span>
                 <span v-if="showEnergyEstimate && item.nutrition" class="energy">
                   模型粗估 {{ item.nutrition.low }}–{{ item.nutrition.high }} kcal
                 </span>
+                <button
+                  v-if="items.length > 1"
+                  type="button"
+                  class="text-btn remove-item"
+                  :aria-label="`删除识别错误的${item.foodName || '这一项'}`"
+                  @click="removeResultItem(item)"
+                >删除</button>
               </li>
             </ul>
 
@@ -199,7 +210,10 @@
                   @click="removeRow(index)"
                 ><X :size="15" /></button>
                 <span v-if="item.source === 'photo' && item.confidence !== undefined" class="e-meta">
-                  模型置信度 {{ confidencePct(item) }}%{{ item.uncertain ? ' · 待确认' : '' }}
+                  模型置信度 {{ confidencePct(item) }}%{{ item.uncertain ? ' · 待确认' : wasUnsure(item) ? ' · 已确认' : '' }}
+                  <button v-if="item.uncertain" type="button" class="text-btn inline-confirm" @click="confirmItem(item)">
+                    确认无误
+                  </button>
                 </span>
               </div>
               <button type="button" class="add-row" @click="addRow"><Plus :size="15" /> 再加一项</button>
@@ -305,6 +319,7 @@ interface EditableItem {
   source: 'photo' | 'manual'
   confidence?: number
   uncertain: boolean
+  userConfirmed: boolean
   nutrition?: ModelEnergyEstimate
   catAuto: boolean
 }
@@ -402,7 +417,7 @@ const categories = computed(() => {
 })
 const categoriesText = computed(() => categories.value.join('、') || '未识别')
 const uncertainNames = computed(() => filledItems.value
-  .filter(i => i.uncertain || i.category === '其他' || isMixed(i.foodName))
+  .filter(i => !i.userConfirmed && (i.uncertain || i.category === '其他' || isMixed(i.foodName)))
   .map(i => i.foodName.trim()))
 const noPortionCount = computed(() => filledItems.value.filter(i => i.portionSize === '').length)
 const hasAnyNutrition = computed(() => filledItems.value.some(i => !!i.nutrition))
@@ -524,6 +539,7 @@ function blankItem(): EditableItem {
     portionUnit: '份',
     source: 'manual',
     uncertain: false,
+    userConfirmed: true,
     catAuto: true
   }
 }
@@ -534,6 +550,7 @@ function onName(item: EditableItem) {
     item.nutrition = undefined
     item.confidence = undefined
     item.uncertain = false
+    item.userConfirmed = true
   }
   if (!item.catAuto) return
   item.category = suggestCategory(item.foodName) ?? '其他'
@@ -542,6 +559,28 @@ function onName(item: EditableItem) {
 function onCategory(item: EditableItem) {
   item.catAuto = false
   if (item.category !== '其他') item.uncertain = false
+  item.userConfirmed = true
+}
+
+/** 低置信度 / 类别只能落"其他"的条目，允许用户看一眼后直接确认 */
+function confirmItem(item: EditableItem) {
+  item.userConfirmed = true
+  item.uncertain = false
+}
+
+/** 模型认错的条目直接删掉；至少保留一行，避免结果页变成空列表 */
+function removeResultItem(item: EditableItem) {
+  if (items.value.length <= 1) return
+  const index = items.value.indexOf(item)
+  if (index !== -1) items.value.splice(index, 1)
+}
+
+/** 确认过的条目仍显示"已确认"，让低置信度不再看起来像没处理 */
+function wasUnsure(item: EditableItem): boolean {
+  return item.userConfirmed && item.source === 'photo'
+    && (item.category === '其他'
+      || isMixed(item.foodName)
+      || (item.confidence !== undefined && item.confidence < LOW_CONFIDENCE))
 }
 
 function dropNutrition(item: EditableItem) {
@@ -565,13 +604,14 @@ function itemFromRecognized(food: RecognizedFood): EditableItem {
     source: 'photo',
     confidence: food.confidence,
     uncertain: food.uncertain,
+    userConfirmed: false,
     nutrition: food.nutrition,
     catAuto: false
   }
 }
 
 function isLow(item: EditableItem): boolean {
-  return (item.confidence ?? 1) < LOW_CONFIDENCE
+  return !item.userConfirmed && (item.confidence ?? 1) < LOW_CONFIDENCE
 }
 
 function confidencePct(item: EditableItem): number {
@@ -834,6 +874,7 @@ async function save() {
       source: i.source,
       photoConfidence: i.confidence,
       uncertain: i.uncertain,
+      userConfirmed: i.userConfirmed,
       modelEnergy: i.nutrition
     }
   })
@@ -944,6 +985,11 @@ async function save() {
 .fallback-row span{font-size:11.5px;color:var(--color-text-muted);line-height:1.6}
 .text-btn{font-family:inherit;font-size:12px;font-weight:600;color:var(--color-accent);padding:3px 2px;border-radius:5px;white-space:nowrap}
 .text-btn:hover{text-decoration:underline}
+.text-btn.confirm-item{font-size:10.5px;padding:2px 7px;background:var(--color-accent-soft);border:1px solid var(--color-accent-line)}
+.text-btn.confirm-item:hover{color:var(--color-on-accent);background:var(--color-accent);text-decoration:none}
+.text-btn.inline-confirm{font-size:10.5px;margin-left:6px;padding:0}
+.text-btn.remove-item{font-size:10.5px;padding:2px 7px;color:var(--color-danger);background:var(--color-danger-soft);border:1px solid transparent;margin-left:auto}
+.text-btn.remove-item:hover{text-decoration:none;border-color:var(--color-danger)}
 .fine{font-size:11.5px;color:var(--color-text-muted);line-height:1.7;margin:0}
 .fine.center{text-align:center}
 .file-input{display:none}
@@ -975,6 +1021,7 @@ async function save() {
 .conf{font-family:var(--font-num);font-size:10.5px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);padding:2px 7px;border-radius:999px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .conf.low{color:var(--color-caution);background:var(--color-caution-soft);box-shadow:inset 0 0 0 1px rgba(138,90,0,.18)}
 .flag{font-size:10.5px;font-weight:600;color:var(--color-caution);border:1px solid rgba(138,90,0,.28);padding:2px 6px;border-radius:5px;white-space:nowrap}
+.flag.ok{color:var(--color-success);border-color:var(--color-accent-line);background:var(--color-success-soft)}
 .energy{font-family:var(--font-num);font-size:10.5px;color:var(--color-text-muted);font-variant-numeric:tabular-nums}
 .editor{display:grid;gap:8px;padding:12px;border:1px dashed var(--color-accent-line);border-radius:13px;background:var(--color-neutral-soft)}
 .edit-row{display:grid;grid-template-columns:minmax(0,1fr) 96px 70px 64px 30px;gap:6px;align-items:center}

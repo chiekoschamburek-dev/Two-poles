@@ -67,6 +67,9 @@
                 <span class="type-tag">{{ mealTypeLabel(meal.mealType) }}</span>
                 <span class="log-source">{{ mealSource(meal) }}</span>
                 <span v-if="attentionCount(meal)" class="low-flag">{{ attentionCount(meal) }} 项待核对</span>
+                <button v-if="attentionCount(meal)" type="button" class="confirm-all" @click="confirmAll(meal)">
+                  全部确认
+                </button>
                 <span class="head-spacer"></span>
                 <div class="log-actions">
                   <button type="button" :aria-expanded="expandedId === meal.id" @click="toggleDetail(meal.id)">
@@ -106,6 +109,17 @@
                         {{ confidenceOf(item) }}
                       </span>
                       <span v-if="itemIsUncertain(item)" class="f-flag">待确认</span>
+                      <button v-if="itemIsUncertain(item)" type="button" class="f-confirm" @click="confirmItem(meal, item)">
+                        确认
+                      </button>
+                      <span v-else-if="wasUnsure(item)" class="f-ok">已确认</span>
+                      <button
+                        v-if="meal.items.length > 1"
+                        type="button"
+                        class="f-remove"
+                        :aria-label="`删除识别错误的${item.foodName}`"
+                        @click="removeItem(meal, item)"
+                      >删除</button>
                     </li>
                   </ul>
                 </div>
@@ -439,6 +453,7 @@ function mealSource(meal: Meal): string {
 }
 
 function itemIsUncertain(item: MealItem): boolean {
+  if (item.userConfirmed) return false
   return item.uncertain === true
     || item.category === '其他'
     || isMixed(item.foodName)
@@ -456,7 +471,57 @@ function confidenceOf(item: MealItem): string {
 }
 
 function isLowPhotoConfidence(item: MealItem): boolean {
-  return item.source === 'photo' && (item.photoConfidence ?? 1) < LOW_CONFIDENCE
+  return !item.userConfirmed && item.source === 'photo' && (item.photoConfidence ?? 1) < LOW_CONFIDENCE
+}
+
+/** 确认过的条目补一个轻量标记，避免低置信度数字看起来仍像没处理 */
+function wasUnsure(item: MealItem): boolean {
+  return item.userConfirmed === true && item.source === 'photo' && (
+    item.category === '其他'
+    || isMixed(item.foodName)
+    || (item.photoConfidence ?? 1) < LOW_CONFIDENCE
+  )
+}
+
+function confirmItem(meal: Meal, item: MealItem) {
+  if (!store.confirmMealItem(meal.id, item.id)) return
+  store.showToast({
+    type: 'success',
+    title: `已确认「${item.foodName}」`,
+    message: '只清掉待核对标记，类别、份量与热量没有改动',
+    duration: 2200
+  })
+}
+
+function confirmAll(meal: Meal) {
+  const pending = attentionCount(meal)
+  if (!pending) return
+  if (!store.confirmMeal(meal.id)) return
+  store.showToast({
+    type: 'success',
+    title: `已确认 ${pending} 项`,
+    message: '只清掉待核对标记，没有改动记录内容',
+    duration: 2600
+  })
+}
+
+function removeItem(meal: Meal, item: MealItem) {
+  if (meal.items.length <= 1) {
+    store.showToast({
+      type: 'warning',
+      title: '最后一项不能单独删除',
+      message: '如果整条记录都错了，请用记录右上角的「删除」',
+      duration: 3000
+    })
+    return
+  }
+  if (!store.removeMealItem(meal.id, item.id)) return
+  store.showToast({
+    type: 'info',
+    title: `已删除「${item.foodName}」`,
+    message: '这一餐的完整度与结构已重新计算；整条记录仍在',
+    duration: 2600
+  })
 }
 
 function portionOf(item: MealItem): string {
@@ -516,6 +581,7 @@ function draftItems(meal: Meal): MealDraft[] {
     source: i.source,
     photoConfidence: i.photoConfidence,
     uncertain: i.uncertain,
+    userConfirmed: i.userConfirmed,
     modelEnergy: i.modelEnergy
   }))
 }
@@ -531,6 +597,7 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
       source: i.source ?? 'manual',
       photoConfidence: i.photoConfidence,
       uncertain: i.uncertain,
+      userConfirmed: i.userConfirmed,
       modelEnergy: i.modelEnergy
     }))
   })
@@ -591,6 +658,8 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .type-tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;background:var(--color-accent-soft);color:var(--color-accent);font-size:11px;font-weight:700;box-shadow:inset 0 0 0 1px var(--color-accent-line)}
 .log-source{font-size:10.5px;color:var(--color-text-muted)}
 .low-flag{font-size:10px;font-weight:600;color:var(--color-caution);background:var(--color-caution-soft);padding:2px 7px;border-radius:5px;white-space:nowrap}
+.confirm-all{font-family:inherit;font-size:10px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);padding:2px 7px;border-radius:5px;white-space:nowrap;box-shadow:inset 0 0 0 1px var(--color-accent-line);transition:background var(--motion-fast),color var(--motion-fast)}
+.confirm-all:hover{background:var(--color-accent);color:var(--color-on-accent)}
 .head-spacer{flex:1;min-width:8px}
 .log-actions{display:flex;gap:2px;flex-wrap:wrap}
 .log-actions button{font-family:inherit;font-size:11.5px;color:var(--color-text-secondary);padding:4px 7px;border-radius:6px;transition:color var(--motion-fast),background var(--motion-fast)}
@@ -615,6 +684,11 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .f-conf{font-family:var(--font-num);font-size:10px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);padding:2px 6px;border-radius:999px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .f-conf.low{color:var(--color-caution);background:var(--color-caution-soft);box-shadow:inset 0 0 0 1px rgba(138,90,0,.18)}
 .f-flag{font-size:10px;font-weight:600;color:var(--color-caution);border:1px solid rgba(138,90,0,.28);padding:1px 6px;border-radius:4px;white-space:nowrap}
+.f-confirm{font-family:inherit;font-size:10px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);padding:2px 7px;border-radius:5px;white-space:nowrap;box-shadow:inset 0 0 0 1px var(--color-accent-line);transition:background var(--motion-fast),color var(--motion-fast)}
+.f-confirm:hover{background:var(--color-accent);color:var(--color-on-accent)}
+.f-ok{font-size:10px;font-weight:600;color:var(--color-success);background:var(--color-success-soft);padding:2px 6px;border-radius:5px;white-space:nowrap}
+.f-remove{font-family:inherit;font-size:10px;font-weight:600;color:var(--color-danger);background:var(--color-danger-soft);padding:2px 7px;border-radius:5px;white-space:nowrap;margin-left:auto;transition:background var(--motion-fast),color var(--motion-fast)}
+.f-remove:hover{background:var(--color-danger);color:var(--color-on-accent)}
 .food-rows li.unsure{background:linear-gradient(90deg,var(--color-caution-soft),transparent 72%);margin:0 -6px;padding-left:6px;padding-right:6px;border-radius:6px}
 .log-detail{margin-top:12px;padding-top:12px;border-top:1px solid var(--color-divider);display:grid;gap:12px}
 .detail-grid{display:grid;grid-template-columns:1.2fr 1.1fr .8fr;gap:16px}

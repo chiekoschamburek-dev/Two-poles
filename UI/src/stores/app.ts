@@ -39,6 +39,7 @@ export interface NewMealInput {
     source?: 'manual' | 'photo'
     photoConfidence?: number
     uncertain?: boolean
+    userConfirmed?: boolean
     modelEnergy?: ModelEnergyEstimate
   }[]
   /** 仅本机保存的压缩缩略图；不传则只保存识别结果 */
@@ -762,21 +763,14 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /**
-   * 由条目重建 completeness / analysis；新增与编辑共用同一套规则。
-   * @param excludeMealId 编辑时要把当前这餐从"当天已有类别"里排除，否则缺项会被它自己的旧类别掩盖
+   * 由现有条目重建 completeness / analysis；新增、编辑、删条目共用同一套规则。
+   * @param excludeMealId 要把当前这餐从"当天已有类别"里排除，否则缺项会被它自己的旧类别掩盖
    */
-  function buildMealParts(input: NewMealInput, mealId: string, excludeMealId?: string) {
-    const items: MealItem[] = input.items.map(i => ({
-      ...i,
-      id: newId(),
-      mealId,
-      foodId: `${i.category}-${i.foodName}`,
-      confirmed: true
-    }))
+  function buildMealAnalysis(items: MealItem[], date: string, mealId: string, excludeMealId?: string) {
     const completeness = deriveCompleteness(items)
     const dayCategories = [...new Set(
       meals.value
-        .filter(m => m.date === input.date && m.id !== excludeMealId)
+        .filter(m => m.date === date && m.id !== excludeMealId)
         .flatMap(m => m.items.map(i => i.category))
     )]
     const estimates = privacy.value.showEnergyEstimate
@@ -793,6 +787,22 @@ export const useAppStore = defineStore('app', () => {
       mealId,
       createdAt: new Date().toISOString()
     } : undefined
+    return { completeness, analysis }
+  }
+
+  /**
+   * 把新草稿变成可落库的条目，再交给 buildMealAnalysis 生成结构与完整度
+   * @param excludeMealId 编辑时要把当前这餐从"当天已有类别"里排除，否则缺项会被它自己的旧类别掩盖
+   */
+  function buildMealParts(input: NewMealInput, mealId: string, excludeMealId?: string) {
+    const items: MealItem[] = input.items.map(i => ({
+      ...i,
+      id: newId(),
+      mealId,
+      foodId: `${i.category}-${i.foodName}`,
+      confirmed: true
+    }))
+    const { completeness, analysis } = buildMealAnalysis(items, input.date, mealId, excludeMealId)
     return { items, completeness, analysis }
   }
 
@@ -858,6 +868,56 @@ export const useAppStore = defineStore('app', () => {
       duration: 3000
     })
     return updated
+  }
+
+  /** 逐项确认：只清掉待核对标记，不改动类别、份量与热量 */
+  function confirmMealItem(mealId: string, itemId: string): boolean {
+    const meal = meals.value.find(m => m.id === mealId)
+    const item = meal?.items.find(i => i.id === itemId)
+    if (!meal || !item) return false
+    if (item.userConfirmed && item.uncertain === false) return false
+    item.userConfirmed = true
+    item.uncertain = false
+    const unknown = meal.analysis?.unknownItems
+    if (unknown?.length) {
+      const index = unknown.indexOf(item.foodName)
+      if (index !== -1) meal.analysis!.unknownItems = unknown.filter((_, i) => i !== index)
+    }
+    persistState()
+    return true
+  }
+
+  /** 删除识别错误的条目；至少保留一项，删完会重算完整度与结构 */
+  function removeMealItem(mealId: string, itemId: string): boolean {
+    const meal = meals.value.find(m => m.id === mealId)
+    if (!meal || meal.items.length <= 1) return false
+    const remaining = meal.items.filter(i => i.id !== itemId)
+    if (remaining.length === meal.items.length) return false
+    const { completeness, analysis } = buildMealAnalysis(remaining, meal.date, meal.id, meal.id)
+    meal.items = remaining
+    meal.completeness = completeness
+    meal.analysis = analysis
+    meal.analyzed = !!analysis
+    persistState()
+    return true
+  }
+
+  /** 全部确认这一餐；返回新确认的条目数 */
+  function confirmMeal(mealId: string): number {
+    const meal = meals.value.find(m => m.id === mealId)
+    if (!meal) return 0
+    let changed = 0
+    for (const item of meal.items) {
+      if (!item.userConfirmed || item.uncertain) {
+        item.userConfirmed = true
+        item.uncertain = false
+        changed++
+      }
+    }
+    if (!changed) return 0
+    if (meal.analysis?.unknownItems?.length) meal.analysis.unknownItems = []
+    persistState()
+    return changed
   }
 
   function removeMeal(mealId: string) {
@@ -994,6 +1054,9 @@ export const useAppStore = defineStore('app', () => {
     applyFeedback,
     addMeal,
     updateMeal,
+    confirmMealItem,
+    confirmMeal,
+    removeMealItem,
     removeMeal,
     updateMealType,
     updatePrivacy,
