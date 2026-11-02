@@ -34,6 +34,21 @@ function defaultConfig(env) {
   }
 }
 
+/** OpenAI 兼容实现里 content 可能是字符串，也可能是 [{type:'text',text}] 数组 */
+function messageText(message) {
+  const content = message && message.content
+  if (typeof content === 'string' && content.trim()) return content
+  if (Array.isArray(content)) {
+    const text = content
+      .map(part => typeof part === 'string' ? part : (part && typeof part.text === 'string' ? part.text : ''))
+      .join('')
+    if (text.trim()) return text
+  }
+  // 推理型模型偶尔只填 reasoning_content；仍然让前端尝试解析其中的 JSON
+  const reasoning = message && message.reasoning_content
+  return typeof reasoning === 'string' ? reasoning : ''
+}
+
 function isPrivateHost(hostname) {
   const host = hostname.toLowerCase()
   if (host === 'localhost' || host === '0.0.0.0' || host === '[::1]' || host === '::1') return true
@@ -122,12 +137,34 @@ async function handleChat(request, env) {
   const encoder = new TextEncoder()
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  let alive = true
+  let heartbeat = undefined
 
-  // 先发一个空格，避免 ESA 网关 10 秒内看不到任何数据就 504；
-  // 前端 res.json() 允许 JSON 前有空白，模型结果随后写入同一个流。
+  // ESA 网关 10 秒内收不到任何数据就会断开。模型的正常延迟可能超过 10 秒，
+  // 所以开一个 4 秒的空格心跳；JSON 允许前导空白，前端 json() 能正常解析。
+  const keepAlive = (ctrl) => {
+    if (!alive) return
+    try {
+      ctrl.enqueue(encoder.encode(' '))
+    } catch {
+      alive = false
+      controller.abort()
+      return
+    }
+    heartbeat = setTimeout(() => keepAlive(ctrl), 4_000)
+  }
+
+  if (request.signal?.aborted) controller.abort()
+  request.signal?.addEventListener?.('abort', () => {
+    alive = false
+    if (heartbeat !== undefined) clearTimeout(heartbeat)
+    if (!controller.signal.aborted) controller.abort()
+  }, { once: true })
+
+  // 模型结果随后写入同一个流；上游错误也写成 {error}，前端统一处理。
   const stream = new ReadableStream({
     async start(ctrl) {
-      ctrl.enqueue(encoder.encode(' '))
+      keepAlive(ctrl)
       try {
         const upstream = await fetch(`${chosen.baseUrl}/chat/completions`, {
           method: 'POST',
@@ -162,8 +199,8 @@ async function handleChat(request, env) {
           ctrl.enqueue(encoder.encode(JSON.stringify({ error: '上游返回的不是 JSON' })))
           return
         }
-        const content = data?.choices?.[0]?.message?.content
-        if (typeof content !== 'string' || !content.trim()) {
+        const content = messageText(data?.choices?.[0]?.message)
+        if (!content.trim()) {
           ctrl.enqueue(encoder.encode(JSON.stringify({ error: '上游没有返回 content' })))
           return
         }
@@ -171,12 +208,20 @@ async function handleChat(request, env) {
       } catch (e) {
         const aborted = e instanceof Error && e.name === 'AbortError'
         const msg = e instanceof Error ? e.message : String(e)
-        ctrl.enqueue(encoder.encode(JSON.stringify({
-          error: aborted ? '模型请求超时' : `转发失败：${msg}`
-        })))
+        if (alive) {
+          try {
+            ctrl.enqueue(encoder.encode(JSON.stringify({
+              error: aborted ? '模型请求超时' : `转发失败：${msg}`
+            })))
+          } catch {
+            /* 客户端已经断开，不用再写错误 */
+          }
+        }
       } finally {
+        alive = false
+        if (heartbeat !== undefined) clearTimeout(heartbeat)
         clearTimeout(timer)
-        ctrl.close()
+        try { ctrl.close() } catch { /* 流已被取消 */ }
       }
     }
   })

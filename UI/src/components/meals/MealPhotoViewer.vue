@@ -36,6 +36,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import { getMealPhoto } from '@/services/mealPhotos'
+import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
 
 const props = defineProps<{
   open: boolean
@@ -50,7 +51,7 @@ const isOriginal = ref(false)
 const loading = ref(false)
 let objectUrl = ''
 let loadSeq = 0
-let previousOverflow = ''
+let scrollLock: symbol | null = null
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') close()
@@ -58,14 +59,14 @@ function onKeydown(event: KeyboardEvent) {
 
 watch(() => props.open, (open) => {
   if (open) {
-    previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    scrollLock = lockBodyScroll()
     window.addEventListener('keydown', onKeydown)
   } else {
-    document.body.style.overflow = previousOverflow
+    unlockBodyScroll(scrollLock)
+    scrollLock = null
     window.removeEventListener('keydown', onKeydown)
   }
-})
+}, { immediate: true })
 
 function release() {
   if (objectUrl) {
@@ -119,7 +120,8 @@ watch(
 onBeforeUnmount(() => {
   loadSeq++
   release()
-  document.body.style.overflow = previousOverflow
+  unlockBodyScroll(scrollLock)
+  scrollLock = null
   window.removeEventListener('keydown', onKeydown)
 })
 

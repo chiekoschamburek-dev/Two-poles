@@ -62,6 +62,7 @@ import { X } from 'lucide-vue-next'
 import DailyWellnessCard from './DailyWellnessCard.vue'
 import { useAppStore } from '@/stores/app'
 import { useWellnessDock } from '@/composables/useWellnessDock'
+import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
 
 const store = useAppStore()
 const { modalOpen, cardOpen, closeModal, dismissToday, closeCard } = useWellnessDock()
@@ -71,7 +72,7 @@ const today = new Date()
 const modalPanel = ref<HTMLElement | null>(null)
 const floatPanel = ref<HTMLElement | null>(null)
 
-let previousOverflow = ''
+let modalLock: symbol | null = null
 let previousActive: HTMLElement | null = null
 let modalListening = false
 let floatListening = false
@@ -121,7 +122,8 @@ function cleanupModal() {
     window.removeEventListener('keydown', onModalKeydown)
     modalListening = false
   }
-  document.body.style.overflow = previousOverflow
+  unlockBodyScroll(modalLock)
+  modalLock = null
 }
 
 function cleanupFloat() {
@@ -134,8 +136,7 @@ function cleanupFloat() {
 watch(modalOpen, async (open) => {
   if (open) {
     previousActive = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    modalLock = lockBodyScroll()
     window.addEventListener('keydown', onModalKeydown)
     modalListening = true
     await nextTick()

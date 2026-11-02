@@ -32,6 +32,11 @@
             </div>
 
             <template v-else>
+              <p v-if="proxyFallback" class="alert" role="alert">
+                线上模型代理未生效：/api/llm/* 返回了页面而不是接口。
+                <span>请确认 ESA 函数入口（UI/server/llm.js）已发布；本次可以先用本机识别或手动补录。</span>
+              </p>
+
               <div v-if="cloudAvailable" class="mode-tabs" role="group" aria-label="选择识别方式">
                 <button type="button" :class="{ on: mode === 'cloud' }" :aria-pressed="mode === 'cloud'" @click="setMode('cloud')">
                   模型识别
@@ -277,6 +282,7 @@ import {
   LOCAL_CLASS_COUNT,
   LOCAL_MODEL_LABEL,
   LOW_CONFIDENCE,
+  canvasToJpegDataUrl,
   dataUrlToBlob,
   makeFoodThumbnail,
   prepareFoodPhoto,
@@ -286,6 +292,7 @@ import {
 import type { FoodRecognitionResult, RecognizedFood } from '@/services/foodRecognition'
 import { canUseLlm, usingDefault } from '@/services/llm'
 import { saveMealPhoto } from '@/services/mealPhotos'
+import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
 import { newId } from '@/utils/id'
 
 type View = 'capture' | 'analyzing' | 'result' | 'error' | 'manual'
@@ -352,7 +359,7 @@ const fileEl = ref<HTMLInputElement | null>(null)
 const dlgEl = ref<HTMLElement | null>(null)
 let stream: MediaStream | null = null
 let runId = 0
-let previousOverflow = ''
+let scrollLock: symbol | null = null
 
 const cloudAvailable = computed(() => canUseLlm(store.llmConfig, store.llmDefault))
 const cloudModelLabel = computed(() => {
@@ -365,6 +372,8 @@ const cloudModelLabel = computed(() => {
   return host ? `${name}（${host}）` : name
 })
 const blocked = computed(() => mode.value === 'cloud' && !consent.value)
+/** /api/llm/* 没进 ESA 函数，而是被静态托管回退成 index.html */
+const proxyFallback = computed(() => store.llmDefault.route === 'spa-fallback')
 const showEnergyEstimate = computed(() => store.privacy.showEnergyEstimate)
 const recognizedModel = computed(() => {
   if (!recognized.value) return ''
@@ -416,14 +425,8 @@ const missingToday = computed(() => {
 })
 
 watch(() => props.open, (open) => {
-  if (open) {
-    // 锁滚动由 reset() 统一处理（先保存原值再上锁）；在这里再读一次 body.overflow，
-    // 读到的是 reset() 刚写进去的 'hidden'，会把它当"原值"存下来，关闭时原样写回——页面从此划不动
-    reset()
-    window.addEventListener('keydown', onKeydown)
-  } else {
-    cleanup()
-  }
+  if (open) reset()
+  else cleanup()
 })
 
 onBeforeUnmount(cleanup)
@@ -445,13 +448,13 @@ function cleanup() {
   warnings.value = []
   processingStage.value = 'model'
   window.removeEventListener('keydown', onKeydown)
-  if (previousOverflow !== undefined) document.body.style.overflow = previousOverflow
+  unlockBodyScroll(scrollLock)
+  scrollLock = null
 }
 
 function reset() {
   cleanup()
-  previousOverflow = document.body.style.overflow
-  document.body.style.overflow = 'hidden'
+  scrollLock = lockBodyScroll()
   window.addEventListener('keydown', onKeydown)
   view.value = props.initialView === 'manual' ? 'manual' : 'capture'
   statusLoading.value = false
@@ -674,7 +677,7 @@ function stopCamera() {
   if (videoEl.value) videoEl.value.srcObject = null
 }
 
-function captureFrame() {
+async function captureFrame() {
   const video = videoEl.value
   if (!video || !video.videoWidth || !video.videoHeight) {
     cameraError.value = '相机画面还没准备好，请稍等一秒再拍。'
@@ -690,10 +693,22 @@ function captureFrame() {
     return
   }
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-  originalPhoto.value = dataUrl
   stopCamera()
-  void analyze(dataUrl)
+  try {
+    // toDataURL 是同步编码，手机上会卡住整页；改用异步 toBlob
+    const dataUrl = await withTimeout(
+      canvasToJpegDataUrl(canvas, 0.85),
+      10_000,
+      '照片编码超时，请重试或改用「选择图片」。'
+    )
+    if (!props.open) return
+    originalPhoto.value = dataUrl
+    void analyze(dataUrl)
+  } catch (err) {
+    cameraError.value = err instanceof FoodRecognitionError
+      ? err.message
+      : '浏览器无法生成这张照片，请改用「选择图片」。'
+  }
 }
 
 async function analyze(dataUrl: string) {
@@ -716,7 +731,7 @@ async function analyze(dataUrl: string) {
   try {
     const result = mode.value === 'cloud'
       ? await recognizeFoodWithModel(dataUrl, store.llmConfig, controller.signal)
-      : await recognizeLocally(dataUrl)
+      : await recognizeLocally(dataUrl, controller.signal)
     if (id !== runId) return
     recognized.value = result
     items.value = result.items.map(itemFromRecognized)

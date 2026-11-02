@@ -762,10 +762,10 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /**
-   * Record a meal with its items, then run the structure rules on it
+   * 由条目重建 completeness / analysis；新增与编辑共用同一套规则。
+   * @param excludeMealId 编辑时要把当前这餐从"当天已有类别"里排除，否则缺项会被它自己的旧类别掩盖
    */
-  function addMeal(input: NewMealInput): Meal {
-    const mealId = newId()
+  function buildMealParts(input: NewMealInput, mealId: string, excludeMealId?: string) {
     const items: MealItem[] = input.items.map(i => ({
       ...i,
       id: newId(),
@@ -775,7 +775,9 @@ export const useAppStore = defineStore('app', () => {
     }))
     const completeness = deriveCompleteness(items)
     const dayCategories = [...new Set(
-      meals.value.filter(m => m.date === input.date).flatMap(m => m.items.map(i => i.category))
+      meals.value
+        .filter(m => m.date === input.date && m.id !== excludeMealId)
+        .flatMap(m => m.items.map(i => i.category))
     )]
     const estimates = privacy.value.showEnergyEstimate
       ? items
@@ -791,6 +793,15 @@ export const useAppStore = defineStore('app', () => {
       mealId,
       createdAt: new Date().toISOString()
     } : undefined
+    return { items, completeness, analysis }
+  }
+
+  /**
+   * Record a meal with its items, then run the structure rules on it
+   */
+  function addMeal(input: NewMealInput): Meal {
+    const mealId = newId()
+    const { items, completeness, analysis } = buildMealParts(input, mealId)
     const meal: Meal = {
       id: mealId,
       userId: userProfile.value?.id || 'demo-user',
@@ -814,6 +825,39 @@ export const useAppStore = defineStore('app', () => {
       duration: 3000
     })
     return meal
+  }
+
+  /**
+   * 编辑已有餐次：保留 id、日期、餐次、创建时间与照片，只重建条目与分析。
+   * 同一 id 原地替换，列表按 key 复用，避免整条记录（含照片）被销毁重建。
+   */
+  function updateMeal(mealId: string, input: { time: string; items: NewMealInput['items'] }): Meal | null {
+    const index = meals.value.findIndex(m => m.id === mealId)
+    if (index === -1) return null
+    const current = meals.value[index]
+    const { items, completeness, analysis } = buildMealParts({
+      date: current.date,
+      mealType: current.mealType,
+      time: input.time,
+      items: input.items
+    }, current.id, current.id)
+    const updated: Meal = {
+      ...current,
+      time: input.time,
+      completeness,
+      items,
+      analyzed: !!analysis,
+      analysis
+    }
+    meals.value[index] = updated
+    persistState()
+    showToast({
+      type: 'success',
+      title: '餐次已更新',
+      message: completeness === 'partial' ? '份量没填全，仍记为"部分记录"' : '结构与类别已重新标注',
+      duration: 3000
+    })
+    return updated
   }
 
   function removeMeal(mealId: string) {
@@ -949,6 +993,7 @@ export const useAppStore = defineStore('app', () => {
     addSession,
     applyFeedback,
     addMeal,
+    updateMeal,
     removeMeal,
     updateMealType,
     updatePrivacy,

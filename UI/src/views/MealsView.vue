@@ -296,7 +296,12 @@ onMounted(() => {
   if (!isLlmReady(store.llmConfig) && !store.llmDefault.available) void store.refreshLlmStatus()
 })
 const recognitionLabel = computed(() => {
-  if (!modelAvailable.value) return '本机识别 · 9 类（未配置模型）'
+  if (store.llmDefault.route === 'spa-fallback') return '模型代理未生效 · 线上 /api 被页面回退'
+  if (!modelAvailable.value) {
+    return store.llmDefault.route === 'unreachable'
+      ? '本机识别 · 9 类（连不上模型代理）'
+      : '本机识别 · 9 类（未配置模型）'
+  }
   const model = usingDefault(store.llmConfig) ? store.llmDefault.model : store.llmConfig.model
   return `模型识别 · ${model || '已配置'}`
 })
@@ -516,10 +521,7 @@ function draftItems(meal: Meal): MealDraft[] {
 }
 
 function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
-  store.meals = store.meals.filter(m => m.id !== meal.id)
-  const saved = store.addMeal({
-    date: meal.date,
-    mealType: meal.mealType,
+  const saved = store.updateMeal(meal.id, {
     time: value.time,
     items: value.items.map(i => ({
       foodName: i.foodName,
@@ -530,12 +532,10 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
       photoConfidence: i.photoConfidence,
       uncertain: i.uncertain,
       modelEnergy: i.modelEnergy
-    })),
-    photoThumb: meal.photoThumb,
-    photoId: meal.photoId
+    }))
   })
   editingId.value = null
-  expandedId.value = saved.id
+  if (saved) expandedId.value = saved.id
 }
 </script>
 

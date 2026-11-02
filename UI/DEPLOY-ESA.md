@@ -122,9 +122,36 @@ https://你的域名/api/llm/status
 - 这次构建是否包含该文件、函数是否发布了新版本；
 - 域名是否绑定到当前 Pages 项目。
 
+### 验证 `/api/llm/chat` 真的进了函数
+
+`/api/llm/chat` 是 POST 的**非导航请求**；按 ESA Pages 的路由规则，静态资源未命中后应该交给函数入口，
+而不是回退到 `index.html`。用下面的命令确认返回的是 JSON 而不是 HTML：
+
+```bash
+curl -i -X POST "https://你的域名/api/llm/chat" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{"useDefault":true,"messages":[{"role":"user","content":"只回复两个字：可用"}]}'
+```
+
+- 正常：`Content-Type: application/json`，body 是 `{"text":"可用",...}` 或明确的 `{"error":"..."}`。
+- 返回 `text/html` 或 `<!doctype html>`：请求被 SPA 回退截走了。检查上面的 entry、函数发布状态与域名绑定。
+
+前端现在会先看 `Content-Type`：拿到 HTML 会直接提示"线上 /api/llm/* 返回了 HTML，被 SPA 回退"，
+并在饮食页/设置页标出"模型代理未生效"，不会再把它伪装成空结果。
+
+### 10 秒网关与长耗时模型
+
+ESA 网关如果 10 秒收不到任何数据会断开（即使最终 HTTP 是 200）。
+`UI/server/llm.js` 会在等待上游时每 4 秒写一个空格保持连接，模型结果随后写入同一个流；
+前端 `res.json()` 允许 JSON 前有空白。若模型仍然超过函数 110 秒上限，会返回明确的超时错误。
+
+模型代理的请求带 `cache: 'no-store'` 和随机查询参数，避免边缘节点缓存旧的 `/api/llm/*` 响应。
+照片识别仍然会先在浏览器压到 1024px；换模型或重试不需要重新上传原图。
+
 ## 限制与安全
 
-- ESA 函数单次响应上限 120 秒；网关 10 秒内收不到任何数据会 504。入口会先发一个空格保持连接，
+- ESA 函数单次响应上限 120 秒；网关 10 秒内收不到任何数据会 504。入口会每 4 秒发一个空格保持连接，
   前端 `res.json()` 能正常解析；模型本身仍可能超时或限流。
 - 函数代码包上限 4 MB；本入口很小。一次函数最多 4 个子请求；chat 只用 1 个。
 - 请求体上限按 6 MB 处理；照片会先在浏览器压到 1024px。

@@ -66,7 +66,29 @@ export const LOCAL_MODEL_LABEL = '本机 EfficientDet-Lite0'
 export const LOCAL_CLASS_COUNT = Object.keys(LOCAL_CLASSES).length
 
 /**
- * 把用户选/拍的照片缩到最长边 1280 并转成 JPEG data URL。
+ * 画布转 data URL 走异步的 toBlob + FileReader：toDataURL 是同步编码，
+ * 手机上传 12MP 照片时会把主线程卡住好几秒，看起来像页面死掉。
+ */
+export function canvasToJpegDataUrl(canvas: HTMLCanvasElement, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('浏览器无法编码这张图片'))
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === 'string') resolve(reader.result)
+        else reject(new Error('浏览器无法读取压缩后的图片'))
+      }
+      reader.onerror = () => reject(reader.error ?? new Error('浏览器无法读取压缩后的图片'))
+      reader.readAsDataURL(blob)
+    }, 'image/jpeg', quality)
+  })
+}
+
+/**
+ * 把用户选/拍的照片缩到最长边 1024 并转成 JPEG data URL。
  * 只在内存里处理：data URL 用于这次识别和预览，不写入 localStorage。
  */
 export async function prepareFoodPhoto(file: File): Promise<string> {
@@ -78,7 +100,17 @@ export async function prepareFoodPhoto(file: File): Promise<string> {
   }
   let bitmap: ImageBitmap | null = null
   try {
-    bitmap = await createImageBitmap(file)
+    // 大文件先让解码器按 1024 宽缩放，避免整张 12MP 原图都解进内存；
+    // portrait 图会在画布里再缩一次到最长边 1024。
+    if (file.size > 2 * 1024 * 1024) {
+      try {
+        bitmap = await createImageBitmap(file, { resizeWidth: MAX_IMAGE_EDGE, resizeQuality: 'high' })
+      } catch {
+        bitmap = await createImageBitmap(file)
+      }
+    } else {
+      bitmap = await createImageBitmap(file)
+    }
     const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height))
     const width = Math.max(1, Math.round(bitmap.width * scale))
     const height = Math.max(1, Math.round(bitmap.height * scale))
@@ -91,7 +123,7 @@ export async function prepareFoodPhoto(file: File): Promise<string> {
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, width, height)
     ctx.drawImage(bitmap, 0, 0, width, height)
-    return canvas.toDataURL('image/jpeg', 0.85)
+    return await canvasToJpegDataUrl(canvas, 0.85)
   } catch (err) {
     if (err instanceof FoodRecognitionError) throw err
     throw new FoodRecognitionError('这张图片无法读取，请换一张 JPEG / PNG / WebP 照片。', 'image')
@@ -141,7 +173,7 @@ export async function makeFoodThumbnail(dataUrl: string): Promise<string> {
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, width, height)
     ctx.drawImage(bitmap, 0, 0, width, height)
-    return canvas.toDataURL('image/jpeg', 0.7)
+    return await canvasToJpegDataUrl(canvas, 0.7)
   } finally {
     bitmap.close()
   }
@@ -234,11 +266,40 @@ async function ensureLocalDetector() {
   return detectorPromise
 }
 
+/** 首次要下载并编译 20 MB 的 wasm + 模型；给一个上限，避免加载卡住时一直停在"识别中"。 */
+const LOCAL_TIMEOUT_MS = 60_000
+
 /** 端侧只覆盖 COCO 里真实存在的 9 个可食类；认不出就报空，不猜。 */
-export async function recognizeLocally(dataUrl: string): Promise<FoodRecognitionResult> {
+export async function recognizeLocally(dataUrl: string, signal?: AbortSignal): Promise<FoodRecognitionResult> {
+  let timer: number | undefined
+  let onAbort: (() => void) | null = null
+  const timeout = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => {
+      reject(new FoodRecognitionError('本机识别超时（60 秒）。可以重试、改用模型识别或手动补录。', 'upstream'))
+    }, LOCAL_TIMEOUT_MS)
+    if (signal) {
+      onAbort = () => reject(new FoodRecognitionError('本机识别已取消。', 'upstream'))
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+  })
   try {
+    return await Promise.race([recognizeLocallyNow(dataUrl, signal), timeout])
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer)
+    if (signal && onAbort) signal.removeEventListener('abort', onAbort)
+  }
+}
+
+async function recognizeLocallyNow(dataUrl: string, signal?: AbortSignal): Promise<FoodRecognitionResult> {
+  const checkAborted = () => {
+    if (signal?.aborted) throw new FoodRecognitionError('本机识别已取消。', 'upstream')
+  }
+  try {
+    checkAborted()
     const detector = await ensureLocalDetector()
+    checkAborted()
     const canvas = await dataUrlToCanvas(dataUrl)
+    checkAborted()
     const result = detector.detect(canvas)
     const merged = new Map<string, RecognizedFood>()
     for (const detection of result.detections) {

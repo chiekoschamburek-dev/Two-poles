@@ -62,6 +62,10 @@
           服务端没有配置默认模型{{ hasCustom ? '' : '，需要自己填一个才能生成计划' }}。
         </template>
       </p>
+      <p v-if="store.llmDefault.route === 'spa-fallback'" class="llm-default route-warn" role="alert">
+        /api/llm/status 返回了 HTML：线上函数入口没有接管 /api/*。
+        请确认 esa.jsonc 的 entry 指向 UI/server/llm.js，并在 ESA 重新发布函数；本地请用 npm run dev 或 npm run preview。
+      </p>
 
       <!-- 用哪个模型是偏好，不是清空：切到内置后，下面填的配置原样保留 -->
       <div class="llm-pick" role="group" aria-label="使用哪个模型">
@@ -532,6 +536,7 @@ function wipe() {
 .llm-default{font-size:12px;color:var(--color-text-secondary);margin:-4px 0 14px;line-height:1.6}
 .llm-default b{font-family:var(--font-num);color:var(--color-accent)}
 .llm-default.dim{color:var(--color-text-muted)}
+.llm-default.route-warn{color:var(--color-caution);background:var(--color-caution-soft);padding:9px 11px;border-radius:var(--radius-sm);margin-top:-6px}
 .llm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
 .llm-head h2{margin:0}
 .llm-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}

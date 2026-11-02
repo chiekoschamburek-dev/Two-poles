@@ -147,10 +147,13 @@ function normalize(name: string): string {
   return name.replace(/[（(].*?[)）]/g, '').replace(/\s+/g, '').trim()
 }
 
+const FOOD_BY_NAME = new Map(foodTable.map(f => [f.name, f]))
+
 export function findFood(name: string): FoodRef | undefined {
   const key = normalize(name)
   if (!key) return undefined
-  return foodTable.find(f => f.name === key) ?? foodTable.find(f => key.includes(f.name) || f.name.includes(key))
+  // 绝大多数输入是目录里的规范名；精确命中走 Map，只有模糊匹配才扫表
+  return FOOD_BY_NAME.get(key) ?? foodTable.find(f => key.includes(f.name) || f.name.includes(key))
 }
 
 /** 目录搜索：按名称或类别子串匹配；关键字为空时返回空列表，不预置一屏候选 */

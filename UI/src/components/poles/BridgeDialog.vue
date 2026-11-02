@@ -120,6 +120,7 @@ import {
   type DayFacts,
   type WeekFacts
 } from '@/services/bridgeRules'
+import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
 
 const props = defineProps<{
   open: boolean
@@ -134,7 +135,7 @@ const emit = defineEmits<{
 }>()
 
 const panel = ref<HTMLElement | null>(null)
-let previousOverflow = ''
+let scrollLock: symbol | null = null
 let previousActive: HTMLElement | null = null
 
 const TONE: Record<BridgeSignal['tone'], string> = {
@@ -180,20 +181,21 @@ function onKeydown(event: KeyboardEvent) {
 watch(() => props.open, async (open) => {
   if (open) {
     previousActive = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    scrollLock = lockBodyScroll()
     window.addEventListener('keydown', onKeydown)
     await nextTick()
     panel.value?.focus()
   } else {
-    document.body.style.overflow = previousOverflow
+    unlockBodyScroll(scrollLock)
+    scrollLock = null
     window.removeEventListener('keydown', onKeydown)
     previousActive?.focus?.()
   }
 })
 
 onBeforeUnmount(() => {
-  document.body.style.overflow = previousOverflow
+  unlockBodyScroll(scrollLock)
+  scrollLock = null
   window.removeEventListener('keydown', onKeydown)
 })
 </script>

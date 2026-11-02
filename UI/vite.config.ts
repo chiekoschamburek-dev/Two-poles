@@ -18,6 +18,22 @@ interface DefaultLlm {
   model: string
 }
 
+/** OpenAI 兼容实现里 content 可能是字符串，也可能是 [{type:'text',text}] 数组 */
+function messageText(message: unknown): string {
+  if (!message || typeof message !== 'object') return ''
+  const row = message as Record<string, unknown>
+  const content = row.content
+  if (typeof content === 'string' && content.trim()) return content
+  if (Array.isArray(content)) {
+    const text = content
+      .map(part => typeof part === 'string' ? part : (part && typeof part === 'object' && typeof (part as Record<string, unknown>).text === 'string' ? (part as Record<string, unknown>).text as string : ''))
+      .join('')
+    if (text.trim()) return text
+  }
+  const reasoning = row.reasoning_content
+  return typeof reasoning === 'string' ? reasoning : ''
+}
+
 const readJson = (req: IncomingMessage, limit: number): Promise<Record<string, unknown>> =>
   new Promise((resolve, reject) => {
     let raw = ''
@@ -121,8 +137,8 @@ function llmProxy(defaults: DefaultLlm): Plugin {
       } catch {
         return send(502, { error: '上游返回的不是 JSON' })
       }
-      const content = data?.choices?.[0]?.message?.content
-      if (typeof content !== 'string' || !content.trim()) return send(502, { error: '上游没有返回 content' })
+      const content = messageText(data?.choices?.[0]?.message)
+      if (!content.trim()) return send(502, { error: '上游没有返回 content' })
       return send(200, { text: content, model: data?.model ?? model })
     } catch (e) {
       const msg = e instanceof Error ? (e.name === 'AbortError' ? '请求超时（150 秒）' : e.message) : String(e)

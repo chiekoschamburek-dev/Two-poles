@@ -70,12 +70,16 @@ export function usingDefault(cfg: LlmConfig | null | undefined): boolean {
 }
 
 /** 服务端默认模型的状态：只有"有没有"和"叫什么"，不含任何密钥 */
+export type LlmRouteState = 'unknown' | 'ok' | 'spa-fallback' | 'unreachable'
+
 export interface LlmDefaultStatus {
   available: boolean
   model: string | null
+  /** /api/llm/* 是否真的交给了代理：spa-fallback = 线上被 SPA 回退成了 index.html */
+  route: LlmRouteState
 }
 
-export const NO_LLM_DEFAULT: LlmDefaultStatus = { available: false, model: null }
+export const NO_LLM_DEFAULT: LlmDefaultStatus = { available: false, model: null, route: 'unknown' }
 
 /** 自己的配置优先，没配就用服务端默认 */
 export function canUseLlm(cfg: LlmConfig | null | undefined, fallback: LlmDefaultStatus): boolean {
@@ -83,21 +87,71 @@ export function canUseLlm(cfg: LlmConfig | null | undefined, fallback: LlmDefaul
   return isLlmReady(cfg) || fallback.available
 }
 
+/** 每次请求都绕开 HTTP 缓存：线上边缘节点可能缓存过 /api/llm/* 的旧响应 */
+function apiUrl(path: string): string {
+  const sep = path.includes('?') ? '&' : '?'
+  return `${path}${sep}_=${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+}
+
+type ProxyBodyKind = 'json' | 'html' | 'empty' | 'invalid'
+
+/**
+ * 代理的正常响应是 JSON；ESA 函数为了保住网关连接会先发空格再写 JSON。
+ * 如果拿到 HTML，说明 /api/llm/* 根本没进函数，而是被静态托管回退成 index.html。
+ */
+async function readProxyBody(res: Response): Promise<{ data: Record<string, unknown>; kind: ProxyBodyKind }> {
+  let raw = ''
+  try {
+    raw = await res.text()
+  } catch {
+    return { data: {}, kind: 'empty' }
+  }
+  const trimmed = raw.trim()
+  const contentType = (res.headers.get('content-type') || '').toLowerCase()
+  if (contentType.includes('text/html') || trimmed.startsWith('<')) return { data: {}, kind: 'html' }
+  if (!trimmed) return { data: {}, kind: 'empty' }
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { data: parsed as Record<string, unknown>, kind: 'json' }
+    }
+  } catch {
+    /* 不是 JSON，交给调用方报错 */
+  }
+  return { data: {}, kind: 'invalid' }
+}
+
+const SPA_FALLBACK_ERROR =
+  '线上 /api/llm/* 返回了 HTML，被 SPA 回退成了 index.html，模型代理没有执行。请确认站点由阿里云 ESA「函数和 Pages」部署，esa.jsonc 的 entry 指向 UI/server/llm.js，并且函数已发布到生产环境；本地请用 npm run dev 或 npm run preview。'
+
+let routeWarned = false
+
 /**
  * 问本机代理有没有配默认模型。
  * 拿不到就当没有：这条请求失败不应该影响页面其它部分。
  */
 export async function fetchLlmStatus(): Promise<LlmDefaultStatus> {
   try {
-    const res = await fetch('/api/llm/status', { headers: { 'Cache-Control': 'no-store' } })
-    if (!res.ok) return { ...NO_LLM_DEFAULT }
-    const data = await res.json()
+    const res = await fetch(apiUrl('/api/llm/status'), {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' }
+    })
+    const { data, kind } = await readProxyBody(res)
+    if (!res.ok) return { ...NO_LLM_DEFAULT, route: 'unreachable' }
+    if (kind !== 'json') {
+      if (!routeWarned) {
+        routeWarned = true
+        console.warn(`[llm] /api/llm/status 没有返回 JSON（${kind}）。${SPA_FALLBACK_ERROR}`)
+      }
+      return { ...NO_LLM_DEFAULT, route: kind === 'empty' ? 'unreachable' : 'spa-fallback' }
+    }
     return {
-      available: data?.available === true,
-      model: typeof data?.model === 'string' ? data.model : null
+      available: data.available === true,
+      model: typeof data.model === 'string' ? data.model : null,
+      route: 'ok'
     }
   } catch {
-    return { ...NO_LLM_DEFAULT }
+    return { ...NO_LLM_DEFAULT, route: 'unreachable' }
   }
 }
 
@@ -478,9 +532,10 @@ export async function callLlmChat(
   // 偏好为内置（或自己没填）时交给服务端默认模型；两者都没有时由代理返回明确错误
   const useDefault = usingDefault(cfg)
   try {
-    const res = await fetch('/api/llm/chat', {
+    const res = await fetch(apiUrl('/api/llm/chat'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         useDefault,
         baseUrl: cfg.baseUrl,
@@ -491,30 +546,40 @@ export async function callLlmChat(
       }),
       signal: options.signal
     })
-    const data = await res.json().catch(() => ({}))
-    const model = typeof data?.model === 'string' && data.model.trim() ? data.model.trim() : cfg.model
+    const { data, kind } = await readProxyBody(res)
+    const model = typeof data.model === 'string' && data.model.trim() ? data.model.trim() : cfg.model
+
+    // 先判 HTML：有些静态托管会用 200 + index.html 顶替 /api/*，此时 data 是空的
+    if (kind === 'html') return { text: '', error: SPA_FALLBACK_ERROR, model }
+    if (kind === 'empty') {
+      return {
+        text: '',
+        error: `模型代理没有返回内容（HTTP ${res.status}）：连接在模型答复前就断开了。通常是模型超过边缘网关等待上限，请重试或换更快的模型；若持续出现，请确认 ESA 函数已发布。`,
+        model
+      }
+    }
     if (!res.ok) {
-      const detail = typeof data?.error === 'string' ? data.error : `HTTP ${res.status}`
+      const detail = typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
       return { text: '', error: `模型接口返回错误：${detail}`, model }
     }
     // ESA 函数会先发一个空格再流式写入 JSON；上游错误也会以 200 + {error} 的形式回来
-    if (typeof data?.error === 'string' && data.error.trim()) {
+    if (typeof data.error === 'string' && data.error.trim()) {
       return { text: '', error: `模型接口返回错误：${data.error}`, model }
     }
-    if (typeof data?.text !== 'string' || !data.text.trim()) {
+    if (kind !== 'json' || typeof data.text !== 'string' || !data.text.trim()) {
       return {
         text: '',
-        error: '模型代理没有返回内容：本地请用 npm run dev / npm run preview；线上请确认 /api/llm/chat 已由 ESA 函数入口处理，而不是被 SPA 回退成 index.html。',
+        error: '模型代理返回了无法识别的响应。请重试；本地请用 npm run dev / npm run preview，线上请确认 /api/llm/chat 由 ESA 函数入口处理。',
         model
       }
     }
     return { text: data.text, error: '', model }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    if (msg.includes('Failed to fetch')) {
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
       return {
         text: '',
-        error: '连不上本地代理：本地请用 npm run dev / npm run preview；若已部署到 ESA，请确认函数入口（entry）和函数变量 LLM_DEFAULT_* 已配置并重新部署。'
+        error: '连不上模型代理：本地请用 npm run dev / npm run preview；若已部署到 ESA，请确认函数入口（entry）和函数变量 LLM_DEFAULT_* 已配置并重新部署。'
       }
     }
     return { text: '', error: `调用失败：${msg}` }

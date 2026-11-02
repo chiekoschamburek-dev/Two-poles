@@ -162,7 +162,8 @@ const note = computed(() => props.editing
 
 onMounted(async () => {
   await nextTick()
-  nameEls.value[0]?.focus()
+  // 手机端不自动聚焦：一进编辑就弹键盘会把表单顶出视口，长列表下还会连着触发滚动抖动
+  if (!window.matchMedia('(max-width: 767px)').matches) nameEls.value[0]?.focus()
 })
 
 function blankRow(): Row {

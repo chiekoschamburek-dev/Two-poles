@@ -30,16 +30,20 @@ import PlanDraftDialog from '../common/PlanDraftDialog.vue'
 import WellnessDock from '@/components/wellness/WellnessDock.vue'
 import { useAppStore } from '@/stores/app'
 import { useWellnessDock } from '@/composables/useWellnessDock'
+import { resetBodyScroll } from '@/services/scrollLock'
 
 const mobileOpen = ref(false)
 const route = useRoute()
 const store = useAppStore()
-const { init: initWellnessDock } = useWellnessDock()
+const { init: initWellnessDock, modalOpen: wellnessModalOpen } = useWellnessDock()
 /** 双极工作台自己管理两栏的滚动，外壳不再让整页滚动 */
 const isWorkspace = computed(() => route.meta.workspace === true)
 
 watch(() => route.fullPath, () => {
   mobileOpen.value = false
+  // 页面级弹层随路由卸载；兜底清掉可能残留的 body 锁，避免整页划不动。
+  // 进站 Tips 弹窗是全局的，仍开着时不能替它解锁。
+  if (!wellnessModalOpen.value) resetBodyScroll()
 })
 
 onMounted(() => {
