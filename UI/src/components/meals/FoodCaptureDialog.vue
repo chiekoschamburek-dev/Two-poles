@@ -241,7 +241,7 @@
                 <span>{{ noPortionCount }} 项没有估份量，保存后记为「部分记录」</span>
               </p>
               <p v-if="missingToday.length">
-                <strong>今天仍缺</strong>
+                <strong>{{ isTodayDate ? '今天' : '当天' }}仍缺</strong>
                 <span>{{ missingToday.join('、') }}</span>
               </p>
               <p v-if="showEnergyEstimate && modelEnergyTotal">
@@ -307,6 +307,7 @@ import type { FoodRecognitionResult, RecognizedFood } from '@/services/foodRecog
 import { canUseLlm, usingDefault } from '@/services/llm'
 import { saveMealPhoto } from '@/services/mealPhotos'
 import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
+import { toISODate } from '@/utils/time'
 import { newId } from '@/utils/id'
 
 type View = 'capture' | 'analyzing' | 'result' | 'error' | 'manual'
@@ -389,6 +390,7 @@ const cloudModelLabel = computed(() => {
 const blocked = computed(() => mode.value === 'cloud' && !consent.value)
 /** /api/llm/* 没进 ESA 函数，而是被静态托管回退成 index.html */
 const proxyFallback = computed(() => store.llmDefault.route === 'spa-fallback')
+const isTodayDate = computed(() => props.date === toISODate(new Date()))
 const showEnergyEstimate = computed(() => store.privacy.showEnergyEstimate)
 const recognizedModel = computed(() => {
   if (!recognized.value) return ''

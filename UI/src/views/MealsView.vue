@@ -13,13 +13,30 @@
       </div>
     </header>
 
+    <div class="day-nav" role="group" aria-label="选择记录日期">
+      <button type="button" class="nav-btn" aria-label="前一天" @click="shiftDay(-1)"><ChevronLeft :size="16" /></button>
+      <input
+        class="date-input"
+        type="date"
+        :value="date"
+        :max="today"
+        aria-label="查看某一天的饮食记录"
+        @change="onDateInput"
+      />
+      <button type="button" class="nav-btn" aria-label="后一天" :disabled="isToday" @click="shiftDay(1)"><ChevronRight :size="16" /></button>
+      <button v-if="!isToday" type="button" class="today-btn" @click="goToday">回到今天</button>
+      <span class="day-hint">{{ isToday ? '正在查看今天' : '正在查看历史记录；新增会记录到这一天' }}</span>
+    </div>
+
     <StatStrip :items="mealStats" />
 
     <BaseCard class="capture-hero">
       <div class="hero-copy">
         <span class="micro">Photo first</span>
-        <h2>拍一张，记一顿</h2>
-        <p>不用先选早餐还是晚餐：系统按拍摄时间自动判断餐次，识别后默认直接保存，想改再展开。</p>
+        <h2>{{ isToday ? '拍一张，记一顿' : '补记这一天的饮食' }}</h2>
+        <p>{{ isToday
+          ? '不用先选早餐还是晚餐：系统按拍摄时间自动判断餐次，识别后默认直接保存，想改再展开。'
+          : `正在查看${dateLabel}。新增会记录到这一天；餐次仍按当前时间判断，保存前可以在弹窗里改。` }}</p>
         <div class="hero-meta">
           <span class="mode-chip" :class="{ ok: modelAvailable }">
             <i class="dot"></i>{{ recognitionLabel }}
@@ -28,7 +45,7 @@
         </div>
       </div>
       <div class="hero-act">
-        <BaseButton size="lg" :icon="Camera" @click="openCapture">记录饮食</BaseButton>
+        <BaseButton size="lg" :icon="Camera" @click="openCapture">{{ isToday ? '记录饮食' : '记录到这一天' }}</BaseButton>
         <button type="button" class="manual-link" @click="openManual"><PenLine :size="14" /> 手动补录</button>
       </div>
     </BaseCard>
@@ -37,10 +54,10 @@
       <BaseCard variant="flush" class="today-card">
         <div class="card-head">
           <div>
-            <span class="micro">Today · {{ records.length }} 条</span>
-            <h2>今日记录 <em v-if="records.length">按时间排列</em></h2>
+            <span class="micro">{{ isToday ? 'Today' : 'History' }} · {{ records.length }} 条</span>
+            <h2>{{ isToday ? '今日记录' : '当天记录' }} <em v-if="records.length">按时间排列</em></h2>
           </div>
-          <div class="slot-chips" aria-label="今日各餐次记录情况">
+          <div class="slot-chips" :aria-label="`${isToday ? '今日' : '当天'}各餐次记录情况`">
             <span v-for="slot in slotStatus" :key="slot.id" :class="{ on: slot.count > 0 }">
               {{ slot.label }}<i v-if="slot.count">{{ slot.count }}</i>
             </span>
@@ -49,8 +66,10 @@
 
         <div v-if="!records.length" class="empty-state">
           <div class="empty-mark" aria-hidden="true"><Camera :size="22" /></div>
-          <p>今天还没有饮食记录。</p>
-          <small>点上面的「记录饮食」，拍一张就会自动识别食物并判断餐次。</small>
+          <p>{{ isToday ? '今天还没有饮食记录。' : '这一天还没有饮食记录。' }}</p>
+          <small>{{ isToday
+            ? '点上面的「记录饮食」，拍一张就会自动识别食物并判断餐次。'
+            : '可以换一天查看，或点上面的「记录到这一天」补录。' }}</small>
         </div>
 
         <ol v-else class="log-list">
@@ -132,7 +151,7 @@
                     <p>{{ structureText(meal) }}</p>
                     <p v-if="meal.analysis?.unknownItems?.length" class="warn">待确认：{{ meal.analysis.unknownItems.join('、') }}</p>
                     <p v-if="meal.analysis?.missingCategories?.length" class="muted">
-                      记完这餐后今天仍缺：{{ meal.analysis.missingCategories.join('、') }}
+                      记完这餐后{{ isToday ? '今天' : '当天' }}仍缺：{{ meal.analysis.missingCategories.join('、') }}
                     </p>
                   </div>
                   <div>
@@ -175,7 +194,7 @@
         <BaseCard class="coverage">
           <div class="side-head">
             <span class="micro">Structure</span>
-            <h2>今日类别覆盖</h2>
+            <h2>{{ isToday ? '今日' : '当天' }}类别覆盖</h2>
           </div>
           <div class="cov-big">
             <b>{{ summary.coverage.length }}</b><span>/ 8 类</span>
@@ -186,7 +205,7 @@
             </li>
           </ul>
           <p class="side-note">只统计记录里出现过的类别，不判断分量或营养摄入量。未记录不代表没吃。</p>
-          <RouterLink to="/report" class="side-link">看本周餐食结构 <ArrowRight :size="14" /></RouterLink>
+          <RouterLink to="/report" class="side-link">看记录报告 <ArrowRight :size="14" /></RouterLink>
         </BaseCard>
 
         <BaseCard class="howto">
@@ -220,7 +239,7 @@
           </span>
         </li>
       </ul>
-      <p v-else class="muted">今天还没有训练或餐食记录。空着是合法状态，不代表没吃没练。</p>
+      <p v-else class="muted">{{ isToday ? '今天' : '这一天' }}还没有训练或餐食记录。空着是合法状态，不代表没吃没练。</p>
     </BaseCard>
 
     <InsightCard class="rules animate-slide-in-up" card-id="meal-rules" eyebrow="HOW THIS WORKS" title="这些结论是怎么来的">
@@ -250,7 +269,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { ArrowRight, Camera, PenLine, Sparkles } from 'lucide-vue-next'
+import { ArrowRight, Camera, ChevronLeft, ChevronRight, PenLine, Sparkles } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import InsightCard from '@/components/common/InsightCard.vue'
@@ -277,13 +296,16 @@ import { shortDate, toISODate } from '@/utils/time'
 const store = useAppStore()
 
 const now = new Date()
-const date = toISODate(now)
-const dateLabel = shortDate(now)
-const summary = computed(() => summarizeDay(store.meals, date))
+const today = toISODate(now)
+const refDate = ref(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
+const date = computed(() => toISODate(refDate.value))
+const dateLabel = computed(() => shortDate(refDate.value))
+const isToday = computed(() => date.value === today)
+const summary = computed(() => summarizeDay(store.meals, date.value))
 const showEstimate = computed(() => store.privacy.showEnergyEstimate)
 
 const records = computed(() => store.meals
-  .filter(m => m.date === date)
+  .filter(m => m.date === date.value)
   .slice()
   .sort((a, b) => a.time.localeCompare(b.time) || a.createdAt.localeCompare(b.createdAt)))
 
@@ -320,9 +342,11 @@ const recognitionLabel = computed(() => {
   return `模型识别 · ${model || '已配置'}`
 })
 
-const headerCopy = computed(() => showEstimate.value
-  ? '拍照或选图后自动识别食物，餐次按拍摄时间判断；热量只作区间粗估，不评价吃得多不多。'
-  : '拍照或选图后自动识别食物，餐次按拍摄时间判断；只记录结构，不估算热量，也不评价吃得多不多。')
+const headerCopy = computed(() => !isToday.value
+  ? `正在查看${dateLabel.value}的历史记录；下面的统计、餐次与类别覆盖都按这一天计算。`
+  : showEstimate.value
+    ? '拍照或选图后自动识别食物，餐次按拍摄时间判断；热量只作区间粗估，不评价吃得多不多。'
+    : '拍照或选图后自动识别食物，餐次按拍摄时间判断；只记录结构，不估算热量，也不评价吃得多不多。')
 
 const mealStats = computed<StatItem[]>(() => {
   const s = summary.value
@@ -330,7 +354,7 @@ const mealStats = computed<StatItem[]>(() => {
     {
       label: '类别覆盖',
       value: `${s.coverage.length} / 8`,
-      hint: s.recorded ? (s.missing.length ? `还缺 ${s.missing.slice(0, 3).join('、')}${s.missing.length > 3 ? ' 等' : ''}` : '八类都出现过') : '今天还没有记录',
+      hint: s.recorded ? (s.missing.length ? `还缺 ${s.missing.slice(0, 3).join('、')}${s.missing.length > 3 ? ' 等' : ''}` : '八类都出现过') : (isToday.value ? '今天还没有记录' : '这一天还没有记录'),
       tone: s.coverage.length >= 5 ? 'accent' : 'default'
     },
     { label: '完整记录', value: s.completeCount, unit: '条', hint: '每项都填了份量' },
@@ -340,10 +364,10 @@ const mealStats = computed<StatItem[]>(() => {
 })
 
 const hasLocalEstimateToday = computed(() => showEstimate.value && store.meals.some(m =>
-  m.date === date && (m.analysis?.estimateRefs?.length ?? 0) > 0
+  m.date === date.value && (m.analysis?.estimateRefs?.length ?? 0) > 0
 ))
 const hasModelEstimateToday = computed(() => showEstimate.value && store.meals.some(m =>
-  m.date === date && m.items.some(i => !!i.modelEnergy)
+  m.date === date.value && m.items.some(i => !!i.modelEnergy)
 ))
 const hasEstimateToday = computed(() => hasLocalEstimateToday.value || hasModelEstimateToday.value)
 const limitations = computed(() => {
@@ -372,7 +396,7 @@ const timeline = computed(() => {
       title: mealTypeLabel(m.mealType),
       detail: `${m.items.map(i => i.foodName).join('、') || '没有条目'} · ${completenessText(m.completeness)}`
     })),
-    ...store.sessions.filter(s => s.date === date).map(s => ({
+    ...store.sessions.filter(s => s.date === date.value).map(s => ({
       key: `train-${s.id}`,
       kind: 'train' as const,
       time: s.createdAt.slice(11, 16),
@@ -416,6 +440,31 @@ function onSaved(meal: Meal) {
 const expandedId = ref<string | null>(null)
 const editingId = ref<string | null>(null)
 const photoViewer = ref<{ photoId?: string; fallback?: string; label: string } | null>(null)
+
+function shiftDay(step: number) {
+  const next = new Date(refDate.value)
+  next.setDate(next.getDate() + step)
+  if (toISODate(next) > today) return
+  refDate.value = next
+  expandedId.value = null
+  editingId.value = null
+}
+
+function goToday() {
+  refDate.value = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  expandedId.value = null
+  editingId.value = null
+}
+
+function onDateInput(event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  if (!value || value > today) return
+  const next = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(next.getTime())) return
+  refDate.value = next
+  expandedId.value = null
+  editingId.value = null
+}
 
 function openPhotoViewer(meal: Meal) {
   photoViewer.value = {
@@ -618,6 +667,14 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .chip .dot{width:5px;height:5px;border-radius:50%;background:var(--color-text-muted)}
 .chip.ok{color:var(--color-accent);border-color:var(--color-accent-line);background:var(--color-accent-soft)}.chip.ok .dot{background:var(--color-accent)}
 .chip.part{color:var(--color-caution);border-color:rgba(138,90,0,.26);background:var(--color-caution-soft)}.chip.part .dot{background:var(--color-caution)}
+.day-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px;padding:9px 12px;border-radius:var(--radius-md);background:var(--color-card);box-shadow:inset 0 0 0 1px var(--color-border)}
+.nav-btn{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--radius-sm);border:1px solid var(--hair-strong);color:var(--color-text-secondary);background:var(--color-card);transition:border-color var(--motion-fast),color var(--motion-fast)}
+.nav-btn:hover:enabled{border-color:var(--color-ink);color:var(--color-ink)}
+.nav-btn:disabled{opacity:.4;cursor:not-allowed}
+.date-input{height:32px;padding:0 9px;border-radius:var(--radius-sm);border:1px solid var(--hair-strong);background:var(--color-card);font-family:var(--font-num);font-size:12px;color:var(--color-ink)}
+.today-btn{font-family:inherit;font-size:11.5px;font-weight:600;color:var(--color-accent);padding:6px 10px;border-radius:var(--radius-sm);background:var(--color-accent-soft);box-shadow:inset 0 0 0 1px var(--color-accent-line);transition:background var(--motion-fast),color var(--motion-fast)}
+.today-btn:hover{background:var(--color-accent);color:var(--color-on-accent)}
+.day-hint{font-size:11px;color:var(--color-text-muted);line-height:1.6}
 
 /* ——— 拍照主入口 ——— */
 .capture-hero{margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-color:var(--color-accent-line);background:linear-gradient(120deg,var(--color-accent-soft),var(--color-card) 62%)}
@@ -747,6 +804,9 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
   .detail-grid{grid-template-columns:1fr 1fr}
 }
 @media(max-width:767px){
+  .day-nav{gap:6px;padding:8px 10px}
+  .date-input{flex:1;min-width:0}
+  .day-hint{flex-basis:100%;font-size:10.5px}
   .lede{flex-direction:column;align-items:stretch;gap:12px;padding:14px 0 12px}
   .lede h1{font-size:28px}
   .lede-r{padding-bottom:0}
