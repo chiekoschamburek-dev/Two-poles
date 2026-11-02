@@ -11,7 +11,7 @@
       <p class="poles-note">左侧运动、右侧饮食；底部是两边的同期对照。</p>
       <div class="poles-meta">
         <span class="wk">第 {{ weekNo }} 周 · {{ dateLabel }}</span>
-        <RouterLink to="/report" class="report-link">本周周报 <ArrowRight :size="13" /></RouterLink>
+        <RouterLink to="/report" class="report-link">记录报告 <ArrowRight :size="13" /></RouterLink>
       </div>
     </header>
 

@@ -154,6 +154,77 @@ export function getDemoExercise(name: string | undefined): DemoExercise {
   return demoExercises.find(e => e.name === name) || demoExercises[0]
 }
 
+/** 从计划页带进跟练页的覆盖参数；只接受有限范围内的整数，非法值直接忽略 */
+export interface PlanExerciseOverride {
+  planItemId?: string
+  sets?: number
+  reps?: number
+  hold?: number
+  minutes?: number
+}
+
+function readInt(value: unknown, min: number, max: number): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value
+  const n = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : NaN
+  if (!Number.isFinite(n)) return undefined
+  const i = Math.round(n)
+  return i >= min && i <= max ? i : undefined
+}
+
+export function readPlanOverrides(query: Record<string, unknown>): PlanExerciseOverride {
+  const planItemId = typeof query.planItemId === 'string' && query.planItemId.trim()
+    ? query.planItemId.trim().slice(0, 120)
+    : undefined
+  return {
+    planItemId,
+    sets: readInt(query.sets, 1, 20),
+    reps: readInt(query.reps, 1, 200),
+    hold: readInt(query.hold, 5, 600),
+    minutes: readInt(query.minutes, 1, 240)
+  }
+}
+
+/** 从现有时间线反推计数相位，再按新的每组次数重建演示节奏 */
+function rebuildRepTimeline(base: DemoExercise, reps: number): DemoEvent[] {
+  const countEvent = base.setEvents.find(e => e.count === 1)
+  if (!countEvent) return base.setEvents
+  const countIndex = base.setEvents.indexOf(countEvent)
+  const countOn = countEvent.state
+  const otherOn = [...base.setEvents.slice(0, countIndex)]
+    .reverse()
+    .find(e => e.state !== 'ready' && e.state !== 'occluded')?.state
+    ?? (countOn === 'down' ? 'up' : 'down')
+  return buildSet(reps, countOn, otherOn, base.repMs)
+}
+
+/** 不可变覆盖：计划项只改启动参数，不修改 demoExercises 里的共享对象 */
+export function applyPlanOverrides(exercise: DemoExercise, override: PlanExerciseOverride = {}): DemoExercise {
+  const next = { ...exercise }
+  if (exercise.mode === 'reps') {
+    next.sets = override.sets ?? exercise.sets
+    next.repsPerSet = override.reps ?? exercise.repsPerSet
+    if (next.repsPerSet !== exercise.repsPerSet) {
+      next.setEvents = rebuildRepTimeline(exercise, next.repsPerSet)
+      next.setDuration = next.setEvents[next.setEvents.length - 1]?.time ?? exercise.setDuration
+    }
+    return next
+  }
+  if (exercise.mode === 'time') {
+    next.sets = override.sets ?? exercise.sets
+    next.holdSeconds = override.hold ?? exercise.holdSeconds ?? 30
+    next.repsPerSet = 0
+    next.setDuration = next.holdSeconds * 1000
+    next.setEvents = []
+    return next
+  }
+  next.sets = 1
+  next.targetMinutes = override.minutes ?? exercise.targetMinutes ?? 20
+  next.repsPerSet = 0
+  next.setDuration = next.targetMinutes * 60_000
+  next.setEvents = []
+  return next
+}
+
 /** 动作选择 chip 的文案：计次 2×8 / 计时 2×30秒 / 计步 20分钟 */
 export function exerciseChipLabel(e: DemoExercise): string {
   if (e.mode === 'time') return `${e.sets}×${e.holdSeconds}秒`
@@ -202,6 +273,8 @@ export function getConfidenceLevel(confidence: number): {
 
 export interface SessionInput {
   exercise: DemoExercise
+  /** 从计划项启动时带上，便于把训练反馈与该条计划关联 */
+  planItemId?: string
   /** 已完成的组数（三种模式通用） */
   setsCompleted: number
   /** reps 模式每组次数；time/steps 模式传空数组 */
@@ -222,7 +295,7 @@ export function summarizeSession(input: SessionInput): Omit<TrainingSession, 'id
   const { exercise, setsCompleted, repsBySet } = input
   const minutes = Math.max(Math.round((input.elapsedMs / 60_000) * 10) / 10, 0.1)
   const base = {
-    planItemId: undefined,
+    planItemId: input.planItemId,
     date: new Date().toISOString().slice(0, 10),
     exerciseName: exercise.name,
     type: exercise.type,

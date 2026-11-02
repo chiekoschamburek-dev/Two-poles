@@ -29,6 +29,38 @@
       <li v-for="c in notice.conflicts" :key="c">{{ c }}</li>
     </ul>
 
+    <BaseCard v-if="suggestions.length" class="pending animate-slide-in-up">
+      <div class="pending-head">
+        <div>
+          <span class="eyebrow">PENDING CHANGES</span>
+          <h3>待确认调整 · {{ suggestions.length }} 条</h3>
+          <p>{{ pendingHint }}</p>
+        </div>
+      </div>
+      <ul class="pending-list">
+        <li v-for="s in suggestions" :key="s.key" class="pending-row">
+          <div class="pending-copy">
+            <span class="source" :class="s.source">{{ s.source === 'time-conflict' ? '时间冲突' : '反馈调整' }}</span>
+            <strong>{{ s.title }}</strong>
+            <p v-if="!s.safetyOnly && !s.needsPlan && !s.blockedReason" class="pending-move">{{ s.from }}<ArrowRight :size="13" />{{ s.to }}</p>
+            <small v-if="s.fromDetail || s.toDetail">{{ s.fromDetail }} → {{ s.toDetail }}</small>
+            <small v-if="evidenceText(s)" class="pending-evidence">{{ evidenceText(s) }}</small>
+            <small>{{ s.reason }}</small>
+          </div>
+          <div class="pending-actions">
+            <BaseButton v-if="s.needsPlan" size="sm" @click="generatePlanForSuggestion(s)">
+              {{ s.needsPlan === 'next-week' ? '生成下周计划' : '生成本周计划' }}
+            </BaseButton>
+            <BaseButton v-else-if="!s.safetyOnly" size="sm" @click="acceptSuggestion(s)">接受调整</BaseButton>
+            <BaseButton v-if="s.safetyOnly && s.itemId" variant="secondary" size="sm" @click="focusSuggestionTarget(s)">查看目标</BaseButton>
+            <BaseButton variant="ghost" size="sm" @click="dismissSuggestion(s)">
+              {{ s.safetyOnly || s.blockedReason ? '知道了' : s.needsPlan ? '暂不生成' : '暂不调整' }}
+            </BaseButton>
+          </div>
+        </li>
+      </ul>
+    </BaseCard>
+
     <form v-if="manualOpen" class="manual animate-scale-in" @submit.prevent="saveManual">
       <label><span>日期</span><input v-model="manual.date" type="date" required /></label>
       <label><span>名称</span><input v-model="manual.name" type="text" maxlength="30" placeholder="例如：球场往返跑" required /></label>
@@ -86,8 +118,17 @@
             <strong>{{ item.exerciseName }}</strong>
             <small>{{ item.note }}<em v-if="item.locked"> · 已锁定</em><em v-if="item.completed"> · 已完成</em></small>
           </div>
-          <span>{{ item.plannedDuration }} min</span>
+          <span class="spec">{{ planSpec(item) }} · {{ item.plannedDuration }} min</span>
           <div class="item-actions">
+            <button
+              class="mini follow"
+              type="button"
+              :disabled="!isFollowable(item) || item.completed"
+              :title="item.completed
+                ? '这一项已完成；如需重练请到跟练页选择动作'
+                : isFollowable(item) ? '按这条计划启动跟练' : '该动作暂无跟练页；可以到跟练页自己挑一个'"
+              @click="startItem(item)"
+            >跟练</button>
             <button class="mini" :aria-pressed="item.completed" :disabled="!plan" @click="toggleComplete(item)">{{ item.completed ? '撤销完成' : '标记完成' }}</button>
             <button class="mini" :aria-pressed="item.locked" :disabled="!plan" @click="toggleLock(item)">{{ item.locked ? '解锁' : '锁定' }}</button>
           </div>
@@ -127,32 +168,6 @@
       <p v-if="!cycleStart" class="cycle-note">四周周期以档案里的"周期开始"日期为起点。没填时这里只说明阶段划分，负荷一律标为"未记录"——不用示例数字冒充你的数据。</p>
     </div>
 
-    <BaseCard class="version-card animate-slide-in-up">
-      <div>
-        <span class="eyebrow">PLAN HISTORY</span>
-        <h3>{{ adjustment ? (adjustResolved ? '调整建议已处理' : '有 1 条调整建议等待确认') : '暂无待确认的调整' }}</h3>
-        <p>{{ adjustment ? `${adjustment.reason}；已完成和锁定项目保持不变。` : '调整只在你的安排与实际可用时间冲突时提出，且不会自动改写周期目标。' }}</p>
-      </div>
-      <BaseButton v-if="adjustment && !adjustResolved" variant="secondary" :icon="GitCompare" @click="adjustOpen = !adjustOpen">
-        {{ adjustOpen ? '收起调整预览' : '查看调整预览' }}
-      </BaseButton>
-      <StatusBadge v-else-if="adjustment" variant="success">已接受</StatusBadge>
-      <StatusBadge v-else variant="neutral">无建议</StatusBadge>
-    </BaseCard>
-
-    <BaseCard v-if="adjustment && adjustOpen && !adjustResolved" class="adjust animate-scale-in">
-      <div class="adjust-row">
-        <div><span class="adjust-label">原安排</span><strong>{{ adjustment.from }}</strong><small>{{ adjustment.fromDetail }}</small></div>
-        <ArrowRight :size="18" class="adjust-arrow" />
-        <div><span class="adjust-label">建议改为</span><strong>{{ adjustment.to }}</strong><small>{{ adjustment.toDetail }}</small></div>
-      </div>
-      <p class="adjust-note">仅移动这一项，其他安排与已锁定项目不受影响；接受后生成新版本，旧版本留在本机历史里。</p>
-      <div class="adjust-actions">
-        <BaseButton size="sm" @click="acceptAdjustment">接受调整</BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="keepPlan">保持原计划</BaseButton>
-      </div>
-    </BaseCard>
-
     <BaseCard v-if="planHistoryCount" class="history animate-slide-in-up">
       <div class="card-head"><div><span class="eyebrow">VERSIONS</span><h3>本机计划历史</h3></div><span class="fine">{{ planHistoryCount }} 个版本</span></div>
       <ul class="verlist">
@@ -169,7 +184,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Plus, History, ChevronLeft, ChevronRight, Dumbbell, Lock, Play, RefreshCw,
-  GitCompare, ArrowRight, Moon, Flame, Wind, PersonStanding, StretchHorizontal, Activity
+  ArrowRight, Moon, Flame, Wind, PersonStanding, StretchHorizontal, Activity
 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
@@ -178,8 +193,10 @@ import { useAppStore } from '@/stores/app'
 import type { AlternativeExercise, PlanItem, TrainingType } from '@/types/domain'
 import { eyebrowDate, monthCells, shortDate, toISODate } from '@/utils/time'
 import { buildDayPlan, alternativesFor } from '@/services/planRules'
+import { buildAdjustmentSuggestions } from '@/services/adjustmentRules'
+import type { AdjustmentSuggestion } from '@/services/adjustmentRules'
 import { findExercise } from '@/services/exercises'
-import { demoExercises } from '@/services/demoCameraService'
+import { demoExercises, getDemoExercise } from '@/services/demoCameraService'
 import { weekDates, weekStart, buildWeeklyReport } from '@/services/weekRules'
 
 const router = useRouter()
@@ -190,8 +207,6 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日']
 const view = ref<'week' | 'cycle'>('week')
 const cursor = ref({ year: now.getFullYear(), month: now.getMonth() })
 const selected = ref(toISODate(now))
-const adjustOpen = ref(false)
-const adjustResolved = ref(false)
 const manualOpen = ref(false)
 const manual = ref({ date: toISODate(now), name: '', minutes: 20 })
 const manualError = ref('')
@@ -208,7 +223,36 @@ const icons: Partial<Record<TrainingType, typeof Wind>> = {
 const currentLabel = computed(() => (store.isAthleteMode ? '运动员模式' : '大众模式'))
 const selectedDate = computed(() => new Date(`${selected.value}T00:00:00`))
 const plan = computed(() => store.weekPlan(selectedDate.value))
+const nextPlan = computed(() => {
+  const d = new Date(`${selected.value}T00:00:00`)
+  d.setDate(d.getDate() + 7)
+  return store.weekPlan(d)
+})
+/** 反馈建议只属于“当前周”；翻看历史周时只保留选中周自己的时间冲突建议 */
+const viewingCurrentWeek = computed(() =>
+  toISODate(weekStart(selectedDate.value)) === toISODate(weekStart(new Date()))
+)
+/** 时间冲突 + 反馈调整；已处理证据会被过滤掉 */
+const suggestions = computed<AdjustmentSuggestion[]>(() => {
+  const all = buildAdjustmentSuggestions({
+    plan: plan.value,
+    nextPlan: nextPlan.value,
+    profile: store.userProfile,
+    selectedDate: selected.value,
+    resolutions: store.adjustmentResolutions,
+    sessions: store.sessions,
+    now: new Date()
+  })
+  return viewingCurrentWeek.value ? all : all.filter(s => s.source === 'time-conflict')
+})
 const planHistoryCount = computed(() => store.planHistory.length)
+const pendingHint = computed(() => {
+  if (suggestions.value.some(s => s.needsPlan)) return '生成计划后才可调整；不会静默创建计划。'
+  if (suggestions.value.some(s => !s.safetyOnly && !s.blockedReason)) {
+    return '接受后生成新计划版本；已锁定与已完成项保持不变。'
+  }
+  return '这些是事实提示，不会自动改计划。'
+})
 const recentHistory = computed(() => [...store.planHistory].reverse().slice(0, 6))
 const notice = computed(() => store.dayPlanNotice(selectedDate.value))
 
@@ -240,10 +284,34 @@ const isPast = computed(() => selected.value < toISODate(now))
 const planTitle = computed(() => (planForSelected.value.some(i => i.type === '坐站训练') ? '无器械基础体能' : '今日安排'))
 /** 可跟练 = 跟练页有演示时间线的动作（与 demoExercises 同一份名单，新增动作自动跟宽） */
 const FOLLOWABLE_NAMES = new Set(demoExercises.map(d => d.name))
-const firstExercise = computed(() => {
-  const target = planForSelected.value.find(i => FOLLOWABLE_NAMES.has(i.exerciseName))
-  return target ? target.exerciseName : ''
-})
+const firstFollowable = computed(() =>
+  planForSelected.value.find(i => !i.completed && FOLLOWABLE_NAMES.has(i.exerciseName))
+  ?? planForSelected.value.find(i => FOLLOWABLE_NAMES.has(i.exerciseName))
+  ?? null
+)
+const firstExercise = computed(() => firstFollowable.value?.exerciseName ?? '')
+
+function isFollowable(item: PlanItem): boolean {
+  return FOLLOWABLE_NAMES.has(item.exerciseName)
+}
+
+/** 计划条目的组数/次数/保持/目标分钟；旧计划缺字段时回退动作库与 demo 默认 */
+function planSpec(item: PlanItem): string {
+  const ex = findExercise(item.exerciseName)
+  const demo = demoExercises.find(d => d.name === item.exerciseName)
+  if (item.plannedHoldSeconds !== undefined || demo?.mode === 'time' || ex?.holdSeconds !== undefined) {
+    const sets = item.plannedSets ?? demo?.sets ?? ex?.sets ?? 1
+    const hold = item.plannedHoldSeconds ?? demo?.holdSeconds ?? ex?.holdSeconds ?? 30
+    return `${sets}×${hold}秒`
+  }
+  if (item.plannedTargetMinutes !== undefined || demo?.mode === 'steps' || ex?.type === '跑步') {
+    const minutes = item.plannedTargetMinutes ?? demo?.targetMinutes ?? ex?.minutes ?? 20
+    return `${minutes}分钟`
+  }
+  const sets = item.plannedSets ?? demo?.sets ?? ex?.sets ?? 1
+  const reps = item.plannedReps ?? demo?.repsPerSet ?? ex?.reps ?? 0
+  return reps ? `${sets}×${reps}` : `${item.plannedDuration ?? ex?.minutes ?? 0} min`
+}
 
 /** F04：候选来自动作库，按器材、场地、时长与"需要避开的"过滤，并带可解释原因 */
 const replaceTargets = computed(() =>
@@ -257,29 +325,6 @@ const replaceTargets = computed(() =>
     })
     .filter((r): r is { item: PlanItem; alts: AlternativeExercise[] } => r !== null)
 )
-
-/** 只有真实冲突才提建议：某天计划总时长超过档案里最大的可用时间块 */
-const adjustment = computed(() => {
-  if (adjustResolved.value) return null
-  const budget = Math.max(0, ...(store.userProfile?.availableTimes ?? []).map(t => parseInt(t, 10)).filter(n => Number.isFinite(n)))
-  if (!budget) return null
-  const total = planForSelected.value.reduce((s, i) => s + (i.plannedDuration ?? 0), 0)
-  if (total <= budget) return null
-  const item = planForSelected.value.find(i => !i.locked && !i.completed)
-  if (!item) return null
-  const next = new Date(`${item.date}T00:00:00`)
-  next.setDate(next.getDate() + 1)
-  const nextIso = toISODate(next)
-  return {
-    itemId: item.id,
-    date: item.date,
-    to: nextIso,
-    reason: `${shortDate(new Date(`${item.date}T00:00:00`))} 共安排 ${total} 分钟，超过你档案里最大的可用时间 ${budget} 分钟`,
-    from: shortDate(new Date(`${item.date}T00:00:00`)),
-    fromDetail: `${item.exerciseName} · ${item.plannedDuration ?? 0} min`,
-    toDetail: `${item.exerciseName} · ${item.plannedDuration ?? 0} min（原样搬到 ${shortDate(next)}）`
-  }
-})
 
 const cycleStart = computed(() => store.userProfile?.cycleStartDate ?? '')
 const cyclePhases = computed(() => {
@@ -326,9 +371,23 @@ function select(day: number) {
   selected.value = isoOf(day)
 }
 
+function startItem(item?: PlanItem) {
+  const target = item ?? firstFollowable.value
+  if (!target || !isFollowable(target) || (item?.completed === true)) return
+  const demo = getDemoExercise(target.exerciseName)
+  const query: Record<string, string> = {
+    exercise: target.exerciseName,
+    planItemId: target.id,
+    sets: String(target.plannedSets ?? demo.sets)
+  }
+  if (demo.mode === 'time') query.hold = String(target.plannedHoldSeconds ?? demo.holdSeconds ?? 30)
+  else if (demo.mode === 'steps') query.minutes = String(target.plannedTargetMinutes ?? demo.targetMinutes ?? 20)
+  else query.reps = String(target.plannedReps ?? demo.repsPerSet)
+  router.push({ path: '/execution', query })
+}
+
 function start() {
-  if (!firstExercise.value) return
-  router.push({ path: '/execution', query: { exercise: firstExercise.value } })
+  startItem()
 }
 
 function showReplaceHelp() {
@@ -360,24 +419,59 @@ function toggleComplete(item: PlanItem) {
   store.markItemCompleted(plan.value.id, item.id, !item.completed)
 }
 
-function acceptAdjustment() {
-  const a = adjustment.value
-  if (!a || !plan.value) return
-  store.acceptAdjustment(plan.value.id, [{
-    itemId: a.itemId,
-    type: 'changed',
-    oldValue: { date: a.date },
-    newValue: { date: a.to }
-  }], a.reason)
-  adjustResolved.value = true
-  adjustOpen.value = false
+function acceptSuggestion(s: AdjustmentSuggestion) {
+  if (s.safetyOnly || s.needsPlan || !s.planId) return
+  const sourcePlan = store.plans.find(p => p.id === s.planId) ?? plan.value
+  if (!sourcePlan) return
+  const updated = store.acceptAdjustment(sourcePlan.id, s.changes, s.reason)
+  if (!updated) return
+  store.resolveAdjustment(s.key, 'accepted')
+  focusSuggestionTarget(s)
+  store.showToast({
+    type: 'success',
+    title: '计划已调整',
+    message: `已生成 v${updated.version}；旧版本留在本机历史里`,
+    duration: 3200
+  })
 }
 
-function keepPlan() {
-  if (!plan.value) return
-  store.rejectAdjustment(plan.value.id)
-  adjustResolved.value = true
-  adjustOpen.value = false
+function generatePlanForSuggestion(s: AdjustmentSuggestion) {
+  if (!s.needsPlan) return
+  const base = new Date(`${selected.value}T00:00:00`)
+  if (s.needsPlan === 'next-week') base.setDate(base.getDate() + 7)
+  const created = store.ensureWeekPlan(base)
+  store.showToast({
+    type: 'success',
+    title: '计划已生成',
+    message: `已生成 ${created.weekStartDate} 起的计划，正在重新计算调整建议`,
+    duration: 2800
+  })
+}
+
+function dismissSuggestion(s: AdjustmentSuggestion) {
+  const sourcePlan = store.plans.find(p => p.id === s.planId)
+  if (sourcePlan) store.rejectAdjustment(sourcePlan.id)
+  store.resolveAdjustment(s.key, 'dismissed')
+}
+
+function focusSuggestionTarget(s: AdjustmentSuggestion) {
+  if (!s.date) return
+  const date = new Date(`${s.date}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return
+  selected.value = s.date
+  cursor.value = { year: date.getFullYear(), month: date.getMonth() }
+  view.value = 'week'
+}
+
+function evidenceText(s: AdjustmentSuggestion): string {
+  if (!s.evidence?.length) return ''
+  return s.evidence.map(e => {
+    const parts = [`${e.date.slice(5)} RPE ${e.rpe ?? '未记录'}`]
+    if (e.completionStatus !== 'completed') parts.push(e.completionStatus === 'partial' ? '部分完成' : '跳过')
+    if (e.discomfort) parts.push('有不适')
+    if (e.completionReason?.trim()) parts.push(`原因：${e.completionReason.trim()}`)
+    return parts.join(' · ')
+  }).join(' / ')
 }
 
 function saveManual() {
@@ -491,6 +585,7 @@ watch(
 .item-info strong{font-size:13.5px;font-weight:600;color:var(--color-ink)}.item-info small{font-size:11.5px;color:var(--color-text-muted);margin-top:2px;line-height:1.5}
 .item-info em{font-style:normal;color:var(--pole-movement-strong)}
 .plan-item>span{font-family:var(--font-num);font-size:11.5px;color:var(--color-text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
+.plan-item>span.spec{color:var(--pole-movement-strong);font-weight:600}
 .item-actions{display:flex;gap:5px;flex-wrap:wrap}
 .mini{font-size:11px;padding:4px 9px;min-height:26px;border-radius:var(--radius-sm);background:transparent;border:1px solid var(--hair-strong);color:var(--color-text-muted);transition:border-color var(--motion-fast),color var(--motion-fast),background var(--motion-fast)}
 .mini:hover:enabled{border-color:var(--color-ink);color:var(--color-ink)}
@@ -517,18 +612,22 @@ watch(
 .load-bar i{display:block;height:100%;background:var(--pole-movement);border-radius:2px}
 .phase small{display:block;margin-top:8px;font-size:10.5px;color:var(--color-text-muted);line-height:1.5}
 .cycle-note{grid-column:1/-1;font-size:12px;color:var(--color-text-secondary);background:var(--color-neutral-soft);border-radius:var(--radius-sm);padding:11px 13px;margin:0;line-height:1.65}
-.version-card{margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:16px}
-.version-card h3{font-size:15px;margin:5px 0}.version-card p{font-size:12px;color:var(--color-text-muted);margin:0;line-height:1.6}
-.adjust{margin-top:14px}
-.adjust-row{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
-.adjust-row>div{flex:1;min-width:180px}
-.adjust-label{display:block;font-family:var(--font-num);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-text-muted);margin-bottom:4px}
-.adjust-row strong{display:block;font-size:14px;color:var(--color-ink);font-weight:600}
-.adjust-row small{display:block;font-size:11.5px;color:var(--color-text-muted);margin-top:3px}
-.adjust-arrow{color:var(--color-text-muted)}
-.adjust-note{font-size:11.5px;color:var(--color-text-muted);margin:13px 0;line-height:1.6}
-.adjust-actions{display:flex;gap:8px;flex-wrap:wrap}
-.adjust-actions :deep(button){width:auto;padding:0 18px}
+.pending{margin-bottom:14px;border-color:var(--pole-movement-line)}
+.pending-head{padding:2px 0 10px;border-bottom:1px solid var(--hair-soft)}
+.pending-head h3{font-size:15px;margin:5px 0 0}
+.pending-head p{font-size:11.5px;color:var(--color-text-muted);margin:4px 0 0;line-height:1.6}
+.pending-list{list-style:none;margin:0;padding:0;display:grid}
+.pending-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px dashed var(--color-divider);flex-wrap:wrap}
+.pending-row:last-child{border-bottom:0;padding-bottom:2px}
+.pending-copy{min-width:0;flex:1}
+.pending-copy .source{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;color:var(--color-caution);background:var(--color-caution-soft);margin-bottom:5px}
+.pending-copy .source.feedback{color:var(--color-accent);background:var(--color-accent-soft)}
+.pending-copy strong{display:block;font-size:13.5px;color:var(--color-ink);line-height:1.5}
+.pending-move{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:5px 0 0;font-family:var(--font-num);font-size:12px;color:var(--pole-movement-strong);font-weight:600}
+.pending-copy small{display:block;margin-top:4px;font-size:11px;line-height:1.6;color:var(--color-text-muted)}
+.pending-copy small.pending-evidence{color:var(--color-text-secondary)}
+.pending-actions{display:flex;gap:7px;flex-wrap:wrap;flex:none;align-self:center}
+.pending-actions :deep(button){width:auto}
 .history{margin-top:14px}
 .card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .card-head h3{font-size:15px;margin:5px 0 0}
@@ -545,5 +644,5 @@ watch(
 .page-wrap :deep(.base-button:focus-visible){box-shadow:0 0 0 3px color-mix(in srgb,var(--pole-movement) 32%,transparent)}
 .page-wrap button:focus-visible,.page-wrap a:focus-visible,.page-wrap input:focus-visible,.page-wrap select:focus-visible,.page-wrap textarea:focus-visible{outline-color:var(--pole-movement)}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:767px){.page-head{flex-direction:column;align-items:stretch;gap:12px;padding:14px 0 12px}.page-head h1{font-size:28px}.page-head :deep(button){display:none}.toolbar{align-items:center;gap:10px;flex-wrap:wrap}.version{margin-left:auto}.calendar-grid button,.calendar-grid .blank{height:42px}.legend{gap:10px;font-size:10px;margin:10px 14px 0}.version-card{align-items:stretch;gap:14px;flex-direction:column}.version-card :deep(button){width:100%}.cycle{grid-template-columns:1fr}}
+@media(max-width:767px){.page-head{flex-direction:column;align-items:stretch;gap:12px;padding:14px 0 12px}.page-head h1{font-size:28px}.page-head :deep(button){display:none}.toolbar{align-items:center;gap:10px;flex-wrap:wrap}.version{margin-left:auto}.calendar-grid button,.calendar-grid .blank{height:42px}.legend{gap:10px;font-size:10px;margin:10px 14px 0}.pending-row{flex-direction:column;align-items:stretch}.pending-actions :deep(button){width:100%}.cycle{grid-template-columns:1fr}}
 </style>

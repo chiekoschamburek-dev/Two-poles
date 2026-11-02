@@ -41,7 +41,7 @@ const routes: RouteRecordRaw[] = [
     path: '/report',
     name: 'report',
     component: () => import('@/views/ReportView.vue'),
-    meta: { title: '我的周报' }
+    meta: { title: '记录报告' }
   },
   {
     path: '/settings',

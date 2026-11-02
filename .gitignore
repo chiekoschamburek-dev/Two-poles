@@ -61,3 +61,6 @@ redesign-shots/
 
 brand/
 media/
+
+# Local workflow scratch (spec/ticket drafts, not committed)
+.scratch/

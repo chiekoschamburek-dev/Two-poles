@@ -72,12 +72,12 @@
       <RouterLink
         to="/report"
         class="nav-item"
-        title="我的周报"
+        title="记录报告"
         @click="emit('close')"
       >
         <ClipboardList :size="19" />
-        <span class="short">周报</span>
-        <span class="full">我的周报</span>
+        <span class="short">报告</span>
+        <span class="full">记录报告</span>
       </RouterLink>
     </nav>
 

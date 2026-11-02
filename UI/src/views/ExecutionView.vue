@@ -12,7 +12,7 @@
             class="chip"
             :class="{ active: opt.name === exercise.name }"
             @click="selectExercise(opt.name)"
-          >{{ opt.name }} · {{ exerciseChipLabel(opt) }}</button>
+          >{{ opt.name }} · {{ opt.name === exercise.name ? exerciseChipLabel(exercise) : exerciseChipLabel(opt) }}</button>
         </div>
       </div>
       <BaseButton variant="secondary" :icon="X" @click="leave">结束</BaseButton>
@@ -366,11 +366,13 @@ import { useStepCounter } from '@/composables/useStepCounter'
 import { findExercise } from '@/services/exercises'
 import type { DemoEvent, ExercisePhase } from '@/types/domain'
 import {
+  applyPlanOverrides,
   demoExercises,
   exerciseChipLabel,
   getDemoExercise,
   getPhaseText,
   getConfidenceLevel,
+  readPlanOverrides,
   summarizeSession
 } from '@/services/demoCameraService'
 
@@ -378,7 +380,9 @@ const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
-const exercise = ref(getDemoExercise(route.query.exercise as string))
+const planOverride = readPlanOverrides(route.query as Record<string, unknown>)
+const activePlanItemId = ref<string | undefined>(planOverride.planItemId)
+const exercise = ref(applyPlanOverrides(getDemoExercise(route.query.exercise as string), planOverride))
 const setIndex = ref(1)
 const reps = ref(0)
 const displayReps = ref(0)
@@ -862,6 +866,7 @@ function record() {
   const session = store.addSession(
     summarizeSession({
       exercise: exercise.value,
+      planItemId: activePlanItemId.value,
       setsCompleted: closedSets.value,
       repsBySet: repsBySet.value,
       steps: isStepsMode.value ? stepCounter.steps.value : undefined,
@@ -914,6 +919,7 @@ function togglePause() {
 }
 
 function selectExercise(name: string) {
+  activePlanItemId.value = undefined
   exercise.value = getDemoExercise(name)
   router.replace({ path: '/execution', query: { exercise: name } })
   restart()

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { FoodCategory, Meal, MealItem, MealType, Mode, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
+import type { AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, Mode, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
@@ -75,6 +75,8 @@ export const useAppStore = defineStore('app', () => {
   const planHistory = ref<Plan[]>([])
   /** 本机自定的"1 单位 = 几克"，key 见 unitKey()；没填的单位退回演示假设 */
   const unitGrams = ref<Record<string, number>>({})
+  /** 已接受/已暂不调整的计划建议；避免同一条证据反复弹卡 */
+  const adjustmentResolutions = ref<AdjustmentResolutions>({})
   /** 存储写满只提示一次，避免每次操作都弹同一个错误 */
   let quotaWarned = false
 
@@ -131,6 +133,13 @@ export const useAppStore = defineStore('app', () => {
           for (const [k, v] of Object.entries(data.unitGrams)) if (typeof v === 'number' && v > 0 && v <= 5000) clean[k] = v
           unitGrams.value = clean
         }
+        if (data.adjustmentResolutions && typeof data.adjustmentResolutions === 'object') {
+          const clean: AdjustmentResolutions = {}
+          for (const [k, v] of Object.entries(data.adjustmentResolutions)) {
+            if (v === 'accepted' || v === 'dismissed') clean[k] = v
+          }
+          adjustmentResolutions.value = clean
+        }
       } catch (error) {
         console.error('Failed to load state from localStorage:', error)
       }
@@ -154,7 +163,8 @@ export const useAppStore = defineStore('app', () => {
       plans: plans.value,
       planHistory: planHistory.value,
       modeLog: modeLog.value,
-      unitGrams: unitGrams.value
+      unitGrams: unitGrams.value,
+      adjustmentResolutions: adjustmentResolutions.value
     }
     try {
       localStorage.setItem('twopoles_state', JSON.stringify(state))
@@ -629,6 +639,17 @@ export const useAppStore = defineStore('app', () => {
     showToast({ type: 'info', title: '已保持原计划', message: `v${plan.version} 未改动`, duration: 2500 })
   }
 
+  /** 记录一条建议已处理：accepted = 已接受并生成新版本；dismissed = 暂不调整 */
+  function resolveAdjustment(key: string, status: 'accepted' | 'dismissed') {
+    if (!key) return
+    adjustmentResolutions.value = { ...adjustmentResolutions.value, [key]: status }
+    persistState()
+  }
+
+  function isAdjustmentResolved(key: string): boolean {
+    return !!adjustmentResolutions.value[key]
+  }
+
   function toggleItemLock(planId: string, itemId: string) {
     const plan = plans.value.find(p => p.id === planId)
     if (!plan) return
@@ -997,6 +1018,7 @@ export const useAppStore = defineStore('app', () => {
     collapsedCards.value = []
     themePref.value = 'system'
     unitGrams.value = {}
+    adjustmentResolutions.value = {}
     applyTheme()
     localStorage.removeItem('twopoles_state')
     // 每日 Tips 的「今日不再出现」也是本机偏好；清除数据后应回到进站即弹
@@ -1027,6 +1049,7 @@ export const useAppStore = defineStore('app', () => {
     modeLog,
     pendingSwitch,
     unitGrams,
+    adjustmentResolutions,
     llmConfig,
     llmDefault,
     planDraftState,
@@ -1080,6 +1103,8 @@ export const useAppStore = defineStore('app', () => {
     resetPlanDraft,
     acceptAdjustment,
     rejectAdjustment,
+    resolveAdjustment,
+    isAdjustmentResolved,
     toggleItemLock,
     markItemCompleted,
     addManualItem,

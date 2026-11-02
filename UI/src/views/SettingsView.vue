@@ -256,7 +256,7 @@
       </div>
     </BaseCard>
 
-    <p class="foot">版本 {{ RULE_VERSION }} · 记录规则与报告口径见周报页底部的数据质量说明。</p>
+    <p class="foot">版本 {{ RULE_VERSION }} · 记录规则与报告口径见记录报告页底部的数据质量说明。</p>
   </div>
 </template>
 

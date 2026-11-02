@@ -92,6 +92,9 @@ function toPlanItem(ex: Exercise, date: string, version: number): PlanItem {
     plannedDuration: ex.minutes,
     plannedSets: ex.sets,
     plannedReps: ex.reps,
+    plannedHoldSeconds: ex.holdSeconds,
+    // 跑步条目在跟练页是 steps 模式；计划里把动作库的分钟数作为目标分钟
+    plannedTargetMinutes: ex.type === '跑步' ? ex.minutes : undefined,
     locked: ex.type === '坐站训练',
     completed: false,
     alternatives: []

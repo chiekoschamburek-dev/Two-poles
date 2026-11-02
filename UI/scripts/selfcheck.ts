@@ -8,6 +8,7 @@ import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, infer
 import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
 import { validateRecognitionObject, validateRecognitionText } from '@/services/foodRecognition'
 import { activeExercises, exercises, gateReason } from '@/services/exercises'
+import { applyPlanOverrides, getDemoExercise, readPlanOverrides, summarizeSession } from '@/services/demoCameraService'
 import { useRepCounter } from '@/composables/useRepCounter'
 import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
@@ -15,8 +16,10 @@ import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/ser
 import { bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, normalizeProfile, parseResult } from '@/services/profileRules'
 import { buildPlanMessages, buildPlanQuestionMessages, canUseLlm, desiredWeeklySessions, extractJson, isLlmReady, usingDefault, validatePlanDraft, validatePlanQuestions } from '@/services/llm'
 import { BRIDGE_LIMITS, buildBridgeSignals, buildWeekFacts, peekLine, readDayFacts } from '@/services/bridgeRules'
+import { buildAdjustmentSuggestions, buildFeedbackIntents, buildTimeConflictSuggestion } from '@/services/adjustmentRules'
+import { buildLongTermTrend, buildMonthlyReport, buildRollingFourWeeksReport } from '@/services/reportRules'
 import { toISODate } from '@/utils/time'
-import type { FoodCategory, Meal, MealItem, PersonalBest, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
+import type { FoodCategory, Meal, MealItem, PersonalBest, Plan, PlanItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
 let passed = 0
@@ -680,6 +683,311 @@ const movementOnlySignals = buildBridgeSignals(readDayFacts([], [], bridgeDate(0
 ok('本周只有运动记录时指出另一极缺失', movementOnlySignals.some(s => s.id === 'week-movement-only'))
 ok('健康口径清单写明不推断因果', BRIDGE_LIMITS.some(l => l.includes('不代表因果')))
 ok('健康口径清单写明未记录不等于没发生', BRIDGE_LIMITS.some(l => l.includes('未记录不等于没发生')))
+
+console.log('\n13. 计划项 → 跟练覆盖')
+const sitDemo = getDemoExercise('坐站训练')
+const sitOverride = applyPlanOverrides(sitDemo, { sets: 1, reps: 5 })
+ok('覆盖组数与每组次数', sitOverride.sets === 1 && sitOverride.repsPerSet === 5)
+ok('按新次数重建演示时间线', sitOverride.setEvents.filter(e => e.count !== undefined && e.state !== 'complete').length === 5
+  && sitOverride.setEvents.find(e => e.state === 'complete')?.count === 5
+  && sitOverride.setDuration === sitOverride.setEvents[sitOverride.setEvents.length - 1].time)
+ok('不修改共享的 demo 动作', sitDemo.sets === 2 && sitDemo.repsPerSet === 8)
+const noOverride = applyPlanOverrides(sitDemo, {})
+ok('无覆盖参数时保持默认', noOverride.sets === 2 && noOverride.repsPerSet === 8
+  && noOverride.setEvents.length === sitDemo.setEvents.length)
+const plankOverride = applyPlanOverrides(getDemoExercise('平板支撑'), { sets: 1, hold: 20 })
+ok('time 模式覆盖保持秒数', plankOverride.holdSeconds === 20 && plankOverride.setDuration === 20_000)
+const walkOverride = applyPlanOverrides(getDemoExercise('快走'), { minutes: 30 })
+ok('steps 模式覆盖目标分钟', walkOverride.targetMinutes === 30 && walkOverride.setDuration === 1_800_000)
+const badOverrides = readPlanOverrides({ sets: '99', reps: '0', hold: '2', minutes: '-3', planItemId: ' p1 ' })
+ok('越界覆盖参数被忽略', badOverrides.sets === undefined && badOverrides.reps === undefined
+  && badOverrides.hold === undefined && badOverrides.minutes === undefined
+  && badOverrides.planItemId === 'p1')
+const goodOverrides = readPlanOverrides({ sets: '1', reps: '6', hold: '20', minutes: '30', planItemId: 'p2' })
+ok('合法覆盖参数被解析', goodOverrides.sets === 1 && goodOverrides.reps === 6
+  && goodOverrides.hold === 20 && goodOverrides.minutes === 30 && goodOverrides.planItemId === 'p2')
+const customSession = summarizeSession({
+  exercise: sitOverride, planItemId: 'item-1', setsCompleted: 1, repsBySet: [5],
+  averageConfidence: 0.9, manualCorrections: 0, elapsedMs: 60_000
+})
+ok('训练记录写回 planItemId 与覆盖后的次数', customSession.planItemId === 'item-1'
+  && customSession.actualSets === 1 && customSession.actualReps === 5
+  && customSession.completionStatus === 'completed')
+
+console.log('\n14. 计划调整建议（时间冲突）')
+const timeProfile = p({ availableTimes: ['20 分钟'] })
+const planWithItems = (items: PlanItem[]): Plan => ({
+  id: 'plan-time', userId: 'u1', version: 1, createdAt: '2026-11-02T08:00:00.000Z',
+  mode: 'public', reason: 'test', weekStartDate: '2026-11-02', weekEndDate: '2026-11-08',
+  items, locked: false
+})
+const timeItem = (id: string, duration: number, locked = false): PlanItem => ({
+  id, planId: 'plan-time', date: '2026-11-02', exerciseName: '坐站训练', type: '坐站训练',
+  plannedDuration: duration, plannedSets: 2, plannedReps: 8, locked, completed: false
+})
+const overBudget = buildTimeConflictSuggestion(planWithItems([timeItem('a', 15), timeItem('b', 10)]), timeProfile, '2026-11-02')
+ok('超预算给出搬移建议', !!overBudget && overBudget.itemId === 'a'
+  && overBudget.changes[0].newValue?.date === '2026-11-03')
+ok('时间冲突建议带可读原因', !!overBudget && overBudget.reason.includes('超过') && overBudget.reason.includes('20 分钟'))
+const underBudget = buildTimeConflictSuggestion(planWithItems([timeItem('a', 15), timeItem('b', 5)]), timeProfile, '2026-11-02')
+ok('不超预算不提示', underBudget === null)
+const lockedFirst = buildTimeConflictSuggestion(planWithItems([timeItem('a', 15, true), timeItem('b', 10)]), timeProfile, '2026-11-02')
+ok('跳过锁定项', !!lockedFirst && lockedFirst.itemId === 'b')
+ok('无计划不提示', buildTimeConflictSuggestion(null, timeProfile, '2026-11-02') === null)
+const suggestionsOpen = buildAdjustmentSuggestions({
+  plan: planWithItems([timeItem('a', 15), timeItem('b', 10)]),
+  profile: timeProfile, selectedDate: '2026-11-02', resolutions: {}
+})
+ok('未处理建议保留', suggestionsOpen.length === 1)
+const suggestionsResolved = buildAdjustmentSuggestions({
+  plan: planWithItems([timeItem('a', 15), timeItem('b', 10)]),
+  profile: timeProfile, selectedDate: '2026-11-02',
+  resolutions: { [suggestionsOpen[0].key]: 'dismissed' }
+})
+ok('已处理建议被过滤', suggestionsResolved.length === 0)
+
+console.log('\n15. 反馈调整（降量）')
+const fbNow = new Date(2026, 10, 2, 12, 0, 0)
+const fbSession = (
+  id: string, date: string, rpe: number | null,
+  extra: Partial<TrainingSession> = {}
+): TrainingSession => ({
+  id, userId: 'u1', date, exerciseName: '站姿弯举', type: '站姿弯举',
+  actualDuration: 10, completionStatus: 'completed', rpe, discomfort: false,
+  cameraUsed: false, manualCorrections: 0, createdAt: `${date}T10:00:00.000Z`, ...extra
+})
+const fbPlan = (item: Partial<PlanItem> = {}): Plan => planWithItems([{
+  id: 'fb-item', planId: 'plan-fb', date: '2026-11-05', exerciseId: 'ex-stand-curl',
+  exerciseName: '站姿弯举', type: '站姿弯举', plannedDuration: 3,
+  plannedSets: 2, plannedReps: 10, locked: false, completed: false, ...item
+}])
+const fbProfile = p({})
+const highHigh = [fbSession('s1', '2026-10-28', 9), fbSession('s2', '2026-11-01', 8)]
+const downIntents = buildFeedbackIntents(highHigh, fbProfile, fbNow)
+ok('两次高 RPE 产生降量意图', downIntents.length === 1 && downIntents[0].direction === 'down')
+const downSuggestions = buildAdjustmentSuggestions({
+  plan: fbPlan(), profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: {}, sessions: highHigh, now: fbNow
+})
+const down = downSuggestions.find(s => s.source === 'feedback')
+ok('降量建议落到下一次同动作', !!down && down.itemId === 'fb-item'
+  && down.from === '2×10' && down.to === '1×10'
+  && down.changes[0].newValue?.plannedSets === 1)
+ok('降量建议带触发日期与 RPE', !!down && down.reason.includes('10-28') && down.reason.includes('RPE 9'))
+ok('单次高 RPE 不触发', buildFeedbackIntents([fbSession('s1', '2026-11-01', 9)], fbProfile, fbNow).length === 0)
+ok('一高一低不触发', buildFeedbackIntents([
+  fbSession('s1', '2026-10-28', 9), fbSession('s2', '2026-11-01', 2)
+], fbProfile, fbNow).length === 0)
+const nullSkipped = buildFeedbackIntents([
+  fbSession('s1', '2026-10-20', 9), fbSession('s2', '2026-10-25', null),
+  fbSession('s3', '2026-10-28', 8)
+], fbProfile, fbNow)
+ok('未记 RPE 的场次跳过且不打断', nullSkipped.length === 1 && nullSkipped[0].direction === 'down')
+const tooOld = buildFeedbackIntents([
+  fbSession('s1', '2026-10-01', 9), fbSession('s2', '2026-11-01', 8)
+], fbProfile, fbNow)
+ok('超出 21 天的反馈不触发', tooOld.length === 0)
+const downSingle = buildAdjustmentSuggestions({
+  plan: fbPlan({ plannedSets: 1 }), profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: {}, sessions: highHigh, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('单组动作降次数', !!downSingle && downSingle.from === '1×10' && downSingle.to === '1×8'
+  && downSingle.changes[0].newValue?.plannedReps === 8)
+const downTime = buildAdjustmentSuggestions({
+  plan: fbPlan({ plannedSets: 1, plannedReps: undefined, plannedHoldSeconds: 30, plannedDuration: 3 }),
+  profile: fbProfile, selectedDate: '2026-11-02', resolutions: {}, sessions: highHigh, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('计时动作降保持秒数', !!downTime && downTime.from === '1×30秒' && downTime.to === '1×25秒'
+  && downTime.changes[0].newValue?.plannedHoldSeconds === 25)
+const downSteps = buildAdjustmentSuggestions({
+  plan: fbPlan({ plannedHoldSeconds: undefined, plannedReps: undefined, plannedTargetMinutes: 20, plannedDuration: 20 }),
+  profile: fbProfile, selectedDate: '2026-11-02', resolutions: {}, sessions: highHigh, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('计步动作降目标分钟', !!downSteps && downSteps.from === '20分钟' && downSteps.to === '15分钟'
+  && downSteps.changes[0].newValue?.plannedTargetMinutes === 15)
+const resolvedDown = buildAdjustmentSuggestions({
+  plan: fbPlan(), profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: down ? { [down.key]: 'accepted' } : {}, sessions: highHigh, now: fbNow
+})
+ok('同一证据处理后不再出现', !resolvedDown.some(s => s.source === 'feedback'))
+
+console.log('\n16. 反馈调整（升量）')
+const lowLow = [fbSession('u1', '2026-10-28', 2), fbSession('u2', '2026-11-01', 3)]
+const upIntents = buildFeedbackIntents(lowLow, fbProfile, fbNow)
+ok('两次低 RPE + 全部完成产生升量意图', upIntents.length === 1 && upIntents[0].direction === 'up')
+const up = buildAdjustmentSuggestions({
+  plan: fbPlan(), profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: {}, sessions: lowLow, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('升量建议加到下一次同动作', !!up && up.from === '2×10' && up.to === '3×10'
+  && up.changes[0].newValue?.plannedSets === 3)
+ok('升量同步更新计划时长', !!up && up.changes[0].newValue?.plannedDuration === 5)
+ok('一次部分完成不升量', buildFeedbackIntents([
+  fbSession('u1', '2026-10-28', 2), fbSession('u2', '2026-11-01', 3, { completionStatus: 'partial' })
+], fbProfile, fbNow).length === 0)
+ok('一次高 RPE 不升量', buildFeedbackIntents([
+  fbSession('u1', '2026-10-28', 2), fbSession('u2', '2026-11-01', 8)
+], fbProfile, fbNow).length === 0)
+const nullLow = buildFeedbackIntents([
+  fbSession('u1', '2026-10-20', 2), fbSession('u2', '2026-10-25', null), fbSession('u3', '2026-11-01', 3)
+], fbProfile, fbNow)
+ok('升量判定同样跳过未记 RPE', nullLow.length === 1 && nullLow[0].direction === 'up')
+const upSingle = buildAdjustmentSuggestions({
+  plan: fbPlan({ plannedSets: 1 }), profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: {}, sessions: lowLow, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('单组动作升次数', !!upSingle && upSingle.from === '1×10' && upSingle.to === '1×12'
+  && upSingle.changes[0].newValue?.plannedReps === 12)
+const upTime = buildAdjustmentSuggestions({
+  plan: fbPlan({ plannedSets: 1, plannedReps: undefined, plannedHoldSeconds: 30, plannedDuration: 3 }),
+  profile: fbProfile, selectedDate: '2026-11-02', resolutions: {}, sessions: lowLow, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('计时动作升保持秒数', !!upTime && upTime.from === '1×30秒' && upTime.to === '1×35秒')
+const upSteps = buildAdjustmentSuggestions({
+  plan: fbPlan({ plannedHoldSeconds: undefined, plannedReps: undefined, plannedTargetMinutes: 20, plannedDuration: 20 }),
+  profile: fbProfile, selectedDate: '2026-11-02', resolutions: {}, sessions: lowLow, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('计步动作升目标分钟', !!upSteps && upSteps.from === '20分钟' && upSteps.to === '25分钟')
+
+console.log('\n17. 反馈调整（安全事实 / 受限档案）')
+const safetySessions = [
+  fbSession('d1', '2026-10-28', 9, { discomfort: true }),
+  fbSession('d2', '2026-11-01', 8)
+]
+const safetyIntent = buildFeedbackIntents(safetySessions, fbProfile, fbNow)[0]
+ok('不适优先于高 RPE', safetyIntent?.direction === 'safety')
+const safetySuggestion = buildAdjustmentSuggestions({
+  plan: fbPlan(), profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: {}, sessions: safetySessions, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('安全事实卡不产生数字改动', !!safetySuggestion && safetySuggestion.safetyOnly === true
+  && safetySuggestion.changes.length === 0)
+ok('安全事实卡带不适/原因证据', !!safetySuggestion && safetySuggestion.reason.includes('不适'))
+const reasonSessions = [
+  fbSession('r1', '2026-10-28', 2, { completionStatus: 'partial', completionReason: '时间不够' }),
+  fbSession('r2', '2026-11-01', 3)
+]
+ok('非空未完成原因进入安全事实', buildFeedbackIntents(reasonSessions, fbProfile, fbNow)[0]?.direction === 'safety')
+const gateIntent = buildFeedbackIntents(highHigh, p({ restrictions: ['孕期或产后'] }), fbNow)[0]
+ok('GATE_RESTRICTIONS 不生成数字调整', gateIntent?.direction === 'safety' && gateIntent.allowNumeric === false)
+const minorIntent = buildFeedbackIntents(highHigh, p({ age: 17 }), fbNow)[0]
+ok('未成年不生成数字调整', minorIntent?.direction === 'safety' && minorIntent.allowNumeric === false)
+
+console.log('\n18. 无计划 / 无目标边界')
+const noPlanCurrent = buildAdjustmentSuggestions({
+  plan: null, nextPlan: null, profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: {}, sessions: highHigh, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('没有当前计划时提示生成本周计划', !!noPlanCurrent && noPlanCurrent.needsPlan === 'current-week'
+  && noPlanCurrent.changes.length === 0)
+const noTargetNoNext = buildAdjustmentSuggestions({
+  plan: fbPlan({ date: '2026-10-01' }), nextPlan: null, profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: {}, sessions: highHigh, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('当前周没有目标且下周未生成时提示生成下周计划', !!noTargetNoNext && noTargetNoNext.needsPlan === 'next-week')
+const nextPlanWithTarget: Plan = {
+  ...planWithItems([{
+    id: 'next-item', planId: 'next-plan', date: '2026-11-09', exerciseId: 'ex-stand-curl',
+    exerciseName: '站姿弯举', type: '站姿弯举', plannedDuration: 3,
+    plannedSets: 2, plannedReps: 10, locked: false, completed: false
+  }]),
+  id: 'next-plan', weekStartDate: '2026-11-09', weekEndDate: '2026-11-15'
+}
+const nextTarget = buildAdjustmentSuggestions({
+  plan: fbPlan({ date: '2026-10-01' }), nextPlan: nextPlanWithTarget,
+  profile: fbProfile, selectedDate: '2026-11-02', resolutions: {}, sessions: highHigh, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('下周有计划时顺延到下周同动作', !!nextTarget && nextTarget.planId === 'next-plan'
+  && nextTarget.itemId === 'next-item' && nextTarget.from === '2×10')
+const nextPlanWithoutTarget = { ...nextPlanWithTarget, items: [] }
+const blocked = buildAdjustmentSuggestions({
+  plan: fbPlan({ date: '2026-10-01' }), nextPlan: nextPlanWithoutTarget,
+  profile: fbProfile, selectedDate: '2026-11-02', resolutions: {}, sessions: highHigh, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('下周计划没有该动作时明确说明', !!blocked && !!blocked.blockedReason && blocked.changes.length === 0)
+const safetyNoTarget = buildAdjustmentSuggestions({
+  plan: null, nextPlan: null, profile: fbProfile, selectedDate: '2026-11-02',
+  resolutions: {}, sessions: safetySessions, now: fbNow
+}).find(s => s.source === 'feedback')
+ok('不适事实即使没有目标也能提示', !!safetyNoTarget && safetyNoTarget.safetyOnly === true
+  && safetyNoTarget.itemId === '')
+
+console.log('\n19. 近四周报告')
+const reportSessions = [
+  mkBridgeSession('2026-10-07', 5, 20),
+  mkBridgeSession('2026-10-14', null, 10),
+  mkBridgeSession('2026-10-28', 4, 10),
+  mkBridgeSession('2026-11-01', 6, 10)
+]
+const reportMeals = [
+  mkBridgeMeal('2026-10-07', 'breakfast', ['水果类', '谷薯类']),
+  mkBridgeMeal('2026-10-14', 'lunch', ['蔬菜类', '蛋类'], false),
+  mkBridgeMeal('2026-10-28', 'dinner', ['水果类', '奶类'])
+]
+const rolling = buildRollingFourWeeksReport(
+  reportSessions, reportMeals, new Date(2026, 10, 2),
+  { profile: p({ availableTimes: ['20 分钟'] }), mode: 'public' }
+)
+ok('近四周结束于今天、开始于 27 天前', rolling.start === '2026-10-06' && rolling.end === '2026-11-02')
+ok('近四周切成 4 个 7 天块', rolling.blocks.length === 4
+  && rolling.blocks[0].start === '2026-10-06' && rolling.blocks[0].end === '2026-10-12'
+  && rolling.blocks[3].start === '2026-10-27' && rolling.blocks[3].end === '2026-11-02')
+ok('块负荷按完整日累计', rolling.blocks[0].load === 100 && rolling.blocks[0].loadCompleteness === 'complete')
+ok('缺 RPE 的块标不完整且不补 0', rolling.blocks[1].load === null && rolling.blocks[1].loadCompleteness === 'incomplete')
+ok('无记录块为 none', rolling.blocks[2].load === null && rolling.blocks[2].loadCompleteness === 'none')
+ok('总负荷只累计完整日', rolling.totalLoad === 200 && rolling.loadDays === 3 && rolling.unloadedDays === 1)
+ok('训练天数与总时长', rolling.trainingDays === 4 && rolling.totalSessions === 4 && rolling.totalMinutes === 50)
+ok('餐食天数与完整/部分记录', rolling.mealDays === 3 && rolling.totalMeals === 3
+  && rolling.completeMeals === 2 && rolling.partialMeals === 1)
+ok('类别覆盖按条目累计', rolling.categoryCoverage['水果类'] === 2 && rolling.categoryCoverage['谷薯类'] === 1
+  && rolling.categoryCoverage['奶类'] === 1)
+ok('数据质量说明缺 RPE 不计入', rolling.dataQuality.some(q => q.includes('不参与负荷计算')))
+ok('数据质量说明餐食未记录口径', rolling.dataQuality.some(q => q.includes('未记录') && q.includes('不代表未摄入')))
+const emptyRolling = buildRollingFourWeeksReport(
+  [], [], new Date(2026, 10, 2), { profile: p({ availableTimes: ['20 分钟'] }), mode: 'public' }
+)
+ok('空窗口负荷留空而不是 0', emptyRolling.totalLoad === null && emptyRolling.trainingDays === 0
+  && emptyRolling.blocks.every(b => b.loadCompleteness === 'none' && b.load === null))
+ok('空窗口数据质量说明空着合法', emptyRolling.dataQuality.some(q => q.includes('还没有训练记录')))
+
+console.log('\n20. 月报')
+const feb = buildMonthlyReport([], [], new Date(2026, 1, 1), { profile: p({}), mode: 'public' }, new Date(2026, 2, 15))
+ok('2 月按 4 个块切分', feb.blocks.length === 4 && feb.start === '2026-02-01' && feb.end === '2026-02-28'
+  && feb.blocks[3].start === '2026-02-22' && feb.blocks[3].end === '2026-02-28')
+const oct = buildMonthlyReport([], [], new Date(2026, 9, 1), { profile: p({}), mode: 'public' }, new Date(2026, 10, 2))
+ok('31 天月份按 5 个块切分', oct.blocks.length === 5 && oct.blocks[4].start === '2026-10-29'
+  && oct.blocks[4].end === '2026-10-31')
+const apr = buildMonthlyReport([], [], new Date(2026, 3, 1), { profile: p({}), mode: 'public' }, new Date(2026, 4, 2))
+ok('30 天月份最后一块只到月末', apr.blocks.length === 5 && apr.blocks[4].start === '2026-04-29'
+  && apr.blocks[4].end === '2026-04-30')
+const currentNov = buildMonthlyReport(
+  reportSessions, reportMeals, new Date(2026, 10, 1),
+  { profile: p({ availableTimes: ['20 分钟'] }), mode: 'public' }, new Date(2026, 10, 2)
+)
+ok('当前月只统计到今天', currentNov.start === '2026-11-01' && currentNov.end === '2026-11-02'
+  && currentNov.blocks.length === 1 && currentNov.blocks[0].end === '2026-11-02')
+ok('当前月数据质量写截止日期', currentNov.dataQuality.some(q => q.includes('当前月统计到 11 月 2 日')))
+ok('月报负荷与近四周同口径', currentNov.totalLoad === 60 && currentNov.trainingDays === 1)
+
+console.log('\n21. 长期趋势')
+const longSessions = [
+  mkBridgeSession('2026-06-15', 5, 20),
+  mkBridgeSession('2026-06-20', null, 10),
+  mkBridgeSession('2026-08-10', 4, 10),
+  mkBridgeSession('2026-10-28', 6, 10),
+  mkBridgeSession('2026-11-01', 2, 10)
+]
+const trend = buildLongTermTrend(longSessions, new Date(2026, 10, 2), 6)
+ok('长期固定 6 个月份', trend.length === 6 && trend[0].month === '2026-06'
+  && trend[5].month === '2026-11' && trend.map(p => p.label).join(',') === '6月,7月,8月,9月,10月,11月')
+ok('长期负荷按完整日累计', trend[0].load === 100 && trend[0].loadCompleteness === 'incomplete'
+  && trend[2].load === 40 && trend[4].load === 60 && trend[5].load === 20)
+ok('没有记录的月份负荷留空', trend[1].load === null && trend[1].loadCompleteness === 'none'
+  && trend[3].load === null && trend[3].loadCompleteness === 'none')
+ok('训练天数只统计有记录的天数', trend[0].trainingDays === 2 && trend[1].trainingDays === 0
+  && trend[2].trainingDays === 1 && trend[5].trainingDays === 1)
+ok('当前月标记为部分月份', trend[5].partialMonth === true && trend.slice(0, 5).every(p => !p.partialMonth))
+ok('没有训练的月份 hasSession=false', trend[1].hasSession === false && trend[3].hasSession === false)
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

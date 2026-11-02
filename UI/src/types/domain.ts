@@ -122,6 +122,10 @@ export interface PlanItem {
   plannedDistance?: number // meters
   plannedSets?: number
   plannedReps?: number
+  /** time 模式每组保持秒数；旧计划没有这个字段时回退动作库默认 */
+  plannedHoldSeconds?: number
+  /** steps 模式目标分钟；旧计划没有这个字段时回退动作库默认 */
+  plannedTargetMinutes?: number
   note?: string
   locked: boolean
   completed: boolean
@@ -152,6 +156,11 @@ export interface PlanChange {
   oldValue?: Partial<PlanItem>
   newValue?: Partial<PlanItem>
 }
+
+export type AdjustmentResolutionStatus = 'accepted' | 'dismissed'
+
+/** 已处理的调整建议 key → 用户当时的选择；仅存本机 */
+export type AdjustmentResolutions = Record<string, AdjustmentResolutionStatus>
 
 // === Training & Sessions ===
 
