@@ -40,3 +40,7 @@ lerna-debug.log*
 coverage/
 .nyc_output/
 .selfcheck.mjs
+.sync-test.mjs
+
+# Local API database and export artifacts
+server/data/

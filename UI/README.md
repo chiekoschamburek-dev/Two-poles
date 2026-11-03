@@ -8,17 +8,17 @@
 
 | 范围 | 状态 |
 |------|------|
-| 页面视图 | **双极工作台 + 6 个下钻页都有实际界面**（`/` 今日两仪 / Onboarding / Plan / Execution / Meals / Report / Settings；旧 `/dashboard` 重定向到 `/`）。首屏左运动、右饮食，底部同期对照；手机端叠卡切换。计数已与识别联动、计划版本与调整确认在本机落地；没有账号后端，模型请求经同源 Vite 代理转发 |
-| 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好都存在 localStorage；开启照片保存时，餐食记录带一张 256px JPEG 缩略图，原图另存本机 IndexedDB。可从设置页导出 JSON/CSV（JSON 含缩略图、不含原图，CSV 不含图片）或一键清除 |
+| 页面视图 | **双极工作台 + 6 个下钻页都有实际界面**（`/` 今日两仪 / Onboarding / Plan / Execution / Meals / Report / Settings；旧 `/dashboard` 重定向到 `/`）。首屏左运动、右饮食，底部同期对照；手机端叠卡切换。计数已与识别联动、计划版本与调整确认在本机先行落地；账号与同步可选，未配置后端时保持纯本机，模型请求经同源代理转发 |
+| 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好按类别存在 `twopoles.v1.*`；登录后可同步到 `UI/server` 的 SQLite。开启照片保存时，餐食记录带一张 256px JPEG 缩略图，原图另存本机 IndexedDB。可从设置页导出 JSON/CSV（JSON 含缩略图、不含原图，CSV 不含图片）或一键清除 |
 | 训练反馈 | ✅ 跟练结束可填 RPE（**0–10**，或留空=未记录）、不适、部分完成原因与备注，写回该条 session 并持久化 |
 | 建档 | ✅ 三步表单写入 `store.updateProfile()`，含场地多选；12–17 岁与勾选孕期/伤病限制者只保留记录与手工录入，不生成自动推荐 |
-| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **272 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘，以及**第 12 节双极同期对照**）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
+| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **350 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘，**第 12 节双极同期对照**，以及**第 22 节同步 outbox 合并**）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
 | 摄像头 | **真联动 + 未实测**：实时摄像头分支由 MediaPipe 关键点角度驱动 `useRepCounter` 状态机计数（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），支持机位校准与手工修正，模型计数与修正值分别保留。**未在任何真机上验证过计数准确率**，90% 误差指标待隔离测试集实测；权限被拒、无设备或非安全上下文时自动退回"演示回放"，界面明确标注计数来源。取帧用 `requestVideoFrameCallback` 的真实帧时间戳，推理默认在经典 worker 内跑 **GPU delegate**（构建后实测生效），两者任一不可用则自动回落主线程 / CPU，状态文案如实显示实际后端 |
 | 记录入口（调研 P1-6） | ✅ 饮食页只有一个主入口「记录饮食」：拍照/选图 → 项目已有模型（设置页或服务端默认，需支持图片输入；无模型时走端侧 EfficientDet 9 类）→ 按拍摄时间自动判餐次 → 默认直接保存。结果页不展示完整表单，低置信度/待确认项明确标出，想改再展开；保存后的记录仍保留查看、编辑、删除与常吃/搜索/单位↔克数换算。模型识别要求在拍照前勾选发送同意，原图不保存；失败不生成记录。 |
 | 内容库 | 动作库 `services/exercises.ts` 27 条（含 1 条停用）带器材/场地/时长/强度/限制门槛与来源标注；食物目录 `services/foodComposition.ts` 56 条 + 22 种混合菜，全部 `verified: false` |
 | 摄像头资产 | 需先执行 `cd UI && npm run camera:assets`（拉取 5.5 MB 模型 + 27 MB wasm，已被 .gitignore 排除）；且页面必须走 **https 或 localhost**（`vite --host` 的局域网 http 地址无法调用摄像头） |
 | 模式切换 | ✅ **页头右侧的模式芯片**（UI 3.0 从侧栏迁来）与设置页切换都**先展示差异与未完成计划、确认后才生效**，取消则不改动任何数据；切换历史与当时未完成计划数落本机，旧模式计划仍可见（需明确复制才形成新模式计划） |
-| 后端 | 无账号后端；本地 `/api/llm/*` 由同源 Vite 中间件转发，线上由阿里云 ESA 的单入口边缘函数 `UI/server/llm.js`（根 `esa.jsonc` 的 `entry`）转发。服务端默认模型的密钥只存在于 ESA 函数变量中，浏览器只拿到 `{available, model}`；设置页自定义密钥只存本机。部署见 [DEPLOY-ESA.md](DEPLOY-ESA.md) |
+| 后端 | `UI/server` 提供可选账号与同步（Node 24 + 内置 SQLite，`/api/v1`，见 [server/README.md](server/README.md)）；未配置 `VITE_API_BASE_URL` 时仍是纯本机。模型继续走同源 `/api/llm/*`：本地 Vite 中间件，线上阿里云 ESA 单入口 `UI/server/llm.js`；默认模型密钥只在函数变量里，浏览器只拿到 `{available, model}`，自定义密钥只存本机。部署见 [DEPLOY-ESA.md](DEPLOY-ESA.md) |
 
 下方"核心功能"章节描述的是**设计目标**，剩余未实现项已逐项标注。**后续怎么做（拍照识别热量的取舍、后端与前端如何对接、里程碑顺序）见仓库根 [`../plan.md`](../plan.md)。**
 
@@ -275,9 +275,9 @@ npm run camera:assets
 运行前提：`https` 或 `localhost`。用 `vite --host` 得到的局域网 http 地址里 `navigator.mediaDevices` 不存在，会走 "unsupported" 分支并退回演示模式。
 
 ### 后端API集成
-`src/services/` 现在是四个纯本机模块（`demoCameraService`、`mealRules`、`planRules`、`weekRules`），**没有 API 层、没有请求客户端、没有错误与加载态处理**，所有数据只进 localStorage。
+`src/services/api/` 已有 `http.ts`（超时、token、401 单次 refresh、`ApiError`）与 auth/profile/sessions/meals/plans/reports/settings/sync 客户端；`services/sync.ts` 负责首次补传、增量拉取、outbox 与冲突标记，`services/outbox.ts` 按 clientId 合并。未配置后端时这些层完全不参与，数据只进分类 localStorage。
 
-接后端的完整设计（API 面、令牌放置、ID 与幂等、同步与冲突、`services/api/` 落点、服务端表结构、错误包体、安全清单、B0–B5 里程碑）见仓库根 [`plan.md`](../plan.md) §2。最关键的一条约束：**`VITE_API_BASE_URL` 未配置时必须保持今天这套纯本机行为**，后端上线不能把离线可用性弄没。
+服务端实现与端到端测试见 [`server/README.md`](server/README.md)。最关键的一条约束仍然是：**`VITE_API_BASE_URL` 未配置时必须保持纯本机行为**，后端上线不能把离线可用性弄没。
 
 ## 📝 开发说明
 
@@ -294,7 +294,7 @@ npm run camera:assets
 
 ### 状态管理
 - 全局应用状态在`stores/app.ts`（`mode`、`profile`、`sessions`、`toasts`）
-- ✅ 切换模式与结束跟练都会写入 localStorage（`twopoles_state`），刷新后保持；`clearAllData()` 可清空
+- ✅ 切换模式与结束跟练都会写入 localStorage（`twopoles.v1.*`（旧 `twopoles_state` 会在首次启动时迁移）），刷新后保持；`clearAllData()` 可清空
 - ✅ `switchMode()` 与 `updateProfile()` 都有真实调用方了（侧边栏模式菜单 / 建档页），跟练与反馈会写入 `sessions`
 - ✅ ID 生成走 `utils/id.ts` 的 `newId()`，在没有 `crypto.randomUUID` 的非安全上下文（http + 局域网 IP）会退回时间戳+随机数
 - 展示用的训练/饮食数字仍是视图内的硬编码常量，只有跟练结果进入 store
@@ -345,10 +345,12 @@ npm run camera:assets
 
 ---
 
-**注意**: 这是一个无后端的本机演示前端。首屏是双极工作台（左运动、右饮食，手机端叠卡切换），另有 6 个下钻页都有实际界面；档案、模式、训练与反馈、餐食记录、隐私偏好都存在 localStorage。
+**注意**: 这是一个本机优先的前端；账号与同步是可选的，未配置后端时不需要任何服务器。首屏是双极工作台（左运动、右饮食，手机端叠卡切换），另有 6 个下钻页都有实际界面；档案、模式、训练与反馈、餐食记录、隐私偏好都存在 localStorage。
 视觉为 UI 3.0（纸面 + 单一强调色 + 双极仪表 + 左右两极身份色），静态外观以 `../redesign-shots/` 的真机截图为唯一事实来源。
 主要缺口：
 
 1. **真机摄像头未验证**——姿态识别与计数**已经联动**（`useRepCounter` 由关节角驱动），但没有在任何真机上量过计数准确率。
-2. **计划调整只在界面层生效**，且旧版本只在 `planHistory` 里可看、没有回滚入口。
+2. **计划调整本机先行**；登录后接受调整会携带 `If-Match` 并在服务端同一事务内校验版本。设置页可比较冲突并主动采用服务端版本；本机分支留在历史中。没有通用回滚入口。
 3. **推荐口径未按档案真正计算**：`planRules` 会按器材/场地/时长/禁忌过滤动作库，但"为什么给你这份计划"的那段文字仍是规则拼出来的，不是模型推的。
+
+2026-11-03：账号同步的 B0–B4 主链路及收尾验证已落地。运行方式、MSW 开关、18 项 API / 5 项同步测试和剩余边界见 [server/README.md](server/README.md)。`node:sqlite` 后端需 Node 24 与持久磁盘，当前 ESA 入口不会自动运行它；本轮未发布线上服务。B5 独立云端识别接口与 B6 模型接口仍未实现。

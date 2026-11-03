@@ -4,6 +4,27 @@
 > ESA 的函数不是 `/functions` 目录路由，而是一个**单入口 `entry` 边缘函数**；
 > 之前在 `functions/` 下写的多文件路由不会被识别。
 
+## 账号与同步 API（2026-11-03）
+
+`server/index.mjs` 是新增的 Node 24 + SQLite 服务，提供 `/api/v1/*`。当前 ESA 的入口仍为 `server/llm.js`，发布现有 `esa.jsonc` 不会自动部署账号后端。要启用账号同步，需要：
+
+1. 在有持久磁盘的 Node 24 主机上运行 `npm run server`（工作目录 UI），将 `TWOPOLES_DB` 指向持久目录，并设置独立随机的 `AUTH_SECRET`、`COOKIE_SECURE=true` 和精确的 `CORS_ORIGINS`。
+2. 配置站点同源 `/api/v1/*` 回源到该服务，保留 Authorization / If-Match / Idempotency-Key、Set-Cookie 和 Cookie；HTTPS 由入口代理终止。SQLite 文件需独立备份；当前没有自动保留期或备份轮换作业。
+3. 前端构建时设置 `VITE_API_BASE_URL=same-origin`。仅设置这个变量不会创建后端或回源规则。未配置时保持纯本机模式。
+
+独立反向代理的路由示例（不要把 `/api/v1` 前缀剥掉）：
+
+```nginx
+location /api/v1/ {
+    proxy_pass http://127.0.0.1:8787;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+使用独立 API 域名时需与站点同站，并在 CORS_ORIGINS 中精确放行前端 origin。refresh cookie 使用 SameSite=Lax；任意跨站部署仅靠 CORS 不足以续期。Node 服务不能直接放进 ESA 的边缘函数运行时。以上为部署方案，本轮只完成本机验收，未发布或更改线上回源。接口与已知边界见 [server/README.md](server/README.md)。
+
 ## 结构
 
 ```

@@ -2,6 +2,8 @@
 
 export type Mode = 'public' | 'athlete'
 
+export type SyncState = 'pending' | 'synced' | 'conflict'
+
 export type MealCompleteness = 'complete' | 'partial' | 'unknown'
 
 export type FoodCategory =
@@ -92,6 +94,8 @@ export interface UserProfile {
   /** PB 与健身房极限都是追加式历史，不覆盖 */
   personalBests?: PersonalBest[]
   gymRecords?: GymRecord[]
+  /** 最近一次本地修改时间；用于与同步层做 last-write-wins */
+  updatedAt?: string
 }
 
 // === Plan & Versioning ===
@@ -109,10 +113,15 @@ export interface Plan {
   locked: boolean
   /** 计划来源：规则生成与模型生成在界面上的口径不同 */
   source?: 'rules' | 'llm'
+  clientId?: string
+  serverId?: string
+  updatedAt?: string
+  _sync?: SyncState
 }
 
 export interface PlanItem {
   id: string
+  serverId?: string
   planId: string
   date: string
   exerciseId?: string
@@ -191,6 +200,10 @@ export interface TrainingSession {
   confidence?: number
 
   createdAt: string
+  clientId?: string
+  serverId?: string
+  updatedAt?: string
+  _sync?: SyncState
 }
 
 export interface SessionFeedback {
@@ -222,6 +235,10 @@ export interface Meal {
   photoThumb?: string
   /** 本机原图在 IndexedDB 里的 key；旧记录没有这个字段 */
   photoId?: string
+  clientId?: string
+  serverId?: string
+  updatedAt?: string
+  _sync?: SyncState
 }
 
 /** 照片识别模型给出的粗估热量；不是权威成分表数值，只作可选展示 */
@@ -233,6 +250,7 @@ export interface ModelEnergyEstimate {
 
 export interface MealItem {
   id: string
+  serverId?: string
   mealId: string
   foodId: string
   foodName: string
@@ -369,6 +387,8 @@ export interface PrivacySettings {
   showEnergyEstimate: boolean
   /** 饮食记录里保存压缩缩略图（仅本机，用于回看这次拍的照片） */
   saveFoodPhotoLocally: boolean
+  /** 最近一次本地修改时间；用于与同步层做 last-write-wins */
+  updatedAt?: string
 }
 
 /** F19 语音节奏播报：默认关闭，避免与读屏的 aria-live 提示双声道同时发声 */

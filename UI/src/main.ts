@@ -14,4 +14,11 @@ const pinia = createPinia()
 app.use(pinia)
 app.use(router)
 
-app.mount('#app')
+async function mount() {
+  if (import.meta.env.DEV && import.meta.env.VITE_API_MOCK === 'true') {
+    const { worker } = await import('./mocks/browser')
+    await worker.start({ onUnhandledRequest: 'bypass' })
+  }
+  app.mount('#app')
+}
+void mount()

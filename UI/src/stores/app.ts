@@ -26,6 +26,11 @@ import type { LlmConfig, LlmDefaultStatus, PlanDraft, PlanDraftState } from '@/s
 import { weekStart } from '@/services/weekRules'
 import { WELLNESS_DISMISS_KEY } from '@/services/wellnessCards'
 import { toISODate } from '@/utils/time'
+import { clearStoredState, loadStoredState, saveStoredState, clearSyncMeta } from '@/services/storage'
+import { addConflict, bootstrapSync, clearAllConflicts, configureSync, enqueueSync, refreshPending, syncState } from '@/services/sync'
+import { listOutbox, removeOp } from '@/services/outbox'
+import type { UploadBatch } from '@/services/sync'
+import type { RemoteSyncSnapshot } from '@/services/api/sync'
 
 export interface NewMealInput {
   date: string
@@ -108,43 +113,38 @@ export const useAppStore = defineStore('app', () => {
     llmConfig.value = loadLlmConfig()
     void refreshLlmStatus()
     darkMedia?.addEventListener?.('change', applyTheme)
-    const stored = localStorage.getItem('twopoles_state')
-    if (stored) {
-      try {
-        const data = JSON.parse(stored)
-        currentMode.value = data.mode || 'public'
-        // 旧档案没有 PB / 极限数组：在这里补齐，页面就不用到处写 `?? []`
-        userProfile.value = normalizeProfile(data.profile || null)
-        sessions.value = Array.isArray(data.sessions) ? data.sessions : []
-        meals.value = Array.isArray(data.meals) ? data.meals : []
-        if (data.privacy) privacy.value = { ...privacy.value, ...data.privacy }
-        if (data.speech && typeof data.speech.enabled === 'boolean') {
-          speech.value = { enabled: data.speech.enabled, voiceURI: typeof data.speech.voiceURI === 'string' ? data.speech.voiceURI : '' }
-        }
-        if (Array.isArray(data.collapsed)) collapsedCards.value = data.collapsed
-        if (data.theme === 'light' || data.theme === 'dark' || data.theme === 'system') themePref.value = data.theme
-        applyTheme()
-        if (Array.isArray(data.plans)) plans.value = data.plans
-        if (Array.isArray(data.planHistory)) planHistory.value = data.planHistory
-        if (Array.isArray(data.modeLog)) modeLog.value = data.modeLog
-        if (data.unitGrams && typeof data.unitGrams === 'object') {
-          const clean: Record<string, number> = {}
-          // 上限只防手滑（1 碗 = 5 kg），不是营养判断
-          for (const [k, v] of Object.entries(data.unitGrams)) if (typeof v === 'number' && v > 0 && v <= 5000) clean[k] = v
-          unitGrams.value = clean
-        }
-        if (data.adjustmentResolutions && typeof data.adjustmentResolutions === 'object') {
-          const clean: AdjustmentResolutions = {}
-          for (const [k, v] of Object.entries(data.adjustmentResolutions)) {
-            if (v === 'accepted' || v === 'dismissed') clean[k] = v
-          }
-          adjustmentResolutions.value = clean
-        }
-      } catch (error) {
-        console.error('Failed to load state from localStorage:', error)
+    const data = loadStoredState()
+    currentMode.value = data.mode === 'athlete' ? 'athlete' : 'public'
+    // 旧档案没有 PB / 极限数组：在这里补齐，页面就不用到处写 `?? []`
+    userProfile.value = normalizeProfile(data.profile ?? null)
+    sessions.value = Array.isArray(data.sessions) ? data.sessions : []
+    meals.value = Array.isArray(data.meals) ? data.meals : []
+    if (data.privacy) privacy.value = { ...privacy.value, ...data.privacy }
+    if (data.speech && typeof data.speech.enabled === 'boolean') {
+      speech.value = { enabled: data.speech.enabled, voiceURI: typeof data.speech.voiceURI === 'string' ? data.speech.voiceURI : '' }
+    }
+    if (Array.isArray(data.collapsed)) collapsedCards.value = data.collapsed
+    if (data.theme === 'light' || data.theme === 'dark' || data.theme === 'system') themePref.value = data.theme
+    applyTheme()
+    if (Array.isArray(data.plans)) plans.value = data.plans
+    if (Array.isArray(data.planHistory)) planHistory.value = data.planHistory
+    if (Array.isArray(data.modeLog)) modeLog.value = data.modeLog
+    if (data.unitGrams && typeof data.unitGrams === 'object') {
+      const clean: Record<string, number> = {}
+      // 上限只防手滑（1 碗 = 5 kg），不是营养判断
+      for (const [k, v] of Object.entries(data.unitGrams)) if (typeof v === 'number' && v > 0 && v <= 5000) clean[k] = v
+      unitGrams.value = clean
+    }
+    if (data.adjustmentResolutions && typeof data.adjustmentResolutions === 'object') {
+      const clean: AdjustmentResolutions = {}
+      for (const [k, v] of Object.entries(data.adjustmentResolutions)) {
+        if (v === 'accepted' || v === 'dismissed') clean[k] = v
       }
+      adjustmentResolutions.value = clean
     }
     initialized.value = true
+    configureSyncHandlers()
+    void bootstrapSync()
   }
 
   /**
@@ -166,11 +166,9 @@ export const useAppStore = defineStore('app', () => {
       unitGrams: unitGrams.value,
       adjustmentResolutions: adjustmentResolutions.value
     }
-    try {
-      localStorage.setItem('twopoles_state', JSON.stringify(state))
-      quotaWarned = false
-    } catch (error) {
-      console.error('Failed to persist state to localStorage:', error)
+    const failed = saveStoredState(state)
+    if (failed.length) {
+      console.error('Failed to persist state to localStorage:', failed)
       // 缩略图会让状态变大；写满时报出来，而不是静默以为已保存
       if (!quotaWarned) {
         quotaWarned = true
@@ -181,7 +179,303 @@ export const useAppStore = defineStore('app', () => {
           duration: 7000
         })
       }
+    } else {
+      quotaWarned = false
     }
+  }
+
+  // ——— 同步层：本机优先，登录后在后台拉取/补传 ———
+  function getUploadBatch(firstSync: boolean): UploadBatch {
+    const since = syncState.lastSyncAt
+    const localProfileAt = userProfile.value?.updatedAt ?? ''
+    const localPrivacyAt = privacy.value.updatedAt ?? ''
+    const profileNeedsUpload = !!userProfile.value && (firstSync
+      ? (syncState.lastRemoteProfileAt ? localProfileAt !== syncState.lastRemoteProfileAt : true)
+      : localProfileAt > since)
+    const privacyNeedsUpload = firstSync
+      ? (syncState.lastRemotePrivacyAt ? localPrivacyAt !== syncState.lastRemotePrivacyAt : true)
+      : localPrivacyAt > since
+    // 首次登录只补传本机记录；刚从服务端拉下来的记录已标记 synced，不重复上传
+    const needs = (item: { _sync?: string }) => item._sync === 'pending' || (firstSync && !item._sync)
+    return {
+      profile: profileNeedsUpload ? { ...userProfile.value! } : null,
+      privacy: privacyNeedsUpload ? { ...privacy.value } : null,
+      sessions: sessions.value.filter(needs).map((item) => ({ ...item })),
+      meals: meals.value.filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) })),
+      plans: [...planHistory.value, ...plans.value].filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) }))
+    }
+  }
+
+  function markProfileSynced(remote: UserProfile, uploadedAt?: string) {
+    if (!userProfile.value) return
+    const previousId = userProfile.value.id
+    userProfile.value = userProfile.value.updatedAt === uploadedAt ? normalizeProfile(remote) : {
+      ...userProfile.value,
+      id: remote.id,
+      updatedAt: userProfile.value.updatedAt
+    }
+    if (previousId && previousId !== remote.id) {
+      for (const item of sessions.value) if (item.userId === previousId || item.userId === 'demo-user') item.userId = remote.id
+      for (const item of meals.value) if (item.userId === previousId || item.userId === 'demo-user') item.userId = remote.id
+      for (const item of [...plans.value, ...planHistory.value]) item.userId = remote.id
+    }
+    persistState()
+  }
+
+  function markPrivacySynced(remote: PrivacySettings, uploadedAt?: string) {
+    if (privacy.value.updatedAt === uploadedAt) privacy.value = { ...privacy.value, ...remote }
+    persistState()
+  }
+
+  function markSessionSynced(clientId: string, remote: TrainingSession, pending: boolean) {
+    const local = sessions.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id)
+    if (!local) return
+    local.serverId = remote.serverId ?? remote.id
+    if (!pending) local.updatedAt = remote.updatedAt ?? local.updatedAt
+    local._sync = pending ? 'pending' : 'synced'
+    persistState()
+  }
+
+  function markMealSynced(clientId: string, remote: Meal, pending: boolean) {
+    const local = meals.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id)
+    if (!local) return
+    local.serverId = remote.serverId ?? remote.id
+    if (!pending) local.updatedAt = remote.updatedAt ?? local.updatedAt
+    local._sync = pending ? 'pending' : 'synced'
+    persistState()
+  }
+
+  function markPlanSynced(clientId: string, remote: Plan, pending: boolean) {
+    const local = [...plans.value, ...planHistory.value].find((item) =>
+      (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id
+    )
+    if (!local) return
+    local.serverId = remote.serverId ?? remote.id
+    if (remote.version >= local.version) {
+      local.version = remote.version
+      local.updatedAt = remote.updatedAt ?? local.updatedAt
+    }
+    local._sync = pending ? 'pending' : 'synced'
+    persistState()
+  }
+
+  function markConflict(kind: 'session' | 'meal' | 'plan' | 'profile', clientId: string, _message: string) {
+    if (kind === 'session') {
+      const local = sessions.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
+      if (local) local._sync = 'conflict'
+    } else if (kind === 'meal') {
+      const local = meals.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
+      if (local) local._sync = 'conflict'
+    } else if (kind === 'plan') {
+      const local = [...plans.value, ...planHistory.value].find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
+      if (local) local._sync = 'conflict'
+    } else if (userProfile.value) {
+      userProfile.value.updatedAt = new Date().toISOString()
+    }
+    persistState()
+  }
+
+  function deletedKeys(records: { id: string; clientId?: string }[]): Set<string> {
+    const keys = new Set<string>()
+    for (const record of records) {
+      if (record.id) keys.add(record.id)
+      if (record.clientId) keys.add(record.clientId)
+    }
+    return keys
+  }
+
+  function applyRemoteSnapshot(snapshot: RemoteSyncSnapshot) {
+    const queuedDeletes = listOutbox().filter((op) => op.kind.endsWith('.delete'))
+    const deleting = (kind: string, remote: { id: string; clientId?: string }) => queuedDeletes.some((op) =>
+      op.kind === `${kind}.delete` && (op.clientId === remote.clientId || op.clientId === remote.id))
+    const keepDeleted = (kind: 'session' | 'meal', item: TrainingSession | Meal, keys: Set<string>) => {
+      if (![item.id, item.serverId ?? '', item.clientId ?? ''].some((key) => keys.has(key))) return true
+      if (item._sync !== 'pending' && item._sync !== 'conflict') return false
+      const id = item.clientId ?? item.id
+      for (const op of listOutbox()) if (op.kind.startsWith(`${kind}.`) && op.clientId === id) removeOp(op.id)
+      addConflict(kind, id, '服务端已删除此记录；本机修改已保留，请导出核对后处理')
+      return true
+    }
+    if (snapshot.profile) {
+      const remoteTime = snapshot.profile.updatedAt ?? ''
+      const localTime = userProfile.value?.updatedAt ?? ''
+      if (!userProfile.value || remoteTime > localTime) userProfile.value = normalizeProfile(snapshot.profile)
+    }
+    if (snapshot.privacy) {
+      const remoteTime = snapshot.privacy.updatedAt ?? ''
+      const localTime = privacy.value.updatedAt ?? ''
+      if (!privacy.value.updatedAt || remoteTime > localTime) privacy.value = { ...privacy.value, ...snapshot.privacy }
+    }
+
+    const deletedSessions = deletedKeys(snapshot.deleted?.sessions ?? [])
+    if (deletedSessions.size) {
+      sessions.value = sessions.value.filter((item) => keepDeleted('session', item, deletedSessions))
+    }
+    for (const remote of snapshot.sessions ?? []) {
+      if (deleting('session', remote)) continue
+      const local = sessions.value.find((item) =>
+        (item.clientId ?? item.id) === (remote.clientId ?? remote.id) || item.serverId === remote.id || item.id === remote.id
+      )
+      if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
+        local.serverId = remote.serverId ?? remote.id
+        continue
+      }
+      if (local) {
+        Object.assign(local, remote, {
+          id: local.id,
+          clientId: local.clientId ?? remote.clientId,
+          serverId: remote.serverId ?? remote.id,
+          _sync: 'synced'
+        })
+      } else {
+        sessions.value.push({ ...remote, _sync: 'synced' })
+      }
+    }
+
+    const deletedMeals = deletedKeys(snapshot.deleted?.meals ?? [])
+    if (deletedMeals.size) {
+      meals.value = meals.value.filter((item) => keepDeleted('meal', item, deletedMeals))
+    }
+    for (const remote of snapshot.meals ?? []) {
+      if (deleting('meal', remote)) continue
+      const local = meals.value.find((item) =>
+        (item.clientId ?? item.id) === (remote.clientId ?? remote.id) || item.serverId === remote.id || item.id === remote.id
+      )
+      if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
+        local.serverId = remote.serverId ?? remote.id
+        continue
+      }
+      if (local) {
+        Object.assign(local, remote, {
+          id: local.id,
+          clientId: local.clientId ?? remote.clientId,
+          serverId: remote.serverId ?? remote.id,
+          _sync: 'synced'
+        })
+      } else {
+        meals.value.push({ ...remote, _sync: 'synced' })
+      }
+    }
+
+    const remotePlans = snapshot.plans ?? []
+    const grouped = new Map<string, Plan[]>()
+    for (const plan of remotePlans) {
+      const key = `${plan.weekStartDate}|${plan.mode}`
+      const list = grouped.get(key) ?? []
+      list.push(plan)
+      grouped.set(key, list)
+    }
+    const latest = [...grouped.values()].map((list) => list.sort((a, b) => a.version - b.version)[list.length - 1]).filter(Boolean)
+    const latestIds = new Set(latest.map((plan) => plan.id))
+    for (const remote of latest) {
+      const local = plans.value.find((item) =>
+        (item.clientId && item.clientId === remote.clientId) ||
+        (item.serverId && item.serverId === remote.serverId) ||
+        (item.weekStartDate === remote.weekStartDate && item.mode === remote.mode)
+      )
+      if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
+        local.serverId = local.serverId ?? remote.serverId ?? remote.id
+        continue
+      }
+      if (local) {
+        Object.assign(local, remote, {
+          id: local.id,
+          clientId: local.clientId ?? remote.clientId,
+          serverId: remote.serverId ?? remote.id,
+          _sync: 'synced'
+        })
+      } else {
+        plans.value.push({ ...remote, _sync: 'synced' })
+      }
+    }
+    const knownPlans = new Set([...plans.value, ...planHistory.value].flatMap((plan) =>
+      [plan.id, plan.serverId, plan.clientId].filter((value): value is string => !!value)
+    ))
+    for (const remote of remotePlans) {
+      if (latestIds.has(remote.id)) continue
+      const keys = [remote.id, remote.serverId, remote.clientId].filter((value): value is string => !!value)
+      if (keys.some((key) => knownPlans.has(key))) continue
+      planHistory.value.push({ ...remote, _sync: 'synced' })
+      keys.forEach((key) => knownPlans.add(key))
+    }
+
+    const logKeys = new Set(modeLog.value.map((entry) => `${entry.at}|${entry.from}|${entry.to}`))
+    for (const entry of snapshot.modeLog ?? []) {
+      const key = `${entry.at}|${entry.from}|${entry.to}`
+      if (!logKeys.has(key)) {
+        modeLog.value.push(entry)
+        logKeys.add(key)
+      }
+    }
+    persistState()
+  }
+
+  function configureSyncHandlers() {
+    configureSync({
+      getUploadBatch,
+      applyRemote: applyRemoteSnapshot,
+      markProfileSynced,
+      markPrivacySynced,
+      markSessionSynced,
+      markMealSynced,
+      markPlanSynced,
+      markConflict
+    })
+  }
+
+  function adoptRemotePlan(clientId: string, remote: Plan) {
+    const index = plans.value.findIndex((plan) => (plan.clientId ?? plan.id) === clientId)
+    if (index < 0) return
+    const local = plans.value[index]
+    planHistory.value.push({ ...local, items: local.items.map((item) => ({ ...item })), _sync: 'conflict' })
+    plans.value[index] = { ...remote, id: local.id, serverId: remote.id, _sync: 'synced' }
+    for (const op of listOutbox()) if (op.clientId === clientId && op.kind.startsWith('plan.')) removeOp(op.id)
+    persistState()
+    refreshPending()
+  }
+
+  function queueProfileSync() {
+    if (userProfile.value) enqueueSync('profile.update', userProfile.value.id, { ...userProfile.value })
+  }
+
+  function queuePrivacySync() {
+    enqueueSync('privacy.update', 'privacy', { ...privacy.value })
+  }
+
+  function queueSessionSync(session: TrainingSession) {
+    session.clientId = session.clientId ?? session.id
+    session.updatedAt = new Date().toISOString()
+    session._sync = 'pending'
+    enqueueSync('session.create', session.clientId, { ...session })
+  }
+
+  function queueMealSync(meal: Meal) {
+    meal.clientId = meal.clientId ?? meal.id
+    meal.updatedAt = new Date().toISOString()
+    meal._sync = 'pending'
+    enqueueSync('meal.update', meal.clientId, { ...meal, items: meal.items.map((item) => ({ ...item })) })
+  }
+
+  function queueMealCreate(meal: Meal) {
+    meal.clientId = meal.clientId ?? meal.id
+    meal.updatedAt = new Date().toISOString()
+    meal._sync = 'pending'
+    enqueueSync('meal.create', meal.clientId, { ...meal, items: meal.items.map((item) => ({ ...item })) })
+  }
+
+  function queueMealDelete(meal: Meal) {
+    if (!syncState.apiEnabled || !syncState.user) return true
+    return enqueueSync('meal.delete', meal.clientId ?? meal.id, {
+      ...meal,
+      items: meal.items.map((item) => ({ ...item }))
+    })
+  }
+
+  function queuePlanSync(plan: Plan) {
+    plan.clientId = plan.clientId ?? plan.id
+    plan.updatedAt = new Date().toISOString()
+    plan._sync = 'pending'
+    enqueueSync('plan.create', plan.clientId, { ...plan, items: plan.items.map((item) => ({ ...item })) })
   }
 
   /**
@@ -235,10 +529,12 @@ export const useAppStore = defineStore('app', () => {
     if (userProfile.value) {
       userProfile.value.mode = target
       userProfile.value.modeChangedAt = new Date().toISOString()
+      userProfile.value.updatedAt = userProfile.value.modeChangedAt
     }
     modeLog.value.push({ from, to: target, at: new Date().toISOString(), openPlanCount: openPlans.value.length })
     pendingSwitch.value = null
     persistState()
+    queueProfileSync()
     showToast({
       type: 'success',
       title: `已切换到${target === 'public' ? '大众' : '运动员'}模式`,
@@ -255,9 +551,11 @@ export const useAppStore = defineStore('app', () => {
     if (userProfile.value) {
       userProfile.value.mode = target
       userProfile.value.modeChangedAt = new Date().toISOString()
+      userProfile.value.updatedAt = userProfile.value.modeChangedAt
     }
     modeLog.value.push({ from, to: target, at: new Date().toISOString(), openPlanCount: openPlans.value.length })
     persistState()
+    queueProfileSync()
   }
 
   /** 明确把某份旧计划复制成新模式的草稿（不做即不生成，防止静默覆盖） */
@@ -267,6 +565,9 @@ export const useAppStore = defineStore('app', () => {
     const copy: Plan = {
       ...src,
       id: newId(),
+      clientId: undefined,
+      serverId: undefined,
+      _sync: 'pending',
       version: 1,
       mode: target,
       createdAt: new Date().toISOString(),
@@ -276,12 +577,13 @@ export const useAppStore = defineStore('app', () => {
     copy.items.forEach(i => { i.planId = copy.id })
     plans.value.push(copy)
     persistState()
+    queuePlanSync(copy)
     showToast({ type: 'success', title: '已复制为新模式的计划', message: '原计划保持不变', duration: 3000 })
     return copy
   }
 
   /** 本周（周一为起点）在当前模式下的计划；没有就按档案生成 v1 并落盘 */
-  function ensureWeekPlan(reference: Date): Plan {
+  function ensureWeekPlan(reference: Date, queue = true): Plan {
     const start = weekStart(reference)
     const iso = toISODate(start)
     const found = plans.value.find(p => p.weekStartDate === iso && p.mode === currentMode.value)
@@ -311,6 +613,7 @@ export const useAppStore = defineStore('app', () => {
     }
     plans.value.push(plan)
     persistState()
+    if (queue) queuePlanSync(plan)
     return plan
   }
 
@@ -340,7 +643,9 @@ export const useAppStore = defineStore('app', () => {
       planHistory.value.push({ ...old, items: old.items.map(i => ({ ...i })) })
       plans.value = plans.value.filter(p => p.id !== old.id)
     }
-    const fresh = ensureWeekPlan(reference)
+    const fresh = ensureWeekPlan(reference, false)
+    if (old) fresh.version = old.version + 1
+    queuePlanSync(fresh)
     persistState()
     showToast({
       type: 'success',
@@ -599,6 +904,7 @@ export const useAppStore = defineStore('app', () => {
     }
     plans.value.push(plan)
     persistState()
+    queuePlanSync(plan)
     resetPlanDraft()
     showToast({
       type: 'success',
@@ -610,12 +916,17 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /** 一次修改 = 一个新版本：旧版本进 planHistory，永不就地覆盖 */
-  function bumpVersion(plan: Plan, items: PlanItem[], reason: string): Plan {    planHistory.value.push({ ...plan, items: plan.items.map(i => ({ ...i })) })
+  function bumpVersion(plan: Plan, items: PlanItem[], reason: string, queue = true): Plan {
+    planHistory.value.push({ ...plan, items: plan.items.map(i => ({ ...i })) })
     plan.items = items
     plan.version += 1
+    plan.clientId = `${plan.id}:v${plan.version}`
     plan.reason = reason
     plan.createdAt = new Date().toISOString()
+    plan.updatedAt = plan.createdAt
+    plan._sync = 'pending'
     persistState()
+    if (queue) queuePlanSync(plan)
     return plan
   }
 
@@ -623,14 +934,27 @@ export const useAppStore = defineStore('app', () => {
   function acceptAdjustment(planId: string, changes: PlanChange[], reason: string): Plan | null {
     const plan = plans.value.find(p => p.id === planId)
     if (!plan) return null
+    const baseVersion = plan.version
     const changedIds = new Set(changes.filter(c => c.type === 'changed').map(c => c.itemId))
     const items = plan.items.map(item => {
       if (!changedIds.has(item.id)) return item
+      if (item.locked || item.completed) return item
       const ch = changes.find(c => c.itemId === item.id)!
       return { ...item, ...(ch.newValue ?? {}) }
     })
     const moved = changedIds.size
-    return bumpVersion(plan, items, `${reason}（改动 ${moved} 项，锁定项保持不变）`)
+    const updated = bumpVersion(plan, items, `${reason}（改动 ${moved} 项，锁定项保持不变）`, false)
+    if (plan.serverId) {
+      enqueueSync('plan.adjustment', plan.clientId ?? plan.id, {
+        plan: { ...updated, items: updated.items.map(item => ({ ...item })) },
+        baseVersion,
+        changes,
+        reason
+      })
+    } else {
+      queuePlanSync(updated)
+    }
+    return updated
   }
 
   function rejectAdjustment(planId: string) {
@@ -689,23 +1013,26 @@ export const useAppStore = defineStore('app', () => {
    * Update user profile
    */
   function updateProfile(profile: Partial<UserProfile>) {
+    const updatedAt = new Date().toISOString()
     if (userProfile.value) {
-      userProfile.value = { ...userProfile.value, ...profile }
+      userProfile.value = { ...userProfile.value, ...profile, updatedAt }
     } else {
       userProfile.value = {
         id: newId(),
         mode: currentMode.value,
-        modeChangedAt: new Date().toISOString(),
+        modeChangedAt: updatedAt,
         age: 25,
         goal: '',
         experience: '',
         availableTimes: [],
         equipment: [],
         restrictions: [],
-        ...profile
+        ...profile,
+        updatedAt
       } as UserProfile
     }
     persistState()
+    queueProfileSync()
   }
 
   /**
@@ -750,6 +1077,7 @@ export const useAppStore = defineStore('app', () => {
       createdAt: new Date().toISOString()
     }
     sessions.value.push(session)
+    queueSessionSync(session)
     persistState()
     showToast({
       type: 'success',
@@ -772,7 +1100,14 @@ export const useAppStore = defineStore('app', () => {
     session.notes = feedback.notes
     if (feedback.duration !== undefined) session.actualDuration = feedback.duration
     if (feedback.distance !== undefined) session.actualDistance = feedback.distance
+    session.clientId = session.clientId ?? session.id
+    session.updatedAt = new Date().toISOString()
+    session._sync = 'pending'
     persistState()
+    enqueueSync('session.feedback', session.clientId, {
+      session: { ...session },
+      feedback: { ...feedback, sessionId: session.id }
+    })
     showToast({
       type: 'success',
       title: '训练反馈已保存',
@@ -848,6 +1183,7 @@ export const useAppStore = defineStore('app', () => {
       photoId: input.photoId
     }
     meals.value.push(meal)
+    queueMealCreate(meal)
     persistState()
     showToast({
       type: 'success',
@@ -881,6 +1217,7 @@ export const useAppStore = defineStore('app', () => {
       analysis
     }
     meals.value[index] = updated
+    queueMealSync(updated)
     persistState()
     showToast({
       type: 'success',
@@ -904,6 +1241,7 @@ export const useAppStore = defineStore('app', () => {
       const index = unknown.indexOf(item.foodName)
       if (index !== -1) meal.analysis!.unknownItems = unknown.filter((_, i) => i !== index)
     }
+    queueMealSync(meal)
     persistState()
     return true
   }
@@ -919,6 +1257,7 @@ export const useAppStore = defineStore('app', () => {
     meal.completeness = completeness
     meal.analysis = analysis
     meal.analyzed = !!analysis
+    queueMealSync(meal)
     persistState()
     return true
   }
@@ -937,12 +1276,17 @@ export const useAppStore = defineStore('app', () => {
     }
     if (!changed) return 0
     if (meal.analysis?.unknownItems?.length) meal.analysis.unknownItems = []
+    queueMealSync(meal)
     persistState()
     return changed
   }
 
   function removeMeal(mealId: string) {
     const meal = meals.value.find(m => m.id === mealId)
+    if (meal && !queueMealDelete(meal)) {
+      showToast({ type: 'warning', title: '删除未完成', message: syncState.error, duration: 5000 })
+      return
+    }
     if (meal?.photoId) void deleteMealPhoto(meal.photoId).catch(() => { /* 清不掉原图不影响删除记录 */ })
     meals.value = meals.value.filter(m => m.id !== mealId)
     persistState()
@@ -954,14 +1298,16 @@ export const useAppStore = defineStore('app', () => {
     const meal = meals.value.find(m => m.id === mealId)
     if (!meal || meal.mealType === mealType) return false
     meal.mealType = mealType
+    queueMealSync(meal)
     persistState()
     return true
   }
 
   /** 隐私与导出偏好；当前版本不会据此自动删除数据 */
   function updatePrivacy(patch: Partial<PrivacySettings>) {
-    privacy.value = { ...privacy.value, ...patch }
+    privacy.value = { ...privacy.value, ...patch, updatedAt: new Date().toISOString() }
     persistState()
+    queuePrivacySync()
   }
 
   /** 语音播报开关与音色（F19）：选择存进偏好并落盘，刷新后保持 */
@@ -1020,9 +1366,13 @@ export const useAppStore = defineStore('app', () => {
     unitGrams.value = {}
     adjustmentResolutions.value = {}
     applyTheme()
-    localStorage.removeItem('twopoles_state')
+    clearStoredState()
+    clearSyncMeta()
+    clearAllConflicts()
+    syncState.lastSyncAt = ''
+    refreshPending()
     // 每日 Tips 的「今日不再出现」也是本机偏好；清除数据后应回到进站即弹
-    localStorage.removeItem(WELLNESS_DISMISS_KEY)
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(WELLNESS_DISMISS_KEY)
     void clearMealPhotos().catch(() => { /* 照片库清理失败时至少保留了主数据清除结果 */ })
     showToast({
       type: 'success',
@@ -1102,6 +1452,7 @@ export const useAppStore = defineStore('app', () => {
     acceptPlanDraft,
     resetPlanDraft,
     acceptAdjustment,
+    adoptRemotePlan,
     rejectAdjustment,
     resolveAdjustment,
     isAdjustmentResolved,

@@ -18,6 +18,8 @@ import { buildPlanMessages, buildPlanQuestionMessages, canUseLlm, desiredWeeklyS
 import { BRIDGE_LIMITS, buildBridgeSignals, buildWeekFacts, peekLine, readDayFacts } from '@/services/bridgeRules'
 import { buildAdjustmentSuggestions, buildFeedbackIntents, buildTimeConflictSuggestion } from '@/services/adjustmentRules'
 import { buildLongTermTrend, buildMonthlyReport, buildRollingFourWeeksReport } from '@/services/reportRules'
+import { clearOutbox, enqueue, listOutbox } from '@/services/outbox'
+import { clearStoredState, loadStoredState, STORAGE_KEYS } from '@/services/storage'
 import { toISODate } from '@/utils/time'
 import type { FoodCategory, Meal, MealItem, PersonalBest, Plan, PlanItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
@@ -245,14 +247,17 @@ ok('运动员模式周五有安排', isPlanDay(iso(4), p({}), 'athlete'))
 ok('大众模式周二是休息日', !isPlanDay(iso(1), p({}), 'public'))
 ok('自动推荐年龄门槛导出', AUTO_RECOMMEND_MIN_AGE === 18)
 
-const persisted = JSON.parse(mem.get('twopoles_state') || '{}')
-ok('计划与历史一起落盘', persisted.plans?.length === 2 && persisted.planHistory?.length === 3,
-  `plans=${persisted.plans?.length} history=${persisted.planHistory?.length}`)
-ok('切换记录一起落盘（刷新后不丢）', Array.isArray(persisted.modeLog) && persisted.modeLog.length === 1,
-  `modeLog=${persisted.modeLog?.length}`)
+const persistedPlans = JSON.parse(mem.get('twopoles.v1.plans') || '[]')
+const persistedHistory = JSON.parse(mem.get('twopoles.v1.planHistory') || '[]')
+const persistedModeLog = JSON.parse(mem.get('twopoles.v1.modeLog') || '[]')
+ok('计划与历史一起落盘', persistedPlans.length === 2 && persistedHistory.length === 3,
+  `plans=${persistedPlans.length} history=${persistedHistory.length}`)
+ok('切换记录一起落盘（刷新后不丢）', Array.isArray(persistedModeLog) && persistedModeLog.length === 1,
+  `modeLog=${persistedModeLog.length}`)
+ok('状态按类别拆 key 而不是一个大对象', !mem.has('twopoles_state') && mem.has('twopoles.v1.sessions') && mem.has('twopoles.v1.meals'))
 
 store.clearAllData()
-ok('清除数据连带计划与切换记录', store.plans.length === 0 && store.planHistory.length === 0 && store.modeLog.length === 0 && !mem.has('twopoles_state'))
+ok('清除数据连带计划与切换记录', store.plans.length === 0 && store.planHistory.length === 0 && store.modeLog.length === 0 && !mem.has('twopoles.v1.plans'))
 
 console.log('\n7. P1-6 记录入口与「单位↔克数」换算')
 const demoUnit = resolveUnitGrams('苹果', '个')
@@ -287,7 +292,7 @@ store.rememberUnitGrams('苹果', '个', 120)
 const recorded = store.addMeal({ date: '2026-10-15', mealType: 'dinner', time: '19:00', items: [{ foodName: '苹果', category: '水果类', portionSize: 1, portionUnit: '个' }] })
 const ref0 = recorded.analysis?.estimateRefs?.[0]
 ok('落库的估算带上本机口径', ref0?.unitOwn === true && ref0?.grams === 120 && !!ref0?.basis.includes('本机口径'))
-ok('换算口径随状态一起落盘', JSON.parse(mem.get('twopoles_state') || '{}').unitGrams?.[unitKey('苹果', '个')] === 120)
+ok('换算口径随状态一起落盘', JSON.parse(mem.get('twopoles.v1.unitGrams') || '{}')[unitKey('苹果', '个')] === 120)
 ok('撤销本机口径后退回演示假设', store.forgetUnitGrams('苹果', '个') && resolveUnitGrams('苹果', '个', store.unitGrams)?.own === false)
 store.rememberUnitGrams('苹果', '个', 120)
 const reviewMeal = store.addMeal({
@@ -988,6 +993,42 @@ ok('训练天数只统计有记录的天数', trend[0].trainingDays === 2 && tre
   && trend[2].trainingDays === 1 && trend[5].trainingDays === 1)
 ok('当前月标记为部分月份', trend[5].partialMonth === true && trend.slice(0, 5).every(p => !p.partialMonth))
 ok('没有训练的月份 hasSession=false', trend[1].hasSession === false && trend[3].hasSession === false)
+
+console.log('\n22. 同步 outbox：同一 clientId 合并与删除吸收')
+clearOutbox()
+enqueue('session.create', 'session-1', { id: 'session-1' })
+enqueue('session.feedback', 'session-1', { id: 'session-1' })
+enqueue('session.delete', 'session-1', { id: 'session-1' })
+ok('删除吸收同一条未上传的创建与反馈', listOutbox().length === 1 && listOutbox()[0].kind === 'session.delete')
+
+enqueue('meal.create', 'meal-1', { id: 'meal-1' })
+enqueue('meal.update', 'meal-1', { id: 'meal-1', time: '12:30' })
+ok('餐食更新按 clientId 合并成一条', listOutbox().length === 2 && listOutbox().filter(op => op.clientId === 'meal-1').length === 1)
+
+enqueue('profile.update', 'u1', { age: 30 })
+enqueue('profile.update', 'u1', { age: 31 })
+const profileOps = listOutbox().filter(op => op.kind === 'profile.update')
+ok('档案更新只保留最后一次', profileOps.length === 1 && (profileOps[0].payload as { age: number }).age === 31)
+clearOutbox()
+ok('清空 outbox 后不残留', listOutbox().length === 0)
+
+console.log('\n23. 分类存储迁移与配额恢复')
+clearStoredState()
+const legacy = { profile: p({}), sessions: [s('2026-11-02', 10, null)], meals: [] }
+mem.set('twopoles_state', JSON.stringify(legacy))
+const originalSetItem = localStorage.setItem
+localStorage.setItem = (key, value) => {
+  if (key === STORAGE_KEYS.sessions) throw new DOMException('Quota exceeded', 'QuotaExceededError')
+  originalSetItem(key, value)
+}
+const interrupted = loadStoredState()
+ok('迁移失败仍返回完整旧记录并保留旧 key', interrupted.sessions?.length === 1 && mem.has('twopoles_state'))
+ok('部分分类已写入时再次启动仍能读取旧记录', loadStoredState().sessions?.length === 1)
+localStorage.setItem = originalSetItem
+const recovered = loadStoredState()
+ok('配额恢复后完成迁移并移除旧 key', recovered.sessions?.length === 1 && !mem.has('twopoles_state') && mem.has(STORAGE_KEYS.sessions))
+ok('完整迁移后刷新可读到分类记录', loadStoredState().sessions?.length === 1)
+clearStoredState()
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

@@ -4,7 +4,7 @@
       <div>
         <span class="eyebrow">SETTINGS</span>
         <h1>设置与数据</h1>
-        <p>档案、训练与饮食记录只存在这台设备的浏览器里；没有账号。需要云端模型时，只发送这次操作所需的内容，密钥留在服务端。</p>
+        <p>档案、训练与饮食记录默认只存在这台设备的浏览器里；登录是可选的，登录后才会同步到服务端。需要云端模型时，只发送这次操作所需的内容，密钥留在服务端。</p>
       </div>
       <StatusBadge :variant="store.hasProfile ? 'success' : 'neutral'">{{ store.hasProfile ? '已建档' : '未建档' }}</StatusBadge>
     </div>
@@ -42,6 +42,113 @@
         <div><strong>档案</strong><small>{{ profileLine }}</small><em v-if="goalLine" class="goal-line">{{ goalLine }}</em></div>
         <RouterLink class="link" to="/onboarding">{{ store.hasProfile ? '修改档案' : '去建档' }} <ArrowRight :size="14" /></RouterLink>
       </div>
+    </BaseCard>
+
+    <!-- 账号与同步：未配置后端时保持纯本机；登录后才启用 outbox 补传 -->
+    <BaseCard class="section animate-slide-in-up">
+      <div class="llm-head">
+        <div>
+          <h2>账号与同步</h2>
+          <p class="sub">
+            不登录也能完整使用，数据只在这台设备。登录后本机记录会补传到账号；断网时继续保存在本机，恢复网络后自动补传，重复提交不会多记一条。
+          </p>
+        </div>
+        <StatusBadge :variant="syncBadgeVariant">{{ syncBadge }}</StatusBadge>
+      </div>
+
+      <template v-if="!syncState.apiEnabled">
+        <p class="fine">
+          当前为纯本机模式。账号与同步尚未启用，记录会保存在这台设备的浏览器中。
+        </p>
+      </template>
+
+      <template v-else-if="!syncState.user">
+        <div class="chips" role="group" aria-label="登录或注册">
+          <button type="button" class="chip" :class="{ active: authMode === 'login' }" :aria-pressed="authMode === 'login'" @click="authMode = 'login'">登录</button>
+          <button type="button" class="chip" :class="{ active: authMode === 'register' }" :aria-pressed="authMode === 'register'" @click="authMode = 'register'">注册</button>
+        </div>
+        <div class="fields">
+          <label class="field">
+            <span class="field-label">邮箱或手机号</span>
+            <input v-model.trim="authIdentifier" type="text" autocomplete="username" placeholder="you@example.com" />
+          </label>
+          <label class="field">
+            <span class="field-label">密码（至少 8 位）</span>
+            <input v-model="authPassword" type="password" autocomplete="current-password" placeholder="至少 8 位" @keydown.enter.prevent="submitAuth" />
+          </label>
+        </div>
+        <p v-if="localRecordCount" class="fine">
+          这台设备还有 {{ localRecordCount }} 条未同步记录；登录后会把它们补传到该账号。确认这些数据属于这个账号再登录。
+        </p>
+        <div class="actions">
+          <BaseButton size="sm" :disabled="authBusy" @click="submitAuth">
+            {{ authBusy ? '正在连接…' : authMode === 'login' ? '登录并同步' : '注册并同步' }}
+          </BaseButton>
+          <BaseButton size="sm" variant="secondary" :disabled="authBusy" @click="startDeviceAccount">先用设备账号</BaseButton>
+        </div>
+        <p v-if="authError" class="error" role="alert">{{ authError }}</p>
+        <p class="fine">设备账号不需要邮箱密码，数据只归属这台设备；以后可以再注册正式账号。</p>
+      </template>
+
+      <template v-else>
+        <div class="sync-account">
+          <div><span>当前账号</span><strong>{{ syncState.user.type === 'anonymous' ? '设备账号' : '正式账号' }}</strong></div>
+          <div><span>用户 ID</span><code>{{ syncState.user.id.slice(0, 8) }}…</code></div>
+          <div><span>待上传</span><strong>{{ syncState.pending }} 条</strong></div>
+          <div><span>上次同步</span><strong>{{ syncState.lastSyncAt ? new Date(syncState.lastSyncAt).toLocaleString('zh-CN') : '尚未同步' }}</strong></div>
+        </div>
+        <div class="actions">
+          <BaseButton size="sm" :disabled="syncing" @click="syncNowUI">{{ syncing ? '同步中…' : '立即同步' }}</BaseButton>
+          <BaseButton size="sm" variant="secondary" :disabled="syncing" @click="logoutAccount">退出登录</BaseButton>
+        </div>
+        <p v-if="syncState.error" class="error" role="alert">{{ syncState.error }}</p>
+        <div v-if="syncState.user.type === 'anonymous'" class="bind-account">
+          <strong>绑定正式账号</strong>
+          <p class="fine">绑定后设备账号会升级为正式账号，服务端已有记录随账号保留，不会复制或丢弃；绑定后也可以用这组邮箱/手机号和密码在其他设备登录。</p>
+          <div class="fields">
+            <label class="field">
+              <span class="field-label">邮箱或手机号</span>
+              <input v-model.trim="authIdentifier" type="text" autocomplete="username" placeholder="you@example.com" />
+            </label>
+            <label class="field">
+              <span class="field-label">设置密码（至少 8 位）</span>
+              <input v-model="authPassword" type="password" autocomplete="new-password" placeholder="至少 8 位" />
+            </label>
+          </div>
+          <div class="actions">
+            <BaseButton size="sm" :disabled="bindBusy" @click="bindAccountUI">{{ bindBusy ? '绑定中…' : '绑定并保留现有数据' }}</BaseButton>
+          </div>
+          <p v-if="bindError" class="error" role="alert">{{ bindError }}</p>
+        </div>
+        <div v-if="syncState.conflicts.length" class="sync-conflicts">
+          <strong>需要处理的同步冲突</strong>
+          <ul>
+            <li v-for="item in syncState.conflicts" :key="item.id">
+              <div>
+                <span>{{ conflictLabel(item.kind) }} · {{ item.message }}</span>
+                <template v-if="item.kind === 'plan' && item.latestPlan">
+                  <details>
+                    <summary>比较本机与服务端 v{{ item.latestPlan.version }}</summary>
+                    <p>本机版本保留在当前计划中，采用服务端版本后仍可在历史中核对。</p>
+                    <table class="conflict-table">
+                      <thead><tr><th>版本</th><th>安排</th></tr></thead>
+                      <tbody>
+                        <tr><td>本机</td><td>{{ localConflictPlan(item) }}</td></tr>
+                        <tr><td>服务端 v{{ item.latestPlan.version }}</td><td>{{ describePlan(item.latestPlan) }}</td></tr>
+                      </tbody>
+                    </table>
+                  </details>
+                  <div class="actions">
+                    <BaseButton size="sm" variant="secondary" @click="adoptPlan(item)">采用服务端版本</BaseButton>
+                    <RouterLink class="link" to="/plan">查看本机计划</RouterLink>
+                  </div>
+                </template>
+              </div>
+              <button v-if="!item.latestPlan" type="button" class="text-btn" @click="retryConflict(item)">重试</button>
+            </li>
+          </ul>
+        </div>
+      </template>
     </BaseCard>
 
     <!-- 大模型接入：配置只存本机，密钥不随导出带走 -->
@@ -232,27 +339,46 @@
         <div class="stat"><span>缺 RPE 的训练</span><b>{{ rpeMissing }}</b></div>
         <div class="stat"><span>localStorage 占用</span><b>{{ sizeKb }} KB</b></div>
       </div>
-      <p class="sub">导出会把档案、训练与餐食按下面的格式写到本机下载目录，不经过任何服务器。JSON 会包含已保存的照片缩略图，但不包含 IndexedDB 里的原图；CSV 不包含图片。</p>
+      <p class="sub">导出会把档案、训练与餐食按下面的格式写到本机下载目录，不经过任何服务器。JSON 会包含已保存的照片缩略图，但不包含 IndexedDB 里的原图；CSV 不包含图片。登录后也可以让服务端生成导出作业，文件同样可被表格软件打开。</p>
       <div class="actions">
         <BaseButton :icon="Download" @click="exportData(store.privacy.exportFormat)">导出 {{ store.privacy.exportFormat === 'json' ? 'JSON' : 'CSV' }}</BaseButton>
         <BaseButton variant="secondary" :icon="RotateCcw" :disabled="!store.sessions.length && !store.meals.length" @click="exportData('json')">另存为 JSON</BaseButton>
+        <BaseButton v-if="syncState.user" variant="secondary" :disabled="remoteExporting" @click="exportRemoteData">{{ remoteExporting ? '服务端生成中…' : '服务端导出 CSV' }}</BaseButton>
       </div>
       <p v-if="exportError" class="error" role="alert">{{ exportError }}</p>
+      <p v-if="remoteError" class="error" role="alert">{{ remoteError }}</p>
     </BaseCard>
 
     <BaseCard class="section danger animate-slide-in-up">
       <h2>清除全部数据</h2>
-      <p class="sub">删除档案、模式、全部训练与餐食记录，并清空本机存储。此操作不可撤销。</p>
+      <p class="sub">删除档案、模式、全部训练与餐食记录，并清空本机存储。此操作不可撤销。登录状态下会先清除服务端数据，再清本机；两步都成功才提示完成。</p>
       <template v-if="!confirming">
-        <BaseButton variant="danger" :icon="Trash2" :disabled="!hasData" @click="confirming = true">清除全部数据</BaseButton>
-        <p v-if="!hasData" class="fine">现在没有任何可清除的记录。</p>
+        <BaseButton variant="danger" :icon="Trash2" :disabled="!hasData && !syncState.user" @click="confirming = true">清除全部数据</BaseButton>
+        <p v-if="!hasData && !syncState.user" class="fine">现在没有任何可清除的记录。</p>
       </template>
       <div v-else class="confirm">
-        <p><strong>确认删除 {{ store.sessions.length }} 条训练与 {{ store.meals.length }} 条餐食记录？</strong>导出后再清会更稳妥。</p>
+        <p><strong>确认删除 {{ store.sessions.length }} 条训练与 {{ store.meals.length }} 条餐食记录？</strong>{{ syncState.user ? '服务端账号里的同一份数据也会被删除。' : '导出后再清会更稳妥。' }}</p>
         <div class="actions">
           <BaseButton variant="ghost" @click="confirming = false">取消</BaseButton>
           <BaseButton variant="danger" :icon="Trash2" @click="wipe">确认清除</BaseButton>
         </div>
+      </div>
+      <p v-if="wipeError" class="error" role="alert">{{ wipeError }}</p>
+
+      <div v-if="syncState.user" class="account-danger">
+        <h3>删除账号</h3>
+        <p class="sub">永久删除正式/设备账号、服务端全部数据与本机缓存。删除后无法用同一账号再登录。</p>
+        <template v-if="!deleteConfirming">
+          <BaseButton variant="danger" :icon="Trash2" @click="deleteConfirming = true">删除账号</BaseButton>
+        </template>
+        <div v-else class="confirm">
+          <p><strong>确认永久删除这个账号？</strong>服务端数据与本机数据都会删除，不能撤销。</p>
+          <div class="actions">
+            <BaseButton variant="ghost" @click="deleteConfirming = false">取消</BaseButton>
+            <BaseButton variant="danger" :icon="Trash2" :disabled="deletingAccount" @click="deleteAccount">{{ deletingAccount ? '删除中…' : '确认删除账号' }}</BaseButton>
+          </div>
+        </div>
+        <p v-if="accountError" class="error" role="alert">{{ accountError }}</p>
       </div>
     </BaseCard>
 
@@ -268,17 +394,81 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
 import { useSpeech } from '@/composables/useSpeech'
-import type { PrivacySettings, ThemePreference } from '@/types/domain'
+import type { Plan, PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { goalSummary } from '@/services/profileRules'
 import { RULE_VERSION } from '@/services/mealRules'
 import { canUseLlm, isLlmReady, testLlmConfig, usingDefault } from '@/services/llm'
 import type { LlmConfig } from '@/services/llm'
+import {
+  bindAccount,
+  clearConflict,
+  deleteRemoteAccount,
+  deviceLogin,
+  exportRemote,
+  login as remoteLogin,
+  logout as remoteLogout,
+  register as remoteRegister,
+  retryConflict,
+  syncNow,
+  syncState,
+  wipeRemote
+} from '@/services/sync'
+import type { SyncConflict } from '@/services/sync'
+
+type BadgeVariant = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 
 const store = useAppStore()
 const confirming = ref(false)
 const exportError = ref('')
 const retention = ref(store.privacy.dataRetentionDays)
+const authMode = ref<'login' | 'register'>('login')
+const authIdentifier = ref('')
+const authPassword = ref('')
+const authBusy = ref(false)
+const authError = ref('')
+const remoteExporting = ref(false)
+const remoteError = ref('')
+const wipeError = ref('')
+const deletingAccount = ref(false)
+const deleteConfirming = ref(false)
+const accountError = ref('')
+const bindBusy = ref(false)
+const bindError = ref('')
+
+const localRecordCount = computed(() => store.sessions.length + store.meals.length + store.plans.length)
+const syncing = computed(() => syncState.status === 'syncing')
+const syncBadge = computed(() => {
+  if (!syncState.apiEnabled) return '仅本机'
+  if (!syncState.user) return '未登录'
+  if (syncState.status === 'syncing') return '同步中'
+  if (syncState.status === 'offline') return '离线待补传'
+  if (syncState.status === 'unauthorized') return '需重新登录'
+  if (syncState.status === 'error') return '同步出错'
+  if (syncState.pending) return `待上传 ${syncState.pending} 条`
+  if (syncState.conflicts.length) return '需要处理冲突'
+  return '已同步'
+})
+
+function describePlan(plan: Plan): string {
+  return plan.items.map((item) => `${item.date} ${item.exerciseName} ${item.plannedSets ?? '—'}组 × ${item.plannedReps ?? '—'}次 / ${item.plannedDuration ?? '—'}分钟${item.locked ? '（锁定）' : ''}`).join('；')
+}
+function localConflictPlan(conflict: SyncConflict): string {
+  const local = store.plans.find((plan) => (plan.clientId ?? plan.id) === conflict.clientId)
+  return local ? `v${local.version}：${describePlan(local)}` : '见计划历史'
+}
+function adoptPlan(conflict: SyncConflict) {
+  if (!conflict.latestPlan) return
+  store.adoptRemotePlan(conflict.clientId, conflict.latestPlan)
+  clearConflict(conflict.id)
+}
+const syncBadgeVariant = computed<BadgeVariant>(() => {
+  if (!syncState.apiEnabled || !syncState.user) return 'neutral'
+  if (syncState.status === 'unauthorized' || syncState.status === 'error') return 'danger'
+  if (syncState.status === 'offline' || syncState.pending || syncState.conflicts.length) return 'warning'
+  if (syncState.status === 'syncing') return 'info'
+  return 'success'
+})
 
 const modes: { id: 'public' | 'athlete'; label: string; desc: string }[] = [
   { id: 'public', label: '大众模式', desc: '按器材与时长过滤的一周安排、摄像头计数、简单餐次确认' },
@@ -436,7 +626,11 @@ function toCsv(): string {
 }
 
 function download(filename: string, mime: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }))
+  downloadBlob(filename, new Blob([text], { type: mime }))
+}
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
@@ -444,6 +638,121 @@ function download(filename: string, mime: string, text: string) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : '请求失败'
+}
+
+async function submitAuth() {
+  if (authBusy.value) return
+  authError.value = ''
+  if (!authIdentifier.value || !authPassword.value) {
+    authError.value = '请填写邮箱/手机号和密码'
+    return
+  }
+  authBusy.value = true
+  try {
+    if (authMode.value === 'login') await remoteLogin(authIdentifier.value, authPassword.value)
+    else await remoteRegister(authIdentifier.value, authPassword.value)
+    authPassword.value = ''
+    store.showToast({
+      type: 'success',
+      title: authMode.value === 'login' ? '已登录' : '账号已创建',
+      message: `已拉取服务端数据；${syncState.pending} 条本机变更待补传`,
+      duration: 3000
+    })
+  } catch (error) {
+    authError.value = errorMessage(error)
+  } finally {
+    authBusy.value = false
+  }
+}
+
+async function startDeviceAccount() {
+  if (authBusy.value) return
+  authError.value = ''
+  authBusy.value = true
+  try {
+    await deviceLogin()
+    store.showToast({ type: 'success', title: '设备账号已启用', message: '数据会归属这台设备，并可同步到服务端', duration: 3000 })
+  } catch (error) {
+    authError.value = errorMessage(error)
+  } finally {
+    authBusy.value = false
+  }
+}
+
+async function syncNowUI() {
+  if (syncing.value) return
+  await syncNow()
+  if (syncState.error) {
+    store.showToast({ type: 'warning', title: '同步未完成', message: syncState.error, duration: 4000 })
+  } else {
+    store.showToast({ type: 'success', title: '已同步', message: syncState.pending ? `仍有 ${syncState.pending} 条待补传` : '本机与服务端已对齐', duration: 2500 })
+  }
+}
+
+async function bindAccountUI() {
+  if (bindBusy.value) return
+  bindError.value = ''
+  if (!authIdentifier.value || !authPassword.value) {
+    bindError.value = '请填写邮箱/手机号和密码'
+    return
+  }
+  bindBusy.value = true
+  try {
+    await bindAccount(authIdentifier.value, authPassword.value)
+    authPassword.value = ''
+    store.showToast({ type: 'success', title: '已绑定正式账号', message: '设备账号与现有记录已升级，不会搬家', duration: 3000 })
+  } catch (error) {
+    bindError.value = errorMessage(error)
+  } finally {
+    bindBusy.value = false
+  }
+}
+
+async function logoutAccount() {
+  await remoteLogout()
+  store.showToast({ type: 'info', title: '已退出账号', message: '本机数据保留，仍可离线使用', duration: 2500 })
+}
+
+function conflictLabel(kind: string): string {
+  if (kind === 'session') return '训练记录'
+  if (kind === 'meal') return '餐食记录'
+  if (kind === 'plan') return '计划版本'
+  return '档案'
+}
+
+async function exportRemoteData() {
+  if (remoteExporting.value || !syncState.user) return
+  remoteError.value = ''
+  remoteExporting.value = true
+  try {
+    const { blob, filename } = await exportRemote('csv')
+    downloadBlob(filename, blob)
+    store.showToast({ type: 'success', title: '服务端导出已下载', message: '文件由服务端作业生成，表格软件可直接打开', duration: 2500 })
+  } catch (error) {
+    remoteError.value = `服务端导出失败：${errorMessage(error)}`
+  } finally {
+    remoteExporting.value = false
+  }
+}
+
+async function deleteAccount() {
+  if (!syncState.user || deletingAccount.value) return
+  accountError.value = ''
+  deletingAccount.value = true
+  try {
+    await deleteRemoteAccount()
+    store.clearAllData()
+    deleteConfirming.value = false
+    store.showToast({ type: 'success', title: '账号已删除', message: '服务端与本机数据都已清除', duration: 3000 })
+  } catch (error) {
+    accountError.value = errorMessage(error)
+  } finally {
+    deletingAccount.value = false
+  }
 }
 
 function exportData(format: PrivacySettings['exportFormat']) {
@@ -461,10 +770,25 @@ function exportData(format: PrivacySettings['exportFormat']) {
   }
 }
 
-function wipe() {
+async function wipe() {
+  wipeError.value = ''
+  if (syncState.user) {
+    try {
+      await wipeRemote()
+    } catch (error) {
+      wipeError.value = `服务端清除失败：${errorMessage(error)}。本机数据未删除，可重试。`
+      return
+    }
+  }
   store.clearAllData()
   confirming.value = false
   retention.value = 90
+  store.showToast({
+    type: 'success',
+    title: '数据已清除',
+    message: syncState.user ? '服务端与本机的档案、训练、餐食与计划都已删除' : '本机的档案、训练、餐食与计划都已删除',
+    duration: 3000
+  })
 }
 </script>
 
@@ -543,4 +867,18 @@ function wipe() {
 .llm-msg{font-size:12px;color:var(--color-text-muted);line-height:1.6}
 .llm-msg.bad{color:var(--color-danger)}
 .fine code{font-family:var(--font-mono);font-size:11.5px;background:var(--color-neutral-soft);padding:1px 5px;border-radius:4px}
+.sync-account{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+.sync-account>div{padding:10px 12px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);display:grid;gap:3px}
+.sync-account span{font-size:10.5px;color:var(--color-text-muted)}
+.sync-account strong,.sync-account code{font-size:12.5px;color:var(--color-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sync-conflicts{margin-top:14px;padding:11px 13px;border-radius:var(--radius-sm);background:var(--color-caution-soft);border:1px solid var(--color-caution)}
+.sync-conflicts>strong{display:block;font-size:12.5px;color:var(--color-caution);margin-bottom:6px}
+.sync-conflicts ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.sync-conflicts li{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--color-text-secondary);line-height:1.5}
+.sync-conflicts li>div{min-width:0;overflow-wrap:anywhere}
+.conflict-table{width:100%;border-collapse:collapse;margin:8px 0}
+.conflict-table th,.conflict-table td{padding:6px;text-align:left;vertical-align:top;border:1px solid var(--color-border);overflow-wrap:anywhere}
+.account-danger{margin-top:18px;padding-top:16px;border-top:1px solid var(--color-border)}
+.account-danger h3{font-size:14px;color:var(--color-danger);margin:0 0 6px}
+@media(max-width:767px){.sync-account{grid-template-columns:1fr 1fr}}
 </style>

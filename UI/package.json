@@ -3,13 +3,17 @@
   "version": "1.0.0",
   "type": "module",
   "private": true,
+  "engines": { "node": ">=24" },
   "scripts": {
     "dev": "vite",
     "camera:assets": "node scripts/fetch-camera-assets.mjs",
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "selfcheck": "esbuild scripts/selfcheck.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.selfcheck.mjs && node .selfcheck.mjs"
+    "selfcheck": "esbuild scripts/selfcheck.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.selfcheck.mjs && node .selfcheck.mjs",
+    "server": "node --env-file-if-exists=.env server/index.mjs",
+    "test:api": "node --test server/api.test.mjs",
+    "test:sync": "node scripts/test-sync.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.1.1",
@@ -22,6 +26,7 @@
     "@types/node": "^24.19.2",
     "@vitejs/plugin-vue": "^5.0.0",
     "esbuild": "^0.21.5",
+    "msw": "^2.15.0",
     "typescript": "~5.9.3",
     "vite": "^5.0.0",
     "vue-tsc": "^2.2.12"

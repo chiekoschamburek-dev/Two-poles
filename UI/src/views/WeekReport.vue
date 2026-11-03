@@ -121,7 +121,7 @@
       <ul class="lims">
         <li v-for="q in report.dataQuality" :key="q">{{ q }}</li>
       </ul>
-      <p class="ver">{{ report.ruleVersion }} · 数据只存本机浏览器（{{ store.sessions.length }} 条训练 / {{ store.meals.length }} 条餐食）</p>
+      <p class="ver">{{ report.ruleVersion }} · {{ syncState.user ? '账号同步已启用，本机保留离线缓存' : '数据保存在本机浏览器' }}（{{ store.sessions.length }} 条训练 / {{ store.meals.length }} 条餐食）</p>
     </InsightCard>
 
     <footer class="footnote">
@@ -132,7 +132,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronLeft, ChevronRight, Play, Utensils, ShieldCheck } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
@@ -141,10 +141,12 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import StatStrip, { type StatItem } from '@/components/common/StatStrip.vue'
 import InsightCard from '@/components/common/InsightCard.vue'
 import { useAppStore } from '@/stores/app'
-import type { TrainingSession } from '@/types/domain'
+import type { TrainingSession, WeeklyReport } from '@/types/domain'
 import { FOOD_CATEGORIES } from '@/services/mealRules'
 import { WEEK_LABELS, buildWeeklyReport, loadOf, weekDates, weekStart } from '@/services/weekRules'
 import { toISODate } from '@/utils/time'
+import { syncState } from '@/services/sync'
+import { weekly as fetchWeeklyReport } from '@/services/api/reports'
 
 const router = useRouter()
 const store = useAppStore()
@@ -169,7 +171,47 @@ const weekNo = computed(() => {
   return Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
 })
 
-const report = computed(() => buildWeeklyReport(store.sessions, store.meals, refDate.value, { profile: store.userProfile, mode: store.currentMode }))
+type ReportView = WeeklyReport & {
+  completionRate: number | null
+  blockedByDiscomfort: boolean
+  loadDays: number
+  unloadedDays: number
+}
+
+const remoteReport = ref<ReportView | null>(null)
+let reportRequest = 0
+
+async function loadRemoteReport() {
+  const requestId = ++reportRequest
+  remoteReport.value = null
+  if (!syncState.apiEnabled || !syncState.user) return
+  const localPlan = store.weekPlan(refDate.value)
+  // 本机计划还没同步到服务端时，服务端算不出计划场次，继续用本机口径
+  if (syncState.pending || syncState.status === 'offline' || syncState.status === 'syncing' || (localPlan && localPlan._sync !== 'synced')) return
+  try {
+    const result = await fetchWeeklyReport(toISODate(start.value), store.currentMode) as ReportView
+    if (requestId === reportRequest) remoteReport.value = result
+  } catch {
+    if (requestId === reportRequest) remoteReport.value = null
+  }
+}
+
+watch(
+  [
+    () => toISODate(start.value),
+    () => store.currentMode,
+    () => syncState.lastSyncAt,
+    () => syncState.pending,
+    () => syncState.status,
+    () => syncState.user?.id
+  ],
+  () => { void loadRemoteReport() },
+  { immediate: true }
+)
+
+const report = computed<ReportView>(() =>
+  remoteReport.value ?? buildWeeklyReport(store.sessions, store.meals, refDate.value, { profile: store.userProfile, mode: store.currentMode })
+)
 const sessions = computed(() => {
   const iso = days.value.map(toISODate)
   return store.sessions.filter(s => iso.includes(s.date)).sort((a, b) => a.date.localeCompare(b.date))

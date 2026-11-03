@@ -40,6 +40,8 @@
 
 ## 2. 后端与前端如何对接
 
+> **2026-11-03 实施更新**：B0–B4 主链路已落到 `UI/server/*.mjs`、`UI/src/services/api/*`、分类存储与 outbox，认证/档案/训练/餐食/计划/周报/异步导出/清除可本机联调。技术栈沿本轮已确定方案采用 Node 24 内置 SQLite + 原生 HTTP，替代原规划的 SQLAlchemy；SQLite 存储约定仍保留。验证：358 项 selfcheck、5 项 MSW 同步回归、18 项 API 集成测试、typecheck/build 通过。真实浏览器已验证清缓存后拉回数据和 CSV 导出；MSW 浏览器联调也已通过。B5 云端识别与 B6 独立模型接口未实现；生产部署、分页、既有账号合并、服务端完整规则/目录发布及保留期作业仍待补齐，**不是 §2 全章完成**。详见 [服务端说明](UI/server/README.md)。
+
 ### 2.1 六条原则
 
 1. **本地优先（local-first）**。前端继续把 localStorage 当缓存与离线兜底；网络不可用时整套界面照常可用（这是现在的能力，不能退化）。
@@ -146,7 +148,7 @@ Mock 与开关：
 
 ### 2.7 服务端数据模型（SQLite 方言，与前端类型一一对应）
 
-设计文档 §1.5/§3.4.2 定的是 SQLite + SQLAlchemy，所以这里**不能用 `jsonb`、`enum`、数组列**：SQLite 只有 `TEXT`/`INTEGER`/`REAL`/`NUMERIC`/`BLOB`。约定如下，列类型一律按此写迁移：
+原设计文档 §1.5/§3.4.2 定的是 SQLite + SQLAlchemy；本轮改用 Node 内置 SQLite，以下数据类型约定继续适用，**不能用 `jsonb`、`enum`、数组列**：SQLite 只有 `TEXT`/`INTEGER`/`REAL`/`NUMERIC`/`BLOB`。约定如下，列类型一律按此写迁移：
 
 - 多值与结构字段存 `TEXT` + JSON 文本（读用 JSON1 `json_each`/`->>`），列名以 `_json` 结尾；建表时用 `CHECK (json_valid(col))` 兜格式。
 - 枚举存 `TEXT` + `CHECK (col IN (...))`。

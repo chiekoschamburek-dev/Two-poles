@@ -2,6 +2,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { readFileSync } from 'node:fs'
 
 /**
  * 本地模型代理：浏览器直连第三方 OpenAI 兼容接口基本都会被 CORS 拦掉，
@@ -171,7 +172,17 @@ export default defineConfig(({ mode }) => {
     model: pick('LLM_DEFAULT_MODEL').trim()
   }
   return {
-  plugins: [vue(), llmProxy(defaults)],
+  plugins: [vue(), llmProxy(defaults), {
+    name: 'twopoles-dev-mock-worker',
+    apply: 'serve',
+    configureServer(server) {
+      if (pick('VITE_API_MOCK') !== 'true') return
+      server.middlewares.use('/mockServiceWorker.js', (_req, res) => {
+        res.setHeader('Content-Type', 'application/javascript')
+        res.end(readFileSync(new URL('./node_modules/msw/lib/mockServiceWorker.js', import.meta.url)))
+      })
+    }
+  }],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
@@ -179,7 +190,21 @@ export default defineConfig(({ mode }) => {
   },
   server: {
     port: 5173,
-    host: true
+    host: true,
+    proxy: {
+      '/api/v1': {
+        target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8787',
+        changeOrigin: false
+      }
+    }
+  },
+  preview: {
+    proxy: {
+      '/api/v1': {
+        target: process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8787',
+        changeOrigin: false
+      }
+    }
   }
   }
 })

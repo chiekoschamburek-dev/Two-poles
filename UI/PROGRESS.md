@@ -8,7 +8,11 @@
 
 首屏是**双极工作台**：桌面端左栏运动、右栏饮食，两栏各自滚动；底部"合"区给出同一天的同期对照。
 手机端两栏叠成前后两张卡片，点下面露出的那一张会交换位置。
-`npm run typecheck`、`npm run build`、`npm run selfcheck`（272 项）当前全部通过；生产产物已重建在 `UI/dist`。
+`npm run typecheck`、`npm run build`、`npm run selfcheck`（358 项）、`npm run test:api`（18 项）与 `npm run test:sync`（5 项）通过；生产产物在 `UI/dist`。
+
+2026-11-03 §2 收尾：补齐 B0 的 MSW 开发契约，分类迁移失败可恢复；outbox 保留重试次数与请求期间的新编辑，失败五次后可手动重试；计划读取 If-Match，在事务内检查旧版本，409 在设置页比较后处理；锁定、调整、重生成可同步 v1→v5；导出改为持久化作业 + 独立 worker，清数据保留账号会话，删号撤销会话。浏览器验证了真实 API 写入、清缓存恢复和 CSV 下载，以及 MSW 设备登录。生产构建未包含 MSW。
+
+B5 独立 VLM、B6 独立模型接口、既有账号合并、列表分页、服务端完整规则/目录和保留期作业仍未实现；Node 服务的持久化部署独立于 ESA，本轮未上线。具体契约与边界见 [server/README.md](server/README.md)。
 
 ## 页面
 
@@ -80,8 +84,8 @@
 | 检查 | 现状 |
 |---|---|
 | `npm run typecheck`（vue-tsc --noEmit） | 通过，零报错 |
-| `npm run selfcheck` | 272 项全过 / 0 失败（第 12 节为双极同期对照） |
-| `npm run build` | exit 0；`TwoPolesView` chunk 49.3 kB / gzip 18.4 kB；entry 213.6 kB / gzip 90.9 kB（每日养生弹窗需在首屏就绪，内容随入口加载） |
+| `npm run selfcheck` | 358 项全过 / 0 失败（含 outbox 与迁移配额恢复）；`npm run test:api` 18 项、`npm run test:sync` 5 项全过 |
+| `npm run build` | exit 0；`TwoPolesView` chunk 49.3 kB / gzip 18.4 kB；entry 243.7 kB / gzip 100.3 kB（含本机优先同步层；MSW 不进入生产包） |
 | 静态外观 | `redesign-shots/ui/poles-*.png`（1440 / 1024 / 768 / 390 / 深色 / 空档案 / 协同弹层）+ `wellness-*.png`（进站弹窗 / 导航小卡 / 浮卡 / 展开 / 今日不再出现） |
 | 横向溢出 | 1024 / 768 / 390 三个宽度实测 `scrollWidth - clientWidth = 0` |
 | 真机摄像头 | **未测**，只有演示回放 |
@@ -102,7 +106,10 @@
 cd UI
 npm run dev             # http://127.0.0.1:5173
 npm run typecheck       # vue-tsc --noEmit
-npm run selfcheck       # 272 项领域逻辑断言
+npm run selfcheck       # 358 项领域/存储断言
+npm run test:api        # 18 项后端端到端测试
+npm run test:sync       # 5 项 MSW/同步回归测试
+npm run server          # 可选账号与同步 API（另开终端）
 npm run build           # 产物在 UI/dist
 npm run camera:assets   # 首次跑实时摄像头前需要，生成 mediapipe 端侧资产
 ```
