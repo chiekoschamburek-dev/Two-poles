@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS profiles (
   user_id TEXT PRIMARY KEY REFERENCES users(id),
   nickname TEXT,
+  avatar_data_url TEXT,
   age INTEGER NOT NULL CHECK(age >= 12 AND age <= 90),
   goal TEXT,
   experience TEXT,
@@ -308,10 +309,33 @@ CREATE TABLE IF NOT EXISTS audit_events (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS motion_analyses (
+  id TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  date TEXT NOT NULL,
+  action TEXT NOT NULL CHECK(action IN ('squat','deadlift','running')),
+  exercise_name TEXT NOT NULL,
+  view TEXT NOT NULL CHECK(view IN ('side','front')),
+  status TEXT NOT NULL CHECK(status IN ('completed','low-confidence')),
+  low_confidence_reasons TEXT NOT NULL DEFAULT '[]',
+  findings TEXT NOT NULL DEFAULT '[]',
+  metrics TEXT NOT NULL DEFAULT '[]',
+  rep_count INTEGER,
+  gait_cycles INTEGER,
+  session_id TEXT,
+  rule_version TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  UNIQUE (user_id, client_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON training_sessions(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meal_records(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_plans_user_week ON plans(user_id, week_start, mode);
 CREATE INDEX IF NOT EXISTS idx_adjustments_plan ON plan_adjustments(plan_id);
+CREATE INDEX IF NOT EXISTS idx_motion_analyses_user_date ON motion_analyses(user_id, date);
 `
 
 export function openDatabase(path = ':memory:') {
@@ -320,6 +344,12 @@ export function openDatabase(path = ':memory:') {
   db.exec('PRAGMA journal_mode = WAL;')
   db.exec('PRAGMA foreign_keys = ON;')
   db.exec(SCHEMA)
+  const hasAvatarColumn = () => db.prepare('PRAGMA table_info(profiles)').all().some(column => column.name === 'avatar_data_url')
+  if (!hasAvatarColumn()) {
+    transaction(db, () => {
+      if (!hasAvatarColumn()) db.exec('ALTER TABLE profiles ADD COLUMN avatar_data_url TEXT')
+    })
+  }
   return db
 }
 

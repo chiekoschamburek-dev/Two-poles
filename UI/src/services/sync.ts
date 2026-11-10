@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import type { Meal, Plan, PlanChange, PrivacySettings, SessionFeedback, TrainingSession, UserProfile } from '@/types/domain'
+import type { Meal, MotionAnalysis, Plan, PlanChange, PrivacySettings, SessionFeedback, TrainingSession, UserProfile } from '@/types/domain'
 import { ApiError, apiEnabled, clearAccessToken } from './api/http'
 import * as authApi from './api/auth'
 import type { AuthUser } from './api/auth'
@@ -7,6 +7,7 @@ import * as profileApi from './api/profile'
 import * as sessionsApi from './api/sessions'
 import * as mealsApi from './api/meals'
 import * as plansApi from './api/plans'
+import * as analysesApi from './api/analyses'
 import * as settingsApi from './api/settings'
 import * as remoteSync from './api/sync'
 import type { RemoteSyncSnapshot } from './api/sync'
@@ -18,7 +19,7 @@ export type SyncStatus = 'local' | 'idle' | 'syncing' | 'offline' | 'error' | 'u
 
 export interface SyncConflict {
   id: string
-  kind: 'session' | 'meal' | 'plan' | 'profile'
+  kind: 'session' | 'meal' | 'analysis' | 'plan' | 'profile'
   clientId: string
   message: string
   at: string
@@ -31,6 +32,7 @@ export interface UploadBatch {
   sessions: TrainingSession[]
   meals: Meal[]
   plans: Plan[]
+  analyses?: MotionAnalysis[]
 }
 
 export interface SyncHandlers {
@@ -41,6 +43,7 @@ export interface SyncHandlers {
   markSessionSynced: (clientId: string, session: TrainingSession, pending: boolean) => void
   markMealSynced: (clientId: string, meal: Meal, pending: boolean) => void
   markPlanSynced: (clientId: string, plan: Plan, pending: boolean) => void
+  markAnalysisSynced?: (clientId: string, analysis: MotionAnalysis, pending: boolean) => void
   markConflict: (kind: SyncConflict['kind'], clientId: string, message: string) => void
 }
 
@@ -253,6 +256,7 @@ function retryDelay(attempts: number): string {
 function conflictKind(op: OutboxOp): SyncConflict['kind'] {
   if (op.kind.startsWith('session')) return 'session'
   if (op.kind.startsWith('meal')) return 'meal'
+  if (op.kind.startsWith('analysis')) return 'analysis'
   if (op.kind.startsWith('plan')) return 'plan'
   return 'profile'
 }
@@ -302,6 +306,24 @@ async function executeOp(op: OutboxOp): Promise<void> {
     case 'meal.delete': {
       try {
         await mealsApi.remove(op.payload as Meal)
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 404) throw error
+      }
+      return
+    }
+    case 'analysis.create': {
+      const remote = await analysesApi.create(op.payload as MotionAnalysis)
+      handlers?.markAnalysisSynced?.(op.clientId, remote, hasNewer())
+      return
+    }
+    case 'analysis.update': {
+      const remote = await analysesApi.updateLink(op.payload as MotionAnalysis)
+      handlers?.markAnalysisSynced?.(op.clientId, remote, hasNewer())
+      return
+    }
+    case 'analysis.delete': {
+      try {
+        await analysesApi.remove(op.payload as MotionAnalysis)
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 404) throw error
       }
@@ -394,6 +416,11 @@ function pushLocal(firstSync: boolean) {
   for (const plan of batch.plans) {
     const id = plan.clientId ?? plan.id
     if (!has('plan.', id)) enqueue('plan.create', id, plan)
+  }
+  for (const analysis of batch.analyses ?? []) {
+    const id = analysis.clientId ?? analysis.id
+    if (has('analysis.', id)) continue
+    enqueue(analysis.serverId ? 'analysis.update' : 'analysis.create', id, analysis)
   }
   syncState.pending = pendingCount()
 }

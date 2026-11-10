@@ -153,6 +153,7 @@ function profileJson(row) {
     mode: row.mode,
     modeChangedAt: row.mode_changed_at ?? row.updated_at,
     nickname: row.nickname ?? undefined,
+    avatarDataUrl: row.avatar_data_url ?? undefined,
     age: row.age,
     goal: row.goal ?? '',
     experience: row.experience ?? '',
@@ -210,6 +211,49 @@ function sessionJson(row) {
     updatedAt: row.updated_at,
     _sync: 'synced'
   }
+}
+
+function analysisJson(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    serverId: row.id,
+    clientId: row.client_id,
+    userId: row.user_id,
+    date: row.date,
+    action: row.action,
+    exerciseName: row.exercise_name,
+    view: row.view,
+    status: row.status,
+    lowConfidenceReasons: jsonParse(row.low_confidence_reasons, []),
+    findings: jsonParse(row.findings, []),
+    metrics: jsonParse(row.metrics, []),
+    repCount: row.rep_count ?? null,
+    gaitCycles: row.gait_cycles ?? null,
+    sessionId: row.session_id ?? undefined,
+    ruleVersion: row.rule_version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    _sync: 'synced'
+  }
+}
+
+/** 只保存有界、可序列化的小数组；超大或非对象条目直接丢弃，避免把服务端当图片桶 */
+function boundedJsonArray(value, max) {
+  if (!Array.isArray(value)) return []
+  const out = []
+  for (const item of value.slice(0, max)) {
+    if (!item || typeof item !== 'object') continue
+    let json = ''
+    try {
+      json = JSON.stringify(item)
+    } catch {
+      continue
+    }
+    if (json.length > 4000) continue
+    out.push(item)
+  }
+  return out
 }
 
 function mealItemJson(row) {
@@ -347,6 +391,14 @@ function findSession(db, userId, id) {
   `).get(userId, id, id)
 }
 
+function findAnalysis(db, userId, id) {
+  return db.prepare(`
+    SELECT * FROM motion_analyses
+    WHERE user_id = ? AND deleted_at IS NULL AND (id = ? OR client_id = ?)
+    LIMIT 1
+  `).get(userId, id, id)
+}
+
 function findMeal(db, userId, id) {
   return db.prepare(`
     SELECT * FROM meal_records
@@ -371,6 +423,15 @@ function writeProfile(db, userId, raw, current) {
   }
   const age = integerOrNull(profile.age)
   assert(age !== null && age >= 12 && age <= 90, '年龄必须在 12–90 之间')
+  const avatar = profile.avatarDataUrl ?? null
+  if (avatar !== null) {
+    const prefix = 'data:image/jpeg;base64,'
+    const invalidAvatar = '头像需要是 180 KB 以内的 JPEG 图片'
+    assert(typeof avatar === 'string' && avatar.length <= 180_000
+      && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(avatar), invalidAvatar)
+    const bytes = Buffer.from(avatar.slice(prefix.length), 'base64')
+    assert(bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9, invalidAvatar)
+  }
   const mode = profile.mode === 'athlete' ? 'athlete' : 'public'
   const availableTimes = stringArray(profile.availableTimes, 12)
   const equipment = stringArray(profile.equipment, 30)
@@ -386,14 +447,15 @@ function writeProfile(db, userId, raw, current) {
   const previousMode = current?.mode
   db.prepare(`
     INSERT INTO profiles (
-      user_id, nickname, age, goal, experience, available_times_json, equipment_json,
+      user_id, nickname, avatar_data_url, age, goal, experience, available_times_json, equipment_json,
       available_venues_json, restrictions_json, mode, mode_changed_at, height, weight,
       discipline, cycle_phase, cycle_start, cycle_end, goal_type, target_event,
       target_event_date, target_result, cycle_focus, personal_bests_json,
       gym_records_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       nickname = excluded.nickname,
+      avatar_data_url = excluded.avatar_data_url,
       age = excluded.age,
       goal = excluded.goal,
       experience = excluded.experience,
@@ -420,6 +482,7 @@ function writeProfile(db, userId, raw, current) {
   `).run(
     userId,
     stringOrNull(profile.nickname, 80),
+    avatar,
     age,
     stringOrNull(profile.goal, 200),
     stringOrNull(profile.experience, 200),
@@ -562,6 +625,7 @@ export function exportPayload(db, userId, format) {
     .map((row) => mealJson(row, readItems(db, 'meal_items', 'meal_record_id', row.id)))
   const plans = db.prepare('SELECT * FROM plans WHERE user_id = ? AND deleted_at IS NULL ORDER BY week_start ASC, version ASC').all(userId)
     .map((row) => planJson(row, readItems(db, 'plan_items', 'plan_id', row.id)))
+  const analyses = db.prepare('SELECT * FROM motion_analyses WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC, created_at DESC').all(userId).map(analysisJson)
   if (format === 'json') {
     return JSON.stringify({
       exportedAt: nowIso(),
@@ -570,7 +634,8 @@ export function exportPayload(db, userId, format) {
       privacy: privacyJson(privacyRow),
       sessions,
       meals,
-      plans
+      plans,
+      analyses
     }, null, 2)
   }
   const head = ['类别', '日期', '时间', '名称', '类型或类别', '时长分钟', '距离米', '次数', '组数', '单位', 'RPE', '负荷', '不适', '状态', '备注']
@@ -591,7 +656,13 @@ export function exportPayload(db, userId, format) {
       '计划', item.date, '', item.exerciseName, item.type,
       item.plannedDuration ?? '', item.plannedDistance ?? '', item.plannedReps ?? '', item.plannedSets ?? '', '',
       '', '', '', item.completed ? '已完成' : '待完成', `v${plan.version}｜${plan.mode === 'public' ? '大众' : '运动员'}｜${plan.reason}`
-    ]))
+    ])),
+    ...analyses.map((analysis) => [
+      '分析', analysis.date, '', analysis.exerciseName, analysis.action,
+      '', '', '', '', '', '', '', '',
+      analysis.status === 'low-confidence' ? '低置信度' : '完成',
+      `视角 ${analysis.view === 'side' ? '侧面' : '正面'}｜${analysis.findings.length} 项关注｜${analysis.ruleVersion}`
+    ])
   ]
   return '\ufeff' + [head, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')
 }
@@ -604,6 +675,7 @@ function wipeUser(db, userId, deleteUser) {
     for (const planId of planIds) db.prepare('DELETE FROM plan_items WHERE plan_id = ?').run(planId)
     db.prepare('DELETE FROM meal_records WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM training_sessions WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM motion_analyses WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM plan_adjustments WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM plans WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM profiles WHERE user_id = ?').run(userId)
@@ -983,6 +1055,87 @@ export function createApiServer(options = {}) {
       return sendEmpty(res, 204)
     }
 
+    if (path === '/analyses' && method === 'GET') {
+      const from = isDate(url.searchParams.get('from')) ? url.searchParams.get('from') : '0000-01-01'
+      const to = isDate(url.searchParams.get('to')) ? url.searchParams.get('to') : '9999-12-31'
+      const rows = db.prepare(`
+        SELECT * FROM motion_analyses
+        WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
+        ORDER BY date DESC, created_at DESC
+      `).all(user.id, from, to)
+      return sendJson(res, 200, { analyses: rows.map(analysisJson) })
+    }
+
+    if (path === '/analyses' && method === 'POST') {
+      const idKey = String(req.headers['idempotency-key'] ?? '') || null
+      const cached = idempotencyResult(db, user.id, idKey)
+      if (cached) return sendJson(res, cached.status, cached.body)
+      const raw = body.analysis && typeof body.analysis === 'object' ? body.analysis : body
+      const clientId = stringOrNull(raw.clientId || raw.id, 100) ?? randomUUID()
+      const existing = db.prepare('SELECT * FROM motion_analyses WHERE user_id = ? AND client_id = ?').get(user.id, clientId)
+      if (existing) {
+        const result = { status: 200, body: { analysis: analysisJson(existing) } }
+        saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
+        return sendJson(res, result.status, result.body)
+      }
+      const date = isDate(raw.date) ? raw.date : null
+      const action = ['squat', 'deadlift', 'running'].includes(raw.action) ? raw.action : null
+      const view = ['side', 'front'].includes(raw.view) ? raw.view : null
+      const status = ['completed', 'low-confidence'].includes(raw.status) ? raw.status : null
+      const exerciseName = stringOrNull(raw.exerciseName, 120)
+      assert(date && action && view && status && exerciseName, '分析记录缺少有效的日期、动作、视角或状态')
+      const reasons = Array.isArray(raw.lowConfidenceReasons)
+        ? raw.lowConfidenceReasons.filter((reason) => typeof reason === 'string').slice(0, 10).map((reason) => reason.slice(0, 300))
+        : []
+      let sessionId = null
+      if (raw.sessionId !== undefined && raw.sessionId !== null) {
+        sessionId = stringOrNull(raw.sessionId, 100)
+        assert(sessionId, '关联的训练记录无效')
+        if (!findSession(db, user.id, sessionId)) fail('not_found', 404, '关联的训练记录不存在')
+      }
+      const findings = boundedJsonArray(raw.findings, 20)
+      const metrics = boundedJsonArray(raw.metrics, 30)
+      const now = nowIso()
+      const id = randomUUID()
+      db.prepare(`
+        INSERT INTO motion_analyses (
+          id, client_id, user_id, date, action, exercise_name, view, status,
+          low_confidence_reasons, findings, metrics, rep_count, gait_cycles,
+          session_id, rule_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id, clientId, user.id, date, action, exerciseName, view, status,
+        JSON.stringify(reasons), JSON.stringify(findings), JSON.stringify(metrics),
+        integerOrNull(raw.repCount), integerOrNull(raw.gaitCycles), sessionId,
+        stringOrNull(raw.ruleVersion, 80) ?? 'motion-analysis-rules-v1',
+        stringOrNull(raw.createdAt, 40) ?? now, now
+      )
+      const row = db.prepare('SELECT * FROM motion_analyses WHERE id = ?').get(id)
+      const result = { status: 201, body: { analysis: analysisJson(row) } }
+      saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
+      return sendJson(res, result.status, result.body)
+    }
+
+    const analysisPath = /^\/analyses\/([^/]+)$/.exec(path)
+    if (analysisPath && method === 'PATCH') {
+      const row = findAnalysis(db, user.id, decodeURIComponent(analysisPath[1]))
+      if (!row) fail('not_found', 404, '分析记录不存在')
+      const sessionId = body.sessionId === null ? null : stringOrNull(body.sessionId, 100)
+      if (sessionId) {
+        const session = findSession(db, user.id, sessionId)
+        if (!session) fail('not_found', 404, '关联的训练记录不存在')
+      }
+      db.prepare('UPDATE motion_analyses SET session_id = ?, updated_at = ? WHERE id = ?').run(sessionId, nowIso(), row.id)
+      return sendJson(res, 200, { analysis: analysisJson(db.prepare('SELECT * FROM motion_analyses WHERE id = ?').get(row.id)) })
+    }
+
+    if (analysisPath && method === 'DELETE') {
+      const row = findAnalysis(db, user.id, decodeURIComponent(analysisPath[1]))
+      if (!row) fail('not_found', 404, '分析记录不存在')
+      db.prepare('UPDATE motion_analyses SET deleted_at = ?, updated_at = ? WHERE id = ?').run(nowIso(), nowIso(), row.id)
+      return sendEmpty(res, 204)
+    }
+
     if (path === '/meals' && method === 'GET') {
       const date = url.searchParams.get('date')
       const rows = date && isDate(date)
@@ -1292,6 +1445,13 @@ export function createApiServer(options = {}) {
             ORDER BY date ASC
           `).all(user.id, since, since)
         : db.prepare('SELECT * FROM meal_records WHERE user_id = ? ORDER BY date ASC').all(user.id)
+      const analysisRows = since
+        ? db.prepare(`
+            SELECT * FROM motion_analyses
+            WHERE user_id = ? AND (updated_at > ? OR deleted_at > ?)
+            ORDER BY date DESC, created_at DESC
+          `).all(user.id, since, since)
+        : db.prepare('SELECT * FROM motion_analyses WHERE user_id = ? ORDER BY date DESC, created_at DESC').all(user.id)
       const plans = db.prepare('SELECT * FROM plans WHERE user_id = ? AND deleted_at IS NULL ORDER BY week_start ASC, version ASC').all(user.id)
         .map((row) => planJson(row, readItems(db, 'plan_items', 'plan_id', row.id)))
       const modeLog = db.prepare('SELECT * FROM mode_changes WHERE user_id = ? ORDER BY at ASC').all(user.id).map((row) => ({
@@ -1303,7 +1463,8 @@ export function createApiServer(options = {}) {
       const deleted = {
         sessions: sessionRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
         meals: mealRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
-        plans: []
+        plans: [],
+        analyses: analysisRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id }))
       }
       db.prepare(`
         INSERT INTO sync_state (user_id, last_sync_at) VALUES (?, ?)
@@ -1315,6 +1476,7 @@ export function createApiServer(options = {}) {
         privacy: privacyChanged ? privacyJson(privacyRow) : null,
         sessions: sessionRows.filter((row) => !row.deleted_at).map(sessionJson),
         meals: mealRows.filter((row) => !row.deleted_at).map((row) => mealJson(row, readItems(db, 'meal_items', 'meal_record_id', row.id))),
+        analyses: analysisRows.filter((row) => !row.deleted_at).map(analysisJson),
         plans,
         modeLog,
         deleted

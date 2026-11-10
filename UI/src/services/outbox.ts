@@ -12,6 +12,9 @@ export type OutboxKind =
   | 'meal.delete'
   | 'plan.create'
   | 'plan.adjustment'
+  | 'analysis.create'
+  | 'analysis.update'
+  | 'analysis.delete'
 
 export interface OutboxOp {
   id: string
@@ -78,16 +81,31 @@ export function enqueue(kind: OutboxKind, clientId: string, payload: unknown): O
       return create
     }
   }
+  if (kind === 'analysis.update') {
+    const create = ops.find((op) => op.kind === 'analysis.create' && op.clientId === clientId && !inFlight.has(op.id))
+    if (create) {
+      create.payload = payload
+      create.createdAt = now
+      create.status = 'pending'
+      create.attempts = 0
+      create.error = undefined
+      create.nextAt = now
+      write(ops)
+      return create
+    }
+  }
   if (kind === 'profile.update' || kind === 'privacy.update') {
     filtered = ops.filter((op) => op.kind !== kind)
-  } else if (kind === 'session.feedback' || kind === 'meal.update') {
+  } else if (kind === 'session.feedback' || kind === 'meal.update' || kind === 'analysis.update') {
     filtered = ops.filter((op) => !sameResource(op, kind, clientId))
-  } else if (kind === 'session.create' || kind === 'meal.create' || kind === 'plan.create') {
+  } else if (kind === 'session.create' || kind === 'meal.create' || kind === 'plan.create' || kind === 'analysis.create') {
     filtered = ops.filter((op) => !sameResource(op, kind, clientId))
   } else if (kind === 'session.delete') {
     filtered = ops.filter((op) => !(op.clientId === clientId && (op.kind === 'session.create' || op.kind === 'session.feedback')))
   } else if (kind === 'meal.delete') {
     filtered = ops.filter((op) => !(op.clientId === clientId && (op.kind === 'meal.create' || op.kind === 'meal.update')))
+  } else if (kind === 'analysis.delete') {
+    filtered = ops.filter((op) => !(op.clientId === clientId && (op.kind === 'analysis.create' || op.kind === 'analysis.update')))
   }
   const op: OutboxOp = {
     id: newId(),

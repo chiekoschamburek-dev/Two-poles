@@ -2,6 +2,7 @@ import type {
   AdjustmentResolutions,
   Meal,
   Mode,
+  MotionAnalysis,
   Plan,
   PrivacySettings,
   SpeechSettings,
@@ -24,6 +25,7 @@ export interface StoredState {
   modeLog?: { from: Mode; to: Mode; at: string; openPlanCount: number }[]
   unitGrams?: Record<string, number>
   adjustmentResolutions?: AdjustmentResolutions
+  analyses?: MotionAnalysis[]
 }
 
 export interface SyncMeta {
@@ -44,6 +46,7 @@ const KEYS = {
   modeLog: 'twopoles.v1.modeLog',
   unitGrams: 'twopoles.v1.unitGrams',
   adjustmentResolutions: 'twopoles.v1.adjustmentResolutions',
+  analyses: 'twopoles.v1.analyses',
   syncMeta: 'twopoles.v1.syncMeta',
   outbox: 'twopoles.v1.outbox',
   conflicts: 'twopoles.v1.conflicts'
@@ -125,7 +128,8 @@ function migrateLegacy(): StoredState | null {
     unitGrams: (parsed.unitGrams && typeof parsed.unitGrams === 'object') ? parsed.unitGrams as Record<string, number> : {},
     adjustmentResolutions: (parsed.adjustmentResolutions && typeof parsed.adjustmentResolutions === 'object')
       ? parsed.adjustmentResolutions as AdjustmentResolutions
-      : {}
+      : {},
+    analyses: Array.isArray(parsed.analyses) ? parsed.analyses as MotionAnalysis[] : []
   }
   const failed = saveStoredState(state, { removeLegacy: false })
   if (failed.length) return state
@@ -154,7 +158,8 @@ export function loadStoredState(): StoredState {
     planHistory: readJson<Plan[]>(KEYS.planHistory, []),
     modeLog: readJson<StoredState['modeLog']>(KEYS.modeLog, []),
     unitGrams: readJson<Record<string, number>>(KEYS.unitGrams, {}),
-    adjustmentResolutions: readJson<AdjustmentResolutions>(KEYS.adjustmentResolutions, {})
+    adjustmentResolutions: readJson<AdjustmentResolutions>(KEYS.adjustmentResolutions, {}),
+    analyses: readJson<MotionAnalysis[]>(KEYS.analyses, [])
   }
 }
 
@@ -176,7 +181,8 @@ export function saveStoredState(state: StoredState, options: { removeLegacy?: bo
     [KEYS.planHistory, state.planHistory ?? []],
     [KEYS.modeLog, state.modeLog ?? []],
     [KEYS.unitGrams, state.unitGrams ?? {}],
-    [KEYS.adjustmentResolutions, state.adjustmentResolutions ?? {}]
+    [KEYS.adjustmentResolutions, state.adjustmentResolutions ?? {}],
+    [KEYS.analyses, state.analyses ?? []]
   ]
   for (const [key, value] of writes) {
     if (!writeJson(key, value)) failed.push(key)

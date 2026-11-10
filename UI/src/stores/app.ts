@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, Mode, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
+import type { AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, Mode, MotionAnalysis, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
 import type { EnergyEstimate } from '@/services/foodComposition'
 import { clearMealPhotos, deleteMealPhoto } from '@/services/mealPhotos'
+import { clearAnalysisKeyframes, deleteAnalysisKeyframes } from '@/services/analysisKeyframes'
 import { AUTO_RECOMMEND_MIN_AGE, buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
 import { findExercise, gateReason } from '@/services/exercises'
 import { buildPlanFeedbackMessages, validatePlanFeedback } from '@/services/planFeedback'
@@ -62,6 +63,7 @@ export const useAppStore = defineStore('app', () => {
   const userProfile = ref<UserProfile | null>(null)
   const sessions = ref<TrainingSession[]>([])
   const meals = ref<Meal[]>([])
+  const analyses = ref<MotionAnalysis[]>([])
   const privacy = ref<PrivacySettings>({
     cameraEnabled: true,
     saveVideoLocally: false,
@@ -122,6 +124,7 @@ export const useAppStore = defineStore('app', () => {
     userProfile.value = normalizeProfile(data.profile ?? null)
     sessions.value = Array.isArray(data.sessions) ? data.sessions : []
     meals.value = Array.isArray(data.meals) ? data.meals : []
+    analyses.value = Array.isArray(data.analyses) ? data.analyses : []
     if (data.privacy) privacy.value = { ...privacy.value, ...data.privacy }
     if (data.speech && typeof data.speech.enabled === 'boolean') {
       speech.value = { enabled: data.speech.enabled, voiceURI: typeof data.speech.voiceURI === 'string' ? data.speech.voiceURI : '' }
@@ -159,6 +162,7 @@ export const useAppStore = defineStore('app', () => {
       profile: userProfile.value,
       sessions: sessions.value,
       meals: meals.value,
+      analyses: analyses.value,
       privacy: privacy.value,
       speech: speech.value,
       collapsed: collapsedCards.value,
@@ -205,7 +209,12 @@ export const useAppStore = defineStore('app', () => {
       privacy: privacyNeedsUpload ? { ...privacy.value } : null,
       sessions: sessions.value.filter(needs).map((item) => ({ ...item })),
       meals: meals.value.filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) })),
-      plans: [...planHistory.value, ...plans.value].filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) }))
+      plans: [...planHistory.value, ...plans.value].filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) })),
+      analyses: analyses.value.filter(needs).map((item) => ({
+        ...item,
+        findings: item.findings.map((finding) => ({ ...finding })),
+        metrics: item.metrics.map((metric) => ({ ...metric }))
+      }))
     }
   }
 
@@ -262,12 +271,26 @@ export const useAppStore = defineStore('app', () => {
     persistState()
   }
 
-  function markConflict(kind: 'session' | 'meal' | 'plan' | 'profile', clientId: string, _message: string) {
+  function markAnalysisSynced(clientId: string, remote: MotionAnalysis, pending: boolean) {
+    const local = analyses.value.find((item) =>
+      (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id
+    )
+    if (!local) return
+    local.serverId = remote.serverId ?? remote.id
+    if (!pending) local.updatedAt = remote.updatedAt ?? local.updatedAt
+    local._sync = pending ? 'pending' : 'synced'
+    persistState()
+  }
+
+  function markConflict(kind: 'session' | 'meal' | 'analysis' | 'plan' | 'profile', clientId: string, _message: string) {
     if (kind === 'session') {
       const local = sessions.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
       if (local) local._sync = 'conflict'
     } else if (kind === 'meal') {
       const local = meals.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
+      if (local) local._sync = 'conflict'
+    } else if (kind === 'analysis') {
+      const local = analyses.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
       if (local) local._sync = 'conflict'
     } else if (kind === 'plan') {
       const local = [...plans.value, ...planHistory.value].find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
@@ -291,7 +314,7 @@ export const useAppStore = defineStore('app', () => {
     const queuedDeletes = listOutbox().filter((op) => op.kind.endsWith('.delete'))
     const deleting = (kind: string, remote: { id: string; clientId?: string }) => queuedDeletes.some((op) =>
       op.kind === `${kind}.delete` && (op.clientId === remote.clientId || op.clientId === remote.id))
-    const keepDeleted = (kind: 'session' | 'meal', item: TrainingSession | Meal, keys: Set<string>) => {
+    const keepDeleted = (kind: 'session' | 'meal' | 'analysis', item: TrainingSession | Meal | MotionAnalysis, keys: Set<string>) => {
       if (![item.id, item.serverId ?? '', item.clientId ?? ''].some((key) => keys.has(key))) return true
       if (item._sync !== 'pending' && item._sync !== 'conflict') return false
       const id = item.clientId ?? item.id
@@ -360,6 +383,31 @@ export const useAppStore = defineStore('app', () => {
       }
     }
 
+    const deletedAnalyses = deletedKeys(snapshot.deleted?.analyses ?? [])
+    if (deletedAnalyses.size) {
+      analyses.value = analyses.value.filter((item) => keepDeleted('analysis', item, deletedAnalyses))
+    }
+    for (const remote of snapshot.analyses ?? []) {
+      if (deleting('analysis', remote)) continue
+      const local = analyses.value.find((item) =>
+        (item.clientId ?? item.id) === (remote.clientId ?? remote.id) || item.serverId === remote.id || item.id === remote.id
+      )
+      if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
+        local.serverId = remote.serverId ?? remote.id
+        continue
+      }
+      if (local) {
+        Object.assign(local, remote, {
+          id: local.id,
+          clientId: local.clientId ?? remote.clientId,
+          serverId: remote.serverId ?? remote.id,
+          _sync: 'synced'
+        })
+      } else {
+        analyses.value.push({ ...remote, _sync: 'synced' })
+      }
+    }
+
     const remotePlans = snapshot.plans ?? []
     const grouped = new Map<string, Plan[]>()
     for (const plan of remotePlans) {
@@ -422,6 +470,7 @@ export const useAppStore = defineStore('app', () => {
       markSessionSynced,
       markMealSynced,
       markPlanSynced,
+      markAnalysisSynced,
       markConflict
     })
   }
@@ -450,6 +499,17 @@ export const useAppStore = defineStore('app', () => {
     session.updatedAt = new Date().toISOString()
     session._sync = 'pending'
     enqueueSync('session.create', session.clientId, { ...session })
+  }
+
+  function queueAnalysisSync(analysis: MotionAnalysis, kind: 'analysis.create' | 'analysis.update' = 'analysis.create') {
+    analysis.clientId = analysis.clientId ?? analysis.id
+    analysis.updatedAt = new Date().toISOString()
+    analysis._sync = 'pending'
+    enqueueSync(kind, analysis.clientId, {
+      ...analysis,
+      findings: analysis.findings.map((finding) => ({ ...finding })),
+      metrics: analysis.metrics.map((metric) => ({ ...metric }))
+    })
   }
 
   function queueMealSync(meal: Meal) {
@@ -546,7 +606,7 @@ export const useAppStore = defineStore('app', () => {
     })
   }
 
-  /** 建档流程里用户已逐步选择并在末页复核，直接落地模式，不再弹一次确认 */
+  /** 保存档案时应用表单中明确选择的训练模式。 */
   function commitMode(target: Mode) {
     if (target === currentMode.value) return
     const from = currentMode.value
@@ -714,7 +774,13 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function planModelError(requireProfile = true): string {
-    if (requireProfile && !userProfile.value) return '还没有建档，先填档案再生成。'
+    if (requireProfile) {
+      const profile = userProfile.value
+      if (!profile) return '请先填写并保存个人档案。'
+      if (profile.age < AUTO_RECOMMEND_MIN_AGE) return '当前档案年龄未达到自动推荐条件，可在计划页手工录入。'
+      const restriction = gateReason(profile)
+      if (restriction) return restriction
+    }
     if (!planLlmReady.value) return '既没有配置自己的模型，服务端也没有配默认模型。可以到设置页填写，或继续使用内置规则计划。'
     return ''
   }
@@ -1452,6 +1518,35 @@ export const useAppStore = defineStore('app', () => {
     return collapsedCards.value.includes(id)
   }
 
+  function addAnalysis(record: MotionAnalysis) {
+    record.clientId = record.clientId ?? record.id
+    record._sync = 'pending'
+    queueAnalysisSync(record)
+    analyses.value = [record, ...analyses.value.filter(item => item.id !== record.id)]
+    persistState()
+  }
+
+  function removeAnalysis(id: string) {
+    const target = analyses.value.find(item => item.id === id)
+    analyses.value = analyses.value.filter(item => item.id !== id)
+    persistState()
+    if (target) {
+      enqueueSync('analysis.delete', target.clientId ?? target.id, { ...target })
+      const refs = target.findings.map(finding => finding.keyframeRef).filter((ref): ref is string => !!ref)
+      void deleteAnalysisKeyframes(refs).catch(() => { /* 清理失败不影响主数据删除 */ })
+    }
+  }
+
+  function linkAnalysisToSession(id: string, sessionId: string | undefined) {
+    const analysis = analyses.value.find(item => item.id === id)
+    if (!analysis) return false
+    if (sessionId) analysis.sessionId = sessionId
+    else delete analysis.sessionId
+    queueAnalysisSync(analysis, 'analysis.update')
+    persistState()
+    return true
+  }
+
   /**
    * Clear all data
    */
@@ -1460,6 +1555,7 @@ export const useAppStore = defineStore('app', () => {
     userProfile.value = null
     sessions.value = []
     meals.value = []
+    analyses.value = []
     plans.value = []
     planHistory.value = []
     modeLog.value = []
@@ -1480,10 +1576,11 @@ export const useAppStore = defineStore('app', () => {
     // 每日 Tips 的「今日不再出现」也是本机偏好；清除数据后应回到进站即弹
     if (typeof localStorage !== 'undefined') localStorage.removeItem(WELLNESS_DISMISS_KEY)
     void clearMealPhotos().catch(() => { /* 照片库清理失败时至少保留了主数据清除结果 */ })
+    void clearAnalysisKeyframes().catch(() => { /* 关键帧库清理失败时至少保留了主数据清除结果 */ })
     showToast({
       type: 'success',
       title: '数据已清除',
-      message: '档案、训练、餐食、照片、计划版本、切换记录与本机换算口径都已从本机删除',
+      message: '档案、训练、餐食、分析记录、照片、计划版本、切换记录与本机换算口径都已从本机删除',
       duration: 3000
     })
   }
@@ -1494,6 +1591,7 @@ export const useAppStore = defineStore('app', () => {
     userProfile,
     sessions,
     meals,
+    analyses,
     privacy,
     speech,
     toasts,
@@ -1545,6 +1643,10 @@ export const useAppStore = defineStore('app', () => {
     forgetUnitGrams,
     toggleCard,
     isCardCollapsed,
+    addAnalysis,
+    removeAnalysis,
+    linkAnalysisToSession,
+    queueAnalysisSync,
     setTheme,
     applyTheme,
     ensureWeekPlan,

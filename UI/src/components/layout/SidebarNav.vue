@@ -137,7 +137,8 @@ import {
   HeartPulse,
   Leaf,
   Settings,
-  UserRound
+  UserRound,
+  Video
 } from 'lucide-vue-next'
 import { useWellnessDock } from '@/composables/useWellnessDock'
 
@@ -145,7 +146,7 @@ defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const route = useRoute()
-const movementActive = computed(() => route.path.startsWith('/plan') || route.path.startsWith('/execution'))
+const movementActive = computed(() => route.path.startsWith('/plan') || route.path.startsWith('/execution') || route.path.startsWith('/analysis'))
 const nutritionActive = computed(() => route.path.startsWith('/meals'))
 
 const {
@@ -165,7 +166,8 @@ function openWellness() {
 /** 脊上放短标签（86px 装不下全称），title 与移动端抽屉里给全称 */
 const movementItems = [
   { to: '/plan', label: '计划', full: '训练计划', icon: CalendarDays },
-  { to: '/execution', label: '跟练', full: '摄像头跟练', icon: Dumbbell }
+  { to: '/execution', label: '跟练', full: '摄像头跟练', icon: Dumbbell },
+  { to: '/analysis', label: '分析', full: '动作分析', icon: Video }
 ]
 const nutritionItems = [
   // 分组标题已经叫"饮食"，条目用"记录"避免"饮食 / 饮食"重复

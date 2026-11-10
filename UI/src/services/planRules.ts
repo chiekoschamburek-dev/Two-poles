@@ -68,7 +68,7 @@ function pick(
   used: Set<string>,
   maxMinutes: number
 ): { ex?: Exercise; blocked: string[] } {
-  const pool = activeExercises().filter(e => e.type === type && !used.has(e.id))
+  const pool = activeExercises().filter(e => e.type === type && !used.has(e.id) && e.autoPlan !== false)
   let blocked: string[] = []
   for (const e of pool) {
     const b = blockers(e, profile, venues)

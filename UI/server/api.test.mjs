@@ -20,6 +20,7 @@ let refreshCookie = ''
 let sessionId = ''
 let mealId = ''
 let planId = ''
+let analysisId = ''
 const weekStart = '2026-11-02'
 
 async function request(path, { method = 'GET', body, token = accessToken, cookie = refreshCookie, idempotencyKey, ifMatch } = {}) {
@@ -123,6 +124,24 @@ test('profile round-trips and validates age', async () => {
   assert.equal(read.body.profile.nickname, '同步测试')
 })
 
+test('profile avatar is validated, synchronized and explicitly removable', async () => {
+  // 1×1 JPEG, generated for this test.
+  const avatarDataUrl = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAAf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AH//Z'
+  const saved = await request('/profile', { method: 'PUT', body: { avatarDataUrl } })
+  assert.equal(saved.status, 200)
+  assert.equal(saved.body.profile.avatarDataUrl, avatarDataUrl)
+  assert.equal((await request('/sync')).body.profile.avatarDataUrl, avatarDataUrl)
+
+  const invalid = await request('/profile', { method: 'PUT', body: { avatarDataUrl: 'https://example.test/avatar.jpg' } })
+  assert.equal(invalid.status, 400)
+  assert.equal((await request('/profile')).body.profile.avatarDataUrl, avatarDataUrl)
+
+  const removed = await request('/profile', { method: 'PUT', body: { avatarDataUrl: null } })
+  assert.equal(removed.status, 200)
+  assert.equal(removed.body.profile.avatarDataUrl, undefined)
+  assert.equal((await request('/profile')).body.profile.avatarDataUrl, undefined)
+})
+
 test('sessions are idempotent and feedback accepts null RPE', async () => {
   const session = {
     id: 'local-session-1',
@@ -168,6 +187,91 @@ test('sessions are idempotent and feedback accepts null RPE', async () => {
   })
   assert.equal(nullRpe.status, 201)
   assert.equal(nullRpe.body.session.rpe, null)
+})
+
+test('motion analyses are idempotent, linkable and soft-deleted', async () => {
+  const analysis = {
+    id: 'local-analysis-1',
+    clientId: 'local-analysis-1',
+    date: weekStart,
+    action: 'squat',
+    exerciseName: '深蹲',
+    view: 'side',
+    status: 'completed',
+    lowConfidenceReasons: [],
+    findings: [{
+      ruleId: 'SQ-SE-01', title: '下蹲深度不足', detail: '第 1 次最低点髋部没有低于膝部',
+      timeMs: 1200, measured: -0.2, thresholdLabel: '最低点髋点低于膝点（≥ 0）', sourceLabel: 'NSCA'
+    }],
+    metrics: [{ id: 'metric-rep-count', label: '完整重复次数', value: 1 }],
+    repCount: 1,
+    gaitCycles: null,
+    ruleVersion: 'motion-analysis-rules-v1',
+    createdAt: '2026-11-02T08:00:00.000Z'
+  }
+  const first = await request('/analyses', { method: 'POST', body: analysis, idempotencyKey: 'idem-analysis-1' })
+  assert.equal(first.status, 201)
+  assert.equal(first.body.analysis.clientId, 'local-analysis-1')
+  assert.equal(first.body.analysis.findings.length, 1)
+  const replay = await request('/analyses', { method: 'POST', body: analysis, idempotencyKey: 'idem-analysis-1' })
+  assert.equal(replay.status, 201)
+  assert.equal(replay.body.analysis.id, first.body.analysis.id)
+  const duplicate = await request('/analyses', { method: 'POST', body: analysis, idempotencyKey: 'another-analysis-key' })
+  assert.equal(duplicate.status, 200)
+  assert.equal(duplicate.body.analysis.id, first.body.analysis.id)
+
+  const linked = await request('/analyses/local-analysis-1', { method: 'PATCH', body: { sessionId } })
+  assert.equal(linked.status, 200)
+  assert.equal(linked.body.analysis.sessionId, sessionId)
+  const unlinked = await request('/analyses/local-analysis-1', { method: 'PATCH', body: { sessionId: null } })
+  assert.equal(unlinked.status, 200)
+  assert.equal(unlinked.body.analysis.sessionId, undefined)
+  const missingSession = await request('/analyses/local-analysis-1', { method: 'PATCH', body: { sessionId: 'missing-session' } })
+  assert.equal(missingSession.status, 404)
+
+  const removed = await request('/analyses/local-analysis-1', { method: 'DELETE' })
+  assert.equal(removed.status, 204)
+  assert.equal((await request('/analyses')).body.analyses.length, 0)
+
+  const second = await request('/analyses', {
+    method: 'POST',
+    body: {
+      ...analysis, id: 'local-analysis-2', clientId: 'local-analysis-2',
+      action: 'running', exerciseName: '跑姿', view: 'front', status: 'low-confidence',
+      lowConfidenceReasons: ['关键点可见度偏低'], repCount: null, gaitCycles: 6,
+      sessionId
+    },
+    idempotencyKey: 'idem-analysis-2'
+  })
+  assert.equal(second.status, 201)
+  analysisId = second.body.analysis.id
+  assert.equal(second.body.analysis.status, 'low-confidence')
+  assert.equal(second.body.analysis.sessionId, sessionId)
+  assert.deepEqual(second.body.analysis.lowConfidenceReasons, ['关键点可见度偏低'])
+
+  const older = await request('/analyses', {
+    method: 'POST',
+    body: { ...analysis, id: 'local-analysis-older', clientId: 'local-analysis-older', date: '2026-10-01' }
+  })
+  assert.equal(older.status, 201)
+  const listed = await request('/analyses')
+  assert.equal(listed.body.analyses[0].date >= listed.body.analyses.at(-1).date, true)
+
+  const badSession = await request('/analyses', {
+    method: 'POST', body: { ...analysis, id: 'bad-session-analysis', clientId: 'bad-session-analysis', sessionId: 'missing-session' }
+  })
+  assert.equal(badSession.status, 404)
+
+  const invalidAction = await request('/analyses', {
+    method: 'POST', body: { ...analysis, id: 'bad-analysis', clientId: 'bad-analysis', action: 'bench' }
+  })
+  assert.equal(invalidAction.status, 400)
+  const hugeFindings = await request('/analyses', {
+    method: 'POST',
+    body: { ...analysis, id: 'huge-analysis', clientId: 'huge-analysis', findings: Array.from({ length: 40 }, () => ({ ruleId: 'x' })) }
+  })
+  assert.equal(hugeFindings.status, 201)
+  assert.equal(hugeFindings.body.analysis.findings.length, 20)
 })
 
 test('meals store items and support update/delete', async () => {
@@ -336,6 +440,8 @@ test('sync returns changed records and tombstones', async () => {
   assert.equal(response.body.profile.age, 24)
   assert.ok(response.body.sessions.some((session) => session.clientId === 'local-session-1'))
   assert.ok(response.body.deleted.sessions.some((session) => session.clientId === 'local-session-2'))
+  assert.ok(response.body.analyses.some((analysis) => analysis.clientId === 'local-analysis-2'))
+  assert.ok(response.body.deleted.analyses.some((analysis) => analysis.clientId === 'local-analysis-1'))
   assert.equal(response.body.plans.at(-1).version, 2)
   assert.ok(Array.isArray(response.body.modeLog))
 })
@@ -360,6 +466,7 @@ test('export jobs produce JSON and spreadsheet-friendly CSV', async () => {
   const csvText = new TextDecoder('utf-8').decode(bytes)
   assert.ok(csvText.includes('训练'))
   assert.ok(csvText.includes('餐食'))
+  assert.ok(csvText.includes('分析'))
 
   const jsonJob = await request('/export', { method: 'POST', body: { format: 'json' } })
   await waitForExport(jsonJob.body.jobId)
@@ -367,6 +474,7 @@ test('export jobs produce JSON and spreadsheet-friendly CSV', async () => {
   const parsed = jsonDownload.body
   assert.equal(parsed.profile.age, 24)
   assert.ok(Array.isArray(parsed.sessions))
+  assert.ok(parsed.analyses.some((analysis) => analysis.clientId === 'local-analysis-2'))
 })
 
 test('plan version writes honor If-Match and simultaneous accepts cannot both win', async () => {
@@ -405,6 +513,15 @@ test('personal resources and export downloads are isolated by account', async ()
   const token = other.body.accessToken
   assert.equal((await request('/sessions', { token })).body.sessions.length, 0)
   assert.equal((await request(`/sessions/${sessionId}/feedback`, { method: 'PATCH', token, body: { rpe: 4 } })).status, 404)
+  assert.equal((await request('/analyses', { token })).body.analyses.length, 0)
+  assert.equal((await request(`/analyses/${analysisId}`, { method: 'PATCH', token, body: { sessionId: null } })).status, 404)
+  assert.equal((await request(`/analyses/${analysisId}`, { method: 'DELETE', token })).status, 404)
+  const otherSession = await request('/sessions', {
+    method: 'POST', token, body: { clientId: 'other-session', date: weekStart, exerciseName: '别人的训练' }
+  })
+  assert.equal((await request(`/analyses/${analysisId}`, {
+    method: 'PATCH', body: { sessionId: otherSession.body.session.id }
+  })).status, 404, '不能关联他人账号的训练记录')
   assert.equal((await request(`/meals/${mealId}`, { method: 'DELETE', token })).status, 404)
   assert.equal((await request(`/plans/${planId}/adjustments`, { method: 'POST', token, ifMatch: '"1"', body: {} })).status, 404)
   const job = api.db.prepare('SELECT id FROM export_jobs LIMIT 1').get()
@@ -424,6 +541,8 @@ test('wipe requires a confirmation token and removes all user data', async () =>
   assert.equal(sessions.body.sessions.length, 0)
   const meals = await request('/meals')
   assert.equal(meals.body.meals.length, 0)
+  const analyses = await request('/analyses')
+  assert.equal(analyses.body.analyses.length, 0)
   const plans = await request(`/plans/current?week=${weekStart}`)
   assert.equal(plans.body.plan, null)
   assert.equal((await request(`/export/${pendingExport.body.jobId}`)).status, 404)

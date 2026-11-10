@@ -3,7 +3,7 @@
 // 未经运动医学或体能专业人士逐项审核；`status: 'retired'` 的条目不可用于新推荐。
 import type { TrainingType } from '@/types/domain'
 
-export const EXERCISE_CATALOG_VERSION = 'exercise-catalog-v1'
+export const EXERCISE_CATALOG_VERSION = 'exercise-catalog-v2'
 
 export const EXERCISE_SOURCE = '自编演示条目 · 参照常见居家训练动作，未经专业人士审核'
 
@@ -11,8 +11,8 @@ export const EXERCISE_SOURCE = '自编演示条目 · 参照常见居家训练�
 export type Venue = '宿舍或家' | '健身房' | '户外'
 
 export interface CameraConfig {
-  /** 取左侧关节角 */
-  joint: 'knee' | 'elbow'
+  /** 取哪一类关节角 */
+  joint: 'knee' | 'elbow' | 'hip'
   /** 起始位（坐姿/手臂下垂对应关节角小于该值，站位大于该值） */
   neutral: number
   /** 行程末端 */
@@ -22,7 +22,7 @@ export interface CameraConfig {
 }
 
 /** 有摄像头计数规则的动作名；跟练入口用它在计划里找可跟练项 */
-export const CAMERA_COUNTABLE = ['坐站训练', '站姿弯举', '弹力带弯举', '水瓶替代弯举', '弹力带划船', '高抬腿走', '动态弓步转体', '台阶上下'] as const
+export const CAMERA_COUNTABLE = ['坐站训练', '站姿弯举', '弹力带弯举', '水瓶替代弯举', '弹力带划船', '高抬腿走', '动态弓步转体', '台阶上下', '深蹲', '硬拉'] as const
 
 export interface Exercise {
   id: string
@@ -47,6 +47,8 @@ export interface Exercise {
   /** 替换候选与解释用的短句 */
   reason?: string
   camera?: CameraConfig
+  /** false 表示只用于手动替换/跟练，不进入每日自动编排 */
+  autoPlan?: boolean
   status: 'active' | 'retired'
   source: string
 }
@@ -87,7 +89,11 @@ export const exercises: Exercise[] = [
   E({ id: 'ex-easy-run', name: '轻松跑', type: '跑步', equipment: [], venues: ['户外', '健身房'], minutes: 20, sets: 1, intensity: '中', jumpFree: false, kneeFriendly: false, spineFriendly: true, howto: '保持可对话的节奏', reason: '跑步专项主项；健身房需跑步机', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-brisk-walk', name: '快走', type: '跑步', equipment: [], venues: ['户外', '健身房'], minutes: 20, sets: 1, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '步频偏快、心率温和上升', reason: '低冲击替代，不需要跑跳', status: 'active', source: EXERCISE_SOURCE }),
   E({ id: 'ex-ham-stretch', name: '大腿后侧拉伸', type: '舒缓整理', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 2, sets: 2, holdSeconds: 25, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '坐姿单腿前伸，到轻微牵拉感即止', status: 'active', source: EXERCISE_SOURCE }),
-  E({ id: 'ex-breath', name: '腹式呼吸放松', type: '舒缓整理', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 2, sets: 1, holdSeconds: 60, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '吸气鼓腹，呼气放慢', status: 'active', source: EXERCISE_SOURCE })
+  E({ id: 'ex-breath', name: '腹式呼吸放松', type: '舒缓整理', equipment: [], venues: ['宿舍或家', '健身房', '户外'], minutes: 2, sets: 1, holdSeconds: 60, intensity: '低', jumpFree: true, kneeFriendly: true, spineFriendly: true, howto: '吸气鼓腹，呼气放慢', status: 'active', source: EXERCISE_SOURCE }),
+
+  // ===== 动作分析配套的力量动作（保持目录顺序在末尾，不改变现有自动编排的首选） =====
+  E({ id: 'ex-squat', name: '深蹲', type: '其他', equipment: [], venues: ['宿舍或家', '健身房'], minutes: 3, sets: 3, reps: 10, intensity: '中', jumpFree: true, kneeFriendly: false, spineFriendly: true, howto: '双脚与肩同宽，屈髋屈膝下蹲，再平稳站起', reason: '徒手力量基础动作；可与动作分析配合复盘', camera: { joint: 'knee', neutral: 172, bottom: 95, minStageMs: 250 }, autoPlan: false, status: 'active', source: EXERCISE_SOURCE }),
+  E({ id: 'ex-deadlift', name: '硬拉', type: '其他', equipment: ['哑铃'], venues: ['宿舍或家', '健身房'], minutes: 4, sets: 3, reps: 8, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: false, howto: '哑铃贴近小腿，屈髋俯身再伸髋站直', reason: '髋主导的拉力动作；可与动作分析配合复盘', camera: { joint: 'hip', neutral: 165, bottom: 95, minStageMs: 250 }, autoPlan: false, status: 'active', source: EXERCISE_SOURCE })
 ]
 
 /** 档案"需要避开的"选项与动作门槛的对应关系 */

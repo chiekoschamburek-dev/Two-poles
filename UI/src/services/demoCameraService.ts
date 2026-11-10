@@ -142,6 +142,8 @@ export const demoExercises: DemoExercise[] = [
   makeExercise('水瓶替代弯举', '站姿弯举', 'elbow', 2, 12, 2400, buildSet(12, 'down', 'up', 2400)),
   makeExercise('弹力带划船', '其他', 'elbow', 2, 12, 2600, buildSet(12, 'down', 'up', 2600)),
   makeExercise('台阶上下', '其他', 'knee', 2, 10, 2800, buildSet(10, 'up', 'down', 2800)),
+  makeExercise('深蹲', '其他', 'knee', 3, 10, 2800, buildSet(10, 'up', 'down', 2800)),
+  makeExercise('硬拉', '其他', 'knee', 3, 8, 3000, buildSet(8, 'up', 'down', 3000)),
   makeExercise('提踵', '其他', 'calf', 2, 15, 1800, buildSet(15, 'up', 'down', 1800)),
   // —— 计时保持型（F18）——
   makeHold('靠墙静蹲', '其他', 2, 30),

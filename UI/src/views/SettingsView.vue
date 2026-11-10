@@ -342,7 +342,7 @@
       <p class="sub">导出会把档案、训练与餐食按下面的格式写到本机下载目录，不经过任何服务器。JSON 会包含已保存的照片缩略图，但不包含 IndexedDB 里的原图；CSV 不包含图片。登录后也可以让服务端生成导出作业，文件同样可被表格软件打开。</p>
       <div class="actions">
         <BaseButton :icon="Download" @click="exportData(store.privacy.exportFormat)">导出 {{ store.privacy.exportFormat === 'json' ? 'JSON' : 'CSV' }}</BaseButton>
-        <BaseButton variant="secondary" :icon="RotateCcw" :disabled="!store.sessions.length && !store.meals.length" @click="exportData('json')">另存为 JSON</BaseButton>
+        <BaseButton variant="secondary" :icon="RotateCcw" :disabled="!store.sessions.length && !store.meals.length && !store.analyses.length" @click="exportData('json')">另存为 JSON</BaseButton>
         <BaseButton v-if="syncState.user" variant="secondary" :disabled="remoteExporting" @click="exportRemoteData">{{ remoteExporting ? '服务端生成中…' : '服务端导出 CSV' }}</BaseButton>
       </div>
       <p v-if="exportError" class="error" role="alert">{{ exportError }}</p>
@@ -565,6 +565,8 @@ const payload = computed(() => ({
   meals: store.meals.map(m => ({ ...m, photoId: undefined })),
   plans: store.plans,
   planHistory: store.planHistory,
+  // 关键帧只在本机 IndexedDB，导出只带结构化结果
+  analyses: store.analyses,
   unitGrams: store.unitGrams
 }))
 const sizeKb = computed(() => Math.max(1, Math.round(new Blob([JSON.stringify(payload.value)]).size / 1024)))
@@ -620,7 +622,13 @@ function toCsv(): string {
       '计划', i.date, '', i.exerciseName, i.type,
       i.plannedDuration ?? '', i.plannedDistance ?? '', i.plannedReps ?? '', i.plannedSets ?? '', '',
       '', '', '', i.completed ? '已完成' : '待完成', `v${p.version}｜${p.mode === 'public' ? '大众' : '运动员'}｜${p.reason}`
-    ]))
+    ])),
+    ...store.analyses.map(a => [
+      '分析', a.date, '', a.exerciseName, a.action,
+      '', '', '', '', '', '', '', '',
+      a.status === 'low-confidence' ? '低置信度' : '完成',
+      `视角 ${a.view === 'side' ? '侧面' : '正面'}｜${a.findings.length} 项关注｜${a.ruleVersion}`
+    ])
   ]
   return '\ufeff' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n')
 }

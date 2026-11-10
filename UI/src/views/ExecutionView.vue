@@ -289,7 +289,7 @@ import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import { demoVideos } from '@/services/demoVideos'
 import { useAppStore } from '@/stores/app'
-import { usePoseCamera } from '@/composables/usePoseCamera'
+import { usePoseCamera, type PoseSample } from '@/composables/usePoseCamera'
 import { useRepCounter } from '@/composables/useRepCounter'
 import { useSpeech } from '@/composables/useSpeech'
 import { useStepCounter } from '@/composables/useStepCounter'
@@ -377,7 +377,14 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 
 /** F05：实时摄像头用关键点角度驱动状态机计数。 */
 const counter = shallowRef<ReturnType<typeof useRepCounter> | null>(null)
-const camJoint = ref<'knee' | 'elbow'>('knee')
+const camJoint = ref<'knee' | 'elbow' | 'hip'>('knee')
+
+function jointSample(sample: PoseSample | null) {
+  if (!sample) return { angle: null, visibility: 0, side: null as 'left' | 'right' | null }
+  if (camJoint.value === 'knee') return { angle: sample.kneeAngle, visibility: sample.kneeVisibility, side: sample.kneeSide }
+  if (camJoint.value === 'hip') return { angle: sample.hipAngle, visibility: sample.hipVisibility, side: sample.hipSide }
+  return { angle: sample.elbowAngle, visibility: sample.elbowVisibility, side: sample.elbowSide }
+}
 const calibrating = ref(false)
 /** session-RPE 量表含 0 档：0 表示几乎不费力 */
 const RPE_SCALE = Array.from({ length: 11 }, (_, i) => i)
@@ -426,9 +433,8 @@ async function calibratePose() {
   if (!c || !live.value) return
   const ok = await c.calibrate(() => {
     const sample = pose.sample.value
-    if (!sample) return null
-    const angle = camJoint.value === 'knee' ? sample.kneeAngle : sample.elbowAngle
-    return angle === null ? null : { angle, visibility: camJoint.value === 'knee' ? sample.kneeVisibility : sample.elbowVisibility, timestamp: sample.timestamp }
+    const joint = jointSample(sample)
+    return joint.angle === null || !sample ? null : { angle: joint.angle, visibility: joint.visibility, timestamp: sample.timestamp }
   })
   if (c !== counter.value) return
   store.showToast({
@@ -552,7 +558,7 @@ const startPoseHint = computed(() => {
     : isStepsMode.value
       ? '计步课次：步数由设备运动传感器负责；开启摄像头仅供自查姿态'
       : lib?.camera
-        ? `侧面面向镜头，${lib.camera.joint === 'knee' ? '髋、膝、踝' : '肩、肘、手腕'}保持清晰`
+        ? `侧面面向镜头，${lib.camera.joint === 'knee' ? '髋、膝、踝' : lib.camera.joint === 'hip' ? '肩、髋、膝' : '肩、肘、手腕'}保持清晰`
         : '该动作暂无摄像头计数规则，请使用手动计数，画面仅供姿势自查'
   return [exerciseHowto.value, station].filter(Boolean).join(' · ')
 })
@@ -632,7 +638,7 @@ const durationLabel = computed(() => {
   const total = Math.floor(elapsedMs.value / 1000)
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 })
-const jointLabel = computed(() => (camJoint.value === 'knee' ? '膝角' : '肘角'))
+const jointLabel = computed(() => (camJoint.value === 'knee' ? '膝角' : camJoint.value === 'hip' ? '髋角' : '肘角'))
 
 const stageMessage = computed(() => message.value)
 const shownConfidence = computed(() => (live.value ? pose.visibility.value : confidence.value))
@@ -709,14 +715,12 @@ watch(pose.sample, sample => {
   if (!sample || countMode.value !== 'camera' || !isRepsMode.value || !live.value || !canCount.value) return
   const c = counter.value
   if (!c) return
-  const side = camJoint.value === 'knee' ? sample.kneeSide : sample.elbowSide
-  if (countingSide && side && countingSide !== side) c.interrupt('识别侧发生变化，请回到起始姿势')
-  if (side) countingSide = side
-  const angle = camJoint.value === 'knee' ? sample.kneeAngle : sample.elbowAngle
-  const visibility = camJoint.value === 'knee' ? sample.kneeVisibility : sample.elbowVisibility
-  const result = c.feed(angle, visibility, sample.timestamp)
-  confidence.value = visibility
-  confidenceSum += visibility
+  const sampleJoint = jointSample(sample)
+  if (countingSide && sampleJoint.side && countingSide !== sampleJoint.side) c.interrupt('识别侧发生变化，请回到起始姿势')
+  if (sampleJoint.side) countingSide = sampleJoint.side
+  const result = c.feed(sampleJoint.angle, sampleJoint.visibility, sample.timestamp)
+  confidence.value = sampleJoint.visibility
+  confidenceSum += sampleJoint.visibility
   confidenceCount++
   phase.value = result.phase
   message.value = result.gate ?? (result.counted ? '已完成一次往返' : getPhaseText(result.phase, exercise.value.kind))

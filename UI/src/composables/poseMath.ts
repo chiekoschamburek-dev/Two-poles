@@ -8,15 +8,18 @@ export type PoseMetrics = {
   visibility: number
   kneeVisibility: number
   elbowVisibility: number
+  hipVisibility: number
   kneeSide: 'left' | 'right' | null
   elbowSide: 'left' | 'right' | null
+  hipSide: 'left' | 'right' | null
 }
 
 const LEFT = { shoulder: 11, elbow: 13, wrist: 15, hip: 23, knee: 25, ankle: 27 }
 const RIGHT = { shoulder: 12, elbow: 14, wrist: 16, hip: 24, knee: 26, ankle: 28 }
 export const EMPTY_POSE_METRICS: PoseMetrics = {
   kneeAngle: null, hipAngle: null, elbowAngle: null, visibility: 0,
-  kneeVisibility: 0, elbowVisibility: 0, kneeSide: null, elbowSide: null
+  kneeVisibility: 0, elbowVisibility: 0, hipVisibility: 0,
+  kneeSide: null, elbowSide: null, hipSide: null
 }
 
 export function angleAt(a: NormalizedLandmark, vertex: NormalizedLandmark, b: NormalizedLandmark): number | null {
@@ -52,15 +55,18 @@ export function computeMetrics(landmarks: NormalizedLandmark[]): PoseMetrics {
   }
   const knee = joint([LEFT.hip, LEFT.knee, LEFT.ankle], [RIGHT.hip, RIGHT.knee, RIGHT.ankle])
   const elbow = joint([LEFT.shoulder, LEFT.elbow, LEFT.wrist], [RIGHT.shoulder, RIGHT.elbow, RIGHT.wrist])
+  const hip = joint([LEFT.shoulder, LEFT.hip, LEFT.knee], [RIGHT.shoulder, RIGHT.hip, RIGHT.knee])
   return {
     visibility,
     kneeAngle: knee.angle,
-    hipAngle: angleAt(landmarks[LEFT.shoulder], landmarks[LEFT.hip], landmarks[LEFT.knee]),
+    hipAngle: hip.angle,
     elbowAngle: elbow.angle,
     kneeVisibility: knee.visibility,
     elbowVisibility: elbow.visibility,
+    hipVisibility: hip.visibility,
     kneeSide: knee.angle === null ? null : knee.side,
-    elbowSide: elbow.angle === null ? null : elbow.side
+    elbowSide: elbow.angle === null ? null : elbow.side,
+    hipSide: hip.angle === null ? null : hip.side
   }
 }
 

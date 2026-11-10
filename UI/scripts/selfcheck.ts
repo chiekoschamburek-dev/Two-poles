@@ -7,9 +7,13 @@ import { buildLoadSeries, intensitySplit, loadZone } from '@/services/loadRules'
 import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, inferMealType, suggestCategory, RULE_VERSION } from '@/services/mealRules'
 import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
 import { validateRecognitionObject, validateRecognitionText } from '@/services/foodRecognition'
-import { activeExercises, exercises, gateReason } from '@/services/exercises'
+import { activeExercises, CAMERA_COUNTABLE, exercises, EXERCISE_CATALOG_VERSION, findExercise, gateReason } from '@/services/exercises'
 import { applyPlanOverrides, getDemoExercise, guideExercise, readPlanOverrides, summarizeSession } from '@/services/demoCameraService'
 import { useRepCounter } from '@/composables/useRepCounter'
+import { createRepMachine } from '@/composables/repMachine'
+import type { RepMachineSnapshot } from '@/composables/repMachine'
+import { analyzeMotion, analyzeGait, detectView, precheckMotion, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
+import { rulesFor } from '@/services/motionRules'
 import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
@@ -19,9 +23,10 @@ import { BRIDGE_LIMITS, buildBridgeSignals, buildWeekFacts, peekLine, readDayFac
 import { buildAdjustmentSuggestions, buildFeedbackIntents, buildTimeConflictSuggestion } from '@/services/adjustmentRules'
 import { buildLongTermTrend, buildMonthlyReport, buildRollingFourWeeksReport } from '@/services/reportRules'
 import { clearOutbox, enqueue, listOutbox } from '@/services/outbox'
-import { clearStoredState, loadStoredState, STORAGE_KEYS } from '@/services/storage'
+import { clearStoredState, loadStoredState, saveStoredState, STORAGE_KEYS } from '@/services/storage'
+import { clearAnalysisKeyframes, deleteAnalysisKeyframes, getAnalysisKeyframe, saveAnalysisKeyframe } from '@/services/analysisKeyframes'
 import { toISODate } from '@/utils/time'
-import type { FoodCategory, Meal, MealItem, PersonalBest, Plan, PlanItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
+import type { FoodCategory, Meal, MealItem, MotionAnalysis, MotionAnalysisFinding, MotionAnalysisMetric, PersonalBest, Plan, PlanItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
 let passed = 0
@@ -1318,6 +1323,392 @@ try {
   store.planFeedbackText = textBeforeFeedbackCheck
   globalThis.fetch = fetchBeforeImageCheck
 }
+
+console.log('\n28. 视频分析：计数状态机纯函数复用')
+const pureRule = { neutral: 170, bottom: 55, hysteresis: 8, minStageMs: 100, minRepMs: 700, maxStageMs: 6000, minVisibility: 0.5 }
+const machine = createRepMachine(pureRule)
+let mt = 0
+let countedEvents = 0
+let countedSnapshot: RepMachineSnapshot | null = null
+let machineSnapshot = machine.snapshot()
+const machineStage = (angle: number | null, frames = 8, vis = 0.95) => {
+  for (let i = 0; i < frames; i++) {
+    mt += 90
+    machineSnapshot = machine.feed(angle, vis, mt)
+    if (machineSnapshot.counted) { countedEvents++; countedSnapshot = machineSnapshot }
+  }
+  return machineSnapshot
+}
+machineStage(172); machineStage(170)
+machineStage(50); machineStage(48)
+machineStage(170); machineStage(172)
+ok('纯状态机复现完整行程计数', machineSnapshot.count === 1 && countedEvents === 1, `count=${machineSnapshot.count}`)
+ok('纯状态机给出这次重复的起止时间', !!countedSnapshot?.lastRep && countedSnapshot.lastRep.endMs > countedSnapshot.lastRep.startMs)
+ok('计数瞬间阶段为 complete 且无门禁', countedSnapshot?.phase === 'complete' && countedSnapshot.gate === null)
+
+const wrapped = useRepCounter(pureRule)
+const mirrored = createRepMachine(pureRule)
+const mixedSequence: (number | null)[] = [172, 172, 170, 90, 50, 48, 60, 120, 170, 172, 50, 55, 170, 172, null, 170]
+let replayTs = 0
+let mismatch = 0
+for (const angle of mixedSequence) {
+  replayTs += 90
+  const live = wrapped.feed(angle, 0.95, replayTs)
+  const pure = mirrored.feed(angle, 0.95, replayTs)
+  if (live.phase !== pure.phase || live.counted !== pure.counted || live.gate !== pure.gate) mismatch++
+}
+ok('纯状态机与实时包装逐步一致', mismatch === 0 && wrapped.count.value === mirrored.snapshot().count,
+  `mismatch=${mismatch} live=${wrapped.count.value} pure=${mirrored.snapshot().count}`)
+
+machine.interrupt('暂停')
+ok('interrupt 把阶段重置并把门禁交回调用方', machine.snapshot().phase === 'ready' && machine.snapshot().gate === '暂停')
+machine.reset('开始')
+ok('reset 清空次数与最近一次重复', machine.snapshot().count === 0 && machine.snapshot().lastRep === null)
+
+console.log('\n29. 视频分析：深蹲侧面规则')
+const pointAt = (x: number, y: number, visibility = 0.95) => ({ x, y, visibility })
+function legFrame(timeMs: number, kneeAngle: number, lean: number, hipBelow: boolean): MotionFrame {
+  const knee = pointAt(0.5, 0.6)
+  const thighAngle = hipBelow ? 8 : -82
+  const hip = pointAt(
+    knee.x + 0.2 * Math.cos(thighAngle * Math.PI / 180),
+    knee.y + 0.2 * Math.sin(thighAngle * Math.PI / 180)
+  )
+  const shinAngle = thighAngle + kneeAngle
+  const ankle = pointAt(
+    knee.x + 0.2 * Math.cos(shinAngle * Math.PI / 180),
+    knee.y + 0.2 * Math.sin(shinAngle * Math.PI / 180)
+  )
+  const leanRad = lean * Math.PI / 180
+  const shoulder = pointAt(hip.x + 0.4 * Math.sin(leanRad), hip.y - 0.4 * Math.cos(leanRad))
+  return {
+    timeMs,
+    visibility: 0.95,
+    points: {
+      shoulder: { left: shoulder, right: shoulder },
+      hip: { left: hip, right: hip },
+      knee: { left: knee, right: knee },
+      ankle: { left: ankle, right: ankle },
+      heel: { left: null, right: null },
+      toe: { left: null, right: null }
+    }
+  }
+}
+function withOffset(frame: MotionFrame, offset: number): MotionFrame {
+  const shift = (p: { x: number; y: number; visibility: number } | null) => p ? { ...p, x: p.x + offset } : null
+  return {
+    timeMs: frame.timeMs,
+    visibility: frame.visibility,
+    points: {
+      shoulder: { left: shift(frame.points.shoulder.left), right: shift(frame.points.shoulder.right) },
+      hip: { left: shift(frame.points.hip.left), right: shift(frame.points.hip.right) },
+      knee: { left: shift(frame.points.knee.left), right: shift(frame.points.knee.right) },
+      ankle: { left: shift(frame.points.ankle.left), right: shift(frame.points.ankle.right) },
+      heel: { left: null, right: null },
+      toe: { left: null, right: null }
+    }
+  }
+}
+function buildSquatSeries(options: { reps: number; bottomKnee?: number; hipBelow?: boolean; lean?: number }): MotionFrameSeries {
+  const fps = 15
+  const step = 1000 / fps
+  const bottom = options.bottomKnee ?? 100
+  const frames: MotionFrame[] = []
+  let time = step
+  const push = (angle: number) => {
+    const depthLean = options.lean ?? 25
+    const range = 172 - bottom
+    const progress = range === 0 ? 0 : Math.max(0, Math.min(1, (172 - angle) / range))
+    const lean = 5 + (depthLean - 5) * progress
+    frames.push(legFrame(time, angle, lean, (options.hipBelow ?? true) && angle < 130))
+    time += step
+  }
+  for (let rep = 0; rep < options.reps; rep++) {
+    for (let i = 0; i < 5; i++) push(172)
+    for (let i = 1; i <= 8; i++) push(172 + (bottom - 172) * i / 8)
+    for (let i = 0; i < 5; i++) push(bottom)
+    for (let i = 1; i <= 8; i++) push(bottom + (172 - bottom) * i / 8)
+  }
+  // 收尾停稳，让最后一次回到起始位也能被确认
+  for (let i = 0; i < 5; i++) push(172)
+  return { action: 'squat', fps, frames }
+}
+const goodSquat = buildSquatSeries({ reps: 2 })
+ok('侧面视角识别为 side', detectView(goodSquat.frames).view === 'side')
+const frontFrames = buildSquatSeries({ reps: 1 }).frames.map(frame =>
+  ({
+    ...withOffset(frame, -0.12),
+    points: {
+      ...withOffset(frame, -0.12).points,
+      shoulder: { left: withOffset(frame, -0.12).points.shoulder.left, right: withOffset(frame, 0.12).points.shoulder.right },
+      hip: { left: withOffset(frame, -0.12).points.hip.left, right: withOffset(frame, 0.12).points.hip.right },
+      knee: { left: withOffset(frame, -0.12).points.knee.left, right: withOffset(frame, 0.12).points.knee.right },
+      ankle: { left: withOffset(frame, -0.12).points.ankle.left, right: withOffset(frame, 0.12).points.ankle.right }
+    }
+  }) as MotionFrame)
+ok('正面视角识别为 front', detectView(frontFrames).view === 'front')
+const ambiguous = buildSquatSeries({ reps: 1 }).frames.map(frame => {
+  const left = withOffset(frame, -0.07)
+  const right = withOffset(frame, 0.07)
+  return {
+    ...frame,
+    points: {
+      shoulder: { left: left.points.shoulder.left, right: right.points.shoulder.right },
+      hip: { left: left.points.hip.left, right: right.points.hip.right },
+      knee: { left: left.points.knee.left, right: right.points.knee.right },
+      ankle: { left: left.points.ankle.left, right: right.points.ankle.right },
+      heel: { left: null, right: null },
+      toe: { left: null, right: null }
+    }
+  } as MotionFrame
+})
+ok('模糊视角不硬判', detectView(ambiguous).view === null)
+const goodResult = analyzeMotion({ ...goodSquat, view: 'side' })
+ok('两次完整深蹲计数为 2', goodResult.repCount === 2, String(goodResult.repCount))
+ok('标准动作不产生关注项', goodResult.findings.length === 0, goodResult.findings.map(f => f.ruleId).join(','))
+ok('节奏测量值随结果输出', goodResult.metrics.some(m => m.id === 'metric-rep-count' && m.value === 2)
+  && goodResult.metrics.some(m => m.id === 'metric-eccentric' && m.value !== '—'))
+const shallowSquat = analyzeMotion({ ...buildSquatSeries({ reps: 1, hipBelow: false }), view: 'side' })
+ok('浅蹲产生深度关注项', shallowSquat.findings.some(f => f.ruleId === 'SQ-SE-01'))
+const bentSquat = analyzeMotion({ ...buildSquatSeries({ reps: 1, bottomKnee: 60 }), view: 'side' })
+ok('膝角偏离参考区间产生关注项', bentSquat.findings.some(f => f.ruleId === 'SQ-SE-02'))
+const leaningSquat = analyzeMotion({ ...buildSquatSeries({ reps: 1, lean: 60 }), view: 'side' })
+ok('躯干前倾偏大产生关注项', leaningSquat.findings.some(f => f.ruleId === 'SQ-SE-03'),
+  `reps=${leaningSquat.repCount} findings=${JSON.stringify(leaningSquat.findings.map(f => [f.ruleId, f.measured]))} metrics=${JSON.stringify(leaningSquat.metrics)}`)
+ok('所有关注项都有文献出处', [shallowSquat, bentSquat, leaningSquat].every(result =>
+  result.findings.every(f => f.sourceLabel.includes('NSCA'))))
+ok('结果不含评分字段', !('score' in goodResult) && goodResult.findings.every(f => !('score' in f)))
+const goodPrecheck = precheckMotion(goodSquat)
+ok('合格视频可分析并提示力量动作歧义', goodPrecheck.verdict === 'degraded'
+  && goodPrecheck.view === 'side' && goodPrecheck.repCount === 2
+  && goodPrecheck.reasons.some(reason => reason.includes('深蹲与硬拉')))
+const lowVisibility = goodSquat.frames.map((frame, index) => index % 3 === 0 ? frame : { ...frame, visibility: 0.2 })
+const degradedPrecheck = precheckMotion({ ...goodSquat, frames: lowVisibility })
+ok('可见度偏低走降级而不是拒绝', degradedPrecheck.verdict === 'degraded'
+  && degradedPrecheck.reasons.some(reason => reason.includes('可见度')))
+const stillFrames = buildSquatSeries({ reps: 1, bottomKnee: 172 })
+const noRepPrecheck = precheckMotion(stillFrames)
+ok('没有完整重复时降级并说明', noRepPrecheck.verdict === 'degraded' && noRepPrecheck.repCount === 0
+  && noRepPrecheck.reasons.some(reason => reason.includes('完整重复')))
+const emptyPrecheck = precheckMotion({ action: 'squat', fps: 15, frames: [] })
+ok('没有人体时拒绝', emptyPrecheck.verdict === 'rejected' && emptyPrecheck.view === null)
+const unknownViewPrecheck = precheckMotion({ action: 'squat', fps: 15, frames: ambiguous })
+ok('视角无法判定时拒绝', unknownViewPrecheck.verdict === 'rejected'
+  && unknownViewPrecheck.reasons.some(reason => reason.includes('视角')))
+
+console.log('\n31. 视频分析：深蹲正面与硬拉规则')
+const baseRep = (overrides: Partial<RepAnalysis> = {}): RepAnalysis => ({
+  index: 1, startMs: 0, endMs: 1000, bottomMs: 500,
+  bottomKneeAngle: 100, bottomHipAngle: 120, bottomTrunkAngle: 20,
+  endKneeAngle: 170, endHipAngle: 170, endTrunkAngle: 5,
+  depthOffset: 0.1, leftKneeAngle: 100, rightKneeAngle: 103,
+  kneeAnkleRatio: 1, shoulderHeightDiff: 0.01, hipHeightDiff: 0.01,
+  eccentricMs: 600, bottomHoldMs: 300,
+  ...overrides
+})
+const squatFrontRules = rulesFor('squat', 'front')
+const valgusContext = { action: 'squat' as const, view: 'front' as const, fps: 15, reps: [baseRep({ kneeAnkleRatio: 0.5 })] }
+const valgusFindings = squatFrontRules.find(rule => rule.id === 'SQ-FR-01')!.evaluate(valgusContext) as MotionAnalysisFinding[]
+ok('深蹲正面膝内扣命中并带出处', valgusFindings.length === 1
+  && valgusFindings[0].measured === 0.5 && valgusFindings[0].sourceLabel.includes('Hewett'))
+const normalValgus = squatFrontRules.find(rule => rule.id === 'SQ-FR-01')!
+  .evaluate({ ...valgusContext, reps: [baseRep({ kneeAnkleRatio: 0.95 })] }) as MotionAnalysisFinding[]
+ok('深蹲正面正常站距不误报', normalValgus.length === 0)
+const symmetryMetrics = squatFrontRules.find(rule => rule.id === 'SQ-FR-02')!.evaluate(valgusContext) as MotionAnalysisMetric[]
+ok('左右膝角差只进测量值', symmetryMetrics.some(metric => metric.id === 'metric-knee-asymmetry' && metric.value === 3))
+
+const deadliftSideRules = rulesFor('deadlift', 'side')
+const deadliftContext = { action: 'deadlift' as const, view: 'side' as const, fps: 15, reps: [baseRep({ endHipAngle: 150, endTrunkAngle: 20, bottomTrunkAngle: 55 })] }
+const hipFindings = deadliftSideRules.find(rule => rule.id === 'DL-SE-03')!.evaluate(deadliftContext) as MotionAnalysisFinding[]
+ok('硬拉锁定伸髋不完整命中', hipFindings.length === 1 && hipFindings[0].measured === 150)
+const lockoutFindings = deadliftSideRules.find(rule => rule.id === 'DL-SE-02')!.evaluate(deadliftContext) as MotionAnalysisFinding[]
+ok('硬拉锁定姿态偏离竖直命中', lockoutFindings.length === 1 && lockoutFindings[0].measured === 20)
+const normalDeadlift = { ...deadliftContext, reps: [baseRep({ endHipAngle: 172, endTrunkAngle: 6 })] }
+ok('硬拉正常锁定不误报', (deadliftSideRules.find(rule => rule.id === 'DL-SE-03')!.evaluate(normalDeadlift) as unknown[]).length === 0
+  && (deadliftSideRules.find(rule => rule.id === 'DL-SE-02')!.evaluate(normalDeadlift) as unknown[]).length === 0)
+const deadliftMetrics = deadliftSideRules.find(rule => rule.id === 'DL-SE-04')!.evaluate(deadliftContext) as MotionAnalysisMetric[]
+ok('硬拉节奏与最低点躯干角进测量值', deadliftMetrics.some(metric => metric.id === 'metric-bottom-trunk' && metric.value === 55))
+const deadliftFrontMetrics = rulesFor('deadlift', 'front')[0].evaluate({
+  action: 'deadlift', view: 'front', fps: 15,
+  reps: [baseRep({ shoulderHeightDiff: 0.03, hipHeightDiff: 0.02 })]
+}) as MotionAnalysisMetric[]
+ok('硬拉正面只出左右对称测量值', deadliftFrontMetrics.some(metric => metric.id === 'metric-shoulder-diff' && metric.value === 0.03)
+  && deadliftFrontMetrics.some(metric => metric.id === 'metric-hip-diff' && metric.value === 0.02))
+
+console.log('\n32. 视频分析：跑姿侧面步态与规则')
+function runningFrame(timeMs: number, options: { spread?: number; kneeForward?: number; inwardFactor?: number; trunkLean?: number } = {}): MotionFrame {
+  const spread = options.spread ?? 0
+  const forward = options.kneeForward ?? 0.07
+  const inward = options.inwardFactor ?? 1
+  const lean = (options.trunkLean ?? 11) * Math.PI / 180
+  const side = (direction: number, phase: number) => {
+    const hipX = 0.5 + spread * direction
+    const hipY = 0.38 + 0.004 * Math.sin(2 * Math.PI * timeMs / 500)
+    const kneeX = 0.5 + spread * direction * inward
+    const ankleY = 0.72 + 0.035 * Math.cos(2 * Math.PI * timeMs / 600 + phase)
+    const ankleX = 0.5 + spread * direction + forward
+    const shoulderX = hipX - 0.26 * Math.sin(lean)
+    const shoulderY = hipY - 0.26 * Math.cos(lean)
+    return {
+      hip: pointAt(hipX, hipY),
+      knee: pointAt(kneeX, 0.56),
+      ankle: pointAt(ankleX, ankleY),
+      shoulder: pointAt(shoulderX, shoulderY)
+    }
+  }
+  const left = side(-1, 0)
+  const right = side(1, Math.PI)
+  return {
+    timeMs,
+    visibility: 0.95,
+    points: {
+      shoulder: { left: left.shoulder, right: right.shoulder },
+      hip: { left: left.hip, right: right.hip },
+      knee: { left: left.knee, right: right.knee },
+      ankle: { left: left.ankle, right: right.ankle },
+      heel: { left: null, right: null },
+      toe: { left: null, right: null }
+    }
+  }
+}
+const runningFrames = Array.from({ length: 120 }, (_, index) => runningFrame((index + 1) * (1000 / 30)))
+const gait = analyzeGait(runningFrames, 30)
+ok('跑姿至少识别 5 个步态周期', gait.cycles >= 5, `cycles=${gait.cycles}`)
+ok('跑姿步频为合理正数', gait.cadence !== null && gait.cadence > 120, `cadence=${gait.cadence}`)
+ok('跑姿触地时间与垂直振幅可测', gait.contactTimeMs !== null && gait.verticalOscillation !== null)
+const runningResult = analyzeMotion({ action: 'running', view: 'side', fps: 30, frames: runningFrames })
+ok('跑姿结果给步态周期而不是重复次数', runningResult.repCount === null && runningResult.gaitCycles === gait.cycles)
+ok('正常跑姿不误报触地膝过伸', !runningResult.findings.some(finding => finding.ruleId === 'RUN-SE-02'))
+ok('跑姿步频与代理指标进测量值', runningResult.metrics.some(metric => metric.id === 'metric-cadence')
+  && runningResult.metrics.some(metric => metric.id === 'metric-contact-time')
+  && runningResult.metrics.some(metric => metric.id === 'metric-contact-diff')
+  && runningResult.metrics.some(metric => metric.id === 'metric-vertical'))
+const overextendedFrames = Array.from({ length: 120 }, (_, index) => runningFrame((index + 1) * (1000 / 30), { kneeForward: 0.01 }))
+const overextendedResult = analyzeMotion({ action: 'running', view: 'side', fps: 30, frames: overextendedFrames })
+ok('触地膝角过伸命中', overextendedResult.findings.some(finding => finding.ruleId === 'RUN-SE-02'))
+const leaningFrames = Array.from({ length: 120 }, (_, index) => runningFrame((index + 1) * (1000 / 30), { trunkLean: 30 }))
+const leaningResult = analyzeMotion({ action: 'running', view: 'side', fps: 30, frames: leaningFrames })
+ok('躯干前倾偏离参考区间命中', leaningResult.findings.some(finding => finding.ruleId === 'RUN-SE-01'))
+const noGaitPrecheck = precheckMotion({ action: 'running', fps: 15, frames: stillFrames.frames })
+ok('跑姿没有连续步态时拒绝', noGaitPrecheck.verdict === 'rejected')
+const wrongActionPrecheck = precheckMotion({ action: 'squat', fps: 30, frames: runningFrames })
+ok('力量动作选到交替跑姿视频时拒绝', wrongActionPrecheck.verdict === 'rejected'
+  && wrongActionPrecheck.reasons.some(reason => reason.includes('跑步步态')))
+const stillStrengthPrecheck = precheckMotion({ action: 'squat', fps: 15, frames: stillFrames.frames })
+ok('双脚不交替的动作不误判为跑姿', stillStrengthPrecheck.verdict !== 'rejected')
+const fewCyclesPrecheck = precheckMotion({ action: 'running', fps: 30, frames: runningFrames.slice(0, 30) })
+ok('跑姿周期不足时降级', fewCyclesPrecheck.verdict === 'degraded' && (fewCyclesPrecheck.gaitCycles ?? 0) < 5)
+
+console.log('\n33. 视频分析：跑姿正面规则')
+const frontRunFrames = Array.from({ length: 120 }, (_, index) =>
+  runningFrame((index + 1) * (1000 / 30), { spread: 0.06, inwardFactor: 0.5 }))
+const frontRunGait = analyzeGait(frontRunFrames, 30)
+ok('正面触地膝间/踝间比可测', frontRunGait.contactKneeAnkleRatio !== null
+  && frontRunGait.contactKneeAnkleRatio < 0.8, String(frontRunGait.contactKneeAnkleRatio))
+const frontRunResult = analyzeMotion({ action: 'running', view: 'front', fps: 30, frames: frontRunFrames })
+ok('正面跑姿膝内扣命中', frontRunResult.findings.some(finding => finding.ruleId === 'RUN-FR-01'))
+ok('正面跑姿不出侧面步频关注项', !frontRunResult.findings.some(finding => finding.ruleId.startsWith('RUN-SE')))
+ok('正面跑姿左右对称进测量值', frontRunResult.metrics.some(metric => metric.id === 'metric-shoulder-diff')
+  && frontRunResult.metrics.some(metric => metric.id === 'metric-hip-diff'))
+
+console.log('\n34. 分析记录持久化与关键帧')
+const analysisRecord: MotionAnalysis = {
+  id: 'analysis-1',
+  userId: 'demo-user',
+  date: '2026-11-10',
+  action: 'squat',
+  exerciseName: '深蹲',
+  view: 'side',
+  status: 'completed',
+  lowConfidenceReasons: [],
+  findings: [{
+    id: 'analysis-1-f0',
+    ruleId: 'SQ-SE-01',
+    title: '下蹲深度不足',
+    detail: '第 1 次最低点髋部没有低于膝部',
+    timeMs: 1200,
+    measured: -0.2,
+    unit: '（归一化差值）',
+    thresholdLabel: '最低点髋点低于膝点（≥ 0）',
+    sourceLabel: 'NSCA《Essentials of Strength Training and Conditioning》第4版 · 深蹲技术要点',
+    keyframeRef: 'analysis-1-f0'
+  }],
+  metrics: [{ id: 'metric-rep-count', label: '完整重复次数', value: 1 }],
+  repCount: 1,
+  gaitCycles: null,
+  ruleVersion: 'motion-analysis-rules-v1',
+  createdAt: '2026-11-10T08:00:00.000Z',
+  _sync: 'pending'
+}
+const currentStored = loadStoredState()
+saveStoredState({ ...currentStored, analyses: [analysisRecord] })
+ok('分析记录按分类 key 落盘', (mem.get(STORAGE_KEYS.analyses) ?? '').includes('analysis-1'))
+ok('关键帧只存引用，不把图片塞进 localStorage', !(mem.get(STORAGE_KEYS.analyses) ?? '').includes('data:image'))
+const reloaded = loadStoredState()
+ok('刷新后能读回分析记录与关键帧引用', reloaded.analyses?.length === 1
+  && reloaded.analyses[0].findings[0]?.keyframeRef === 'analysis-1-f0')
+const beforeAdd = store.analyses.length
+store.addAnalysis({ ...analysisRecord, id: 'analysis-2', createdAt: '2026-11-10T09:00:00.000Z' })
+ok('addAnalysis 写入状态并落盘', store.analyses.length === beforeAdd + 1
+  && store.analyses[0].id === 'analysis-2'
+  && (mem.get(STORAGE_KEYS.analyses) ?? '').includes('analysis-2'))
+store.removeAnalysis('analysis-2')
+ok('removeAnalysis 从状态与存储移除', !store.analyses.some(item => item.id === 'analysis-2')
+  && !(mem.get(STORAGE_KEYS.analyses) ?? '').includes('analysis-2'))
+store.addAnalysis({ ...analysisRecord, id: 'analysis-link', createdAt: '2026-11-10T10:00:00.000Z' })
+const linkOk = store.linkAnalysisToSession('analysis-link', 'local-session-1')
+const linkedAnalysis = store.analyses.find(item => item.id === 'analysis-link')
+ok('分析记录可关联训练记录', linkOk && linkedAnalysis?.sessionId === 'local-session-1' && linkedAnalysis?._sync === 'pending')
+store.linkAnalysisToSession('analysis-link', undefined)
+ok('取消关联写回 undefined', !store.analyses.find(item => item.id === 'analysis-link')?.sessionId)
+store.removeAnalysis('analysis-link')
+clearStoredState()
+ok('旧状态没有 analyses key 时按空处理', (loadStoredState().analyses ?? []).length === 0)
+await saveAnalysisKeyframe('analysis-1-f0', new Blob(['x']))
+ok('无 IndexedDB 环境写入关键帧不抛错', (await getAnalysisKeyframe('analysis-1-f0')) === null)
+await deleteAnalysisKeyframes(['analysis-1-f0'])
+await clearAnalysisKeyframes()
+ok('无 IndexedDB 环境删除关键帧不抛错', true)
+
+console.log('\n35. 深蹲/硬拉进入动作库与跟练')
+ok('动作库版本升到 v2', EXERCISE_CATALOG_VERSION === 'exercise-catalog-v2')
+const squatExercise = findExercise('深蹲')
+const deadliftExercise = findExercise('硬拉')
+ok('深蹲/硬拉作为「其他」类型进入动作库', squatExercise?.status === 'active' && deadliftExercise?.status === 'active'
+  && squatExercise.type === '其他' && deadliftExercise.type === '其他')
+ok('深蹲用膝角、硬拉用髋角计数', squatExercise?.camera?.joint === 'knee' && deadliftExercise?.camera?.joint === 'hip')
+ok('深蹲/硬拉不进入每日自动编排池', squatExercise?.autoPlan === false && deadliftExercise?.autoPlan === false)
+ok('两个新动作进入可计数清单', (CAMERA_COUNTABLE as readonly string[]).includes('深蹲')
+  && (CAMERA_COUNTABLE as readonly string[]).includes('硬拉'))
+const rowAlternatives = alternativesFor(findExercise('弹力带划船')!, null).map(alternative => alternative.name)
+ok('深蹲/硬拉出现在同类型替换候选', rowAlternatives.includes('深蹲') && rowAlternatives.includes('硬拉'))
+const mondayPlan = buildDayPlan(new Date(2026, 10, 9), null)
+ok('自动编排顺序不变，仍先选原「其他」动作', mondayPlan.items.some(item => item.exerciseName === '靠墙静蹲')
+  && !mondayPlan.items.some(item => item.exerciseName === '深蹲'))
+ok('跟练条目包含深蹲/硬拉且为计次模式', getDemoExercise('深蹲').repsPerSet === 10
+  && getDemoExercise('硬拉').repsPerSet === 8 && getDemoExercise('硬拉').mode === 'reps')
+const hipRightBody = body({
+  11: { x: 0.3, y: 0.2, visibility: 0.2 }, 23: { x: 0.5, y: 0.2, visibility: 0.2 }, 25: { x: 0.5, y: 0.5, visibility: 0.2 },
+  12: { x: 0.3, y: 0.2, visibility: 0.95 }, 24: { x: 0.5, y: 0.2, visibility: 0.95 }, 26: { x: 0.8, y: 0.5, visibility: 0.95 }
+})
+const hipMetrics = computeMetrics(hipRightBody)
+ok('髋角按可见侧择优', hipMetrics.hipSide === 'right' && hipMetrics.hipAngle === 135,
+  `side=${hipMetrics.hipSide} angle=${hipMetrics.hipAngle}`)
+
+console.log('\n36. 分析记录同步队列')
+clearOutbox()
+enqueue('analysis.create', 'local-analysis-a', { id: 'local-analysis-a' })
+enqueue('analysis.update', 'local-analysis-a', { id: 'local-analysis-a', sessionId: 'session-1' })
+const mergedAnalysisOps = listOutbox()
+ok('分析更新合并进未上传的创建', mergedAnalysisOps.length === 1
+  && mergedAnalysisOps[0].kind === 'analysis.create'
+  && (mergedAnalysisOps[0].payload as { sessionId?: string }).sessionId === 'session-1')
+enqueue('analysis.delete', 'local-analysis-a', { id: 'local-analysis-a' })
+const analysisDeleteOps = listOutbox()
+ok('分析删除吸收创建与更新', analysisDeleteOps.length === 1 && analysisDeleteOps[0].kind === 'analysis.delete')
+enqueue('analysis.create', 'local-analysis-b', { id: 'local-analysis-b' })
+ok('不同 clientId 的分析创建各自保留', listOutbox().length === 2)
+clearOutbox()
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

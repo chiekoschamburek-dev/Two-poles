@@ -28,6 +28,72 @@ export type TrainingType =
 
 export type ExercisePhase = 'idle' | 'ready' | 'down' | 'up' | 'occluded' | 'complete'
 
+// === Motion Analysis ===
+
+export type AnalysisAction = 'squat' | 'deadlift' | 'running'
+export type AnalysisView = 'side' | 'front'
+export type AnalysisStatus = 'completed' | 'low-confidence'
+
+export interface MotionAnalysisFinding {
+  id?: string
+  ruleId: string
+  title: string
+  detail: string
+  timeMs: number | null
+  measured: number | null
+  unit?: string
+  thresholdLabel: string
+  sourceLabel: string
+  sourceUrl?: string
+  /** 本机 IndexedDB 引用；同步到其他设备后取不到图 */
+  keyframeRef?: string
+}
+
+export interface MotionAnalysisMetric {
+  id: string
+  label: string
+  value: number | string
+  unit?: string
+}
+
+export interface MotionAnalysisResult {
+  findings: MotionAnalysisFinding[]
+  metrics: MotionAnalysisMetric[]
+  repCount: number | null
+  gaitCycles: number | null
+  usableRatio: number
+}
+
+export interface MotionPrecheckResult {
+  verdict: 'ok' | 'degraded' | 'rejected'
+  reasons: string[]
+  view: AnalysisView | null
+  repCount: number | null
+  gaitCycles: number | null
+}
+
+export interface MotionAnalysis {
+  id: string
+  userId: string
+  date: string
+  action: AnalysisAction
+  exerciseName: string
+  view: AnalysisView
+  status: AnalysisStatus
+  lowConfidenceReasons: string[]
+  findings: MotionAnalysisFinding[]
+  metrics: MotionAnalysisMetric[]
+  repCount: number | null
+  gaitCycles: number | null
+  sessionId?: string
+  ruleVersion: string
+  createdAt: string
+  clientId?: string
+  serverId?: string
+  updatedAt?: string
+  _sync?: SyncState
+}
+
 // === User & Profile ===
 
 /** 目标类型：比赛目标与周期目标二选一，但两边的已填内容都要留住 */
@@ -63,6 +129,7 @@ export interface UserProfile {
 
   // Common fields
   nickname?: string
+  avatarDataUrl?: string
   age: number
   goal: string
   experience: string

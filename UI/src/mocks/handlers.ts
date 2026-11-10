@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import type { AuthUser } from '@/services/api/auth'
 import type { RemoteSyncSnapshot } from '@/services/api/sync'
-import type { Meal, Plan, PrivacySettings, TrainingSession, UserProfile } from '@/types/domain'
+import type { Meal, MotionAnalysis, Plan, PrivacySettings, TrainingSession, UserProfile } from '@/types/domain'
 import { buildWeeklyReport } from '@/services/weekRules'
 
 /** 仅供开发联调的单账号内存适配器；测试和浏览器使用同一份 v1 契约。 */
@@ -14,8 +14,14 @@ export function createMockApi() {
     privacy: null as PrivacySettings | null,
     sessions: [] as TrainingSession[],
     meals: [] as Meal[],
+    analyses: [] as MotionAnalysis[],
     plans: [] as Plan[],
-    deleted: { sessions: [] as { id: string; clientId?: string }[], meals: [] as { id: string; clientId?: string }[], plans: [] },
+    deleted: {
+      sessions: [] as { id: string; clientId?: string }[],
+      meals: [] as { id: string; clientId?: string }[],
+      plans: [],
+      analyses: [] as { id: string; clientId?: string }[]
+    },
     idempotency: new Map<string, unknown>(),
     adjustments: new Map<string, { id: string; planId: string; baseVersion: number; changes: { itemId: string; newValue?: object }[] }>(),
     exports: new Map<string, { format: string; content: string }>()
@@ -52,12 +58,12 @@ export function createMockApi() {
     }
     if (path === '/sync') {
       const snapshot: RemoteSyncSnapshot = { serverTime: stamp(), profile: state.profile, privacy: state.privacy,
-        sessions: state.sessions, meals: state.meals, plans: state.plans, modeLog: [], deleted: state.deleted }
+        sessions: state.sessions, meals: state.meals, analyses: state.analyses, plans: state.plans, modeLog: [], deleted: state.deleted }
       return HttpResponse.json(snapshot)
     }
-    for (const resource of ['sessions', 'meals'] as const) {
+    for (const resource of ['sessions', 'meals', 'analyses'] as const) {
       if (path === `/${resource}` && method === 'GET') return HttpResponse.json({ [resource]: state[resource] })
-      const singular = resource === 'sessions' ? 'session' : 'meal'
+      const singular = resource === 'sessions' ? 'session' : resource === 'meals' ? 'meal' : 'analysis'
       if (path === `/${resource}` && method === 'POST') {
         const key = `${resource}:${request.headers.get('idempotency-key') ?? body.clientId ?? body.id}`
         const cached = state.idempotency.get(key)
