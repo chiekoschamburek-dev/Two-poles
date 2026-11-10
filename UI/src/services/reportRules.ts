@@ -6,7 +6,6 @@ import { isPlanDay } from '@/services/planRules'
 import { FOOD_CATEGORIES, RULE_VERSION } from '@/services/mealRules'
 import { loadOf } from '@/services/weekRules'
 
-export type ReportBlockMode = 'rolling-28d' | 'month-1st-7d'
 export type LoadCompleteness = 'complete' | 'incomplete' | 'none'
 
 export interface ReportBlock {

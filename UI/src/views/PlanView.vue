@@ -12,7 +12,6 @@
       </div>
       <div class="version">
         <History :size="16" /> 当前版本 <strong>{{ plan ? `v${plan.version}` : '未生成' }}</strong>
-        <button class="regen" title="用内置规则按当前档案重算，不调用模型" @click="regenerate">按规则重算</button>
         <button
           class="regen ai"
           :disabled="!store.planLlmReady"
@@ -138,7 +137,6 @@
           </div>
           <div class="legend">
             <span><i class="dot plan"></i>计划训练</span>
-            <span><i class="dot locked"></i>锁定项目</span>
             <span><i class="dot rest-dot"></i>休息日</span>
           </div>
         </BaseCard>
@@ -153,9 +151,8 @@
               <textarea v-model="store.planFeedbackText" rows="3" maxlength="1000" placeholder="例如：周四没时间，把轻松跑移到周五，时长缩短到 20 分钟。" required />
             </label>
             <p>反馈、所选周计划和相关档案条件会发送给当前模型。确认草稿后才会更新计划。</p>
-            <p v-if="plan?.locked">当前计划已锁定。</p>
             <p v-if="!store.planLlmReady">请先在 <RouterLink to="/settings">设置</RouterLink> 中启用可用模型。</p>
-            <BaseButton type="submit" size="sm" :disabled="!plan || plan.locked || !store.planLlmReady || !store.planFeedbackText.trim()">
+            <BaseButton type="submit" size="sm" :disabled="!plan || !store.planLlmReady || !store.planFeedbackText.trim()">
               根据反馈调整计划
             </BaseButton>
           </form>
@@ -172,8 +169,7 @@
 
         <div class="detail-hero">
           <div class="detail-icon"><Dumbbell :size="16" /></div>
-          <div><h3>{{ planForSelected.length ? planTitle : '今日休息' }}</h3><p>{{ planForSelected.length ? '按当前条件安排 · 可锁定、替换或标记完成' : '不安排训练，也不影响后续计划' }}</p></div>
-          <Lock v-if="planForSelected.some(i => i.locked)" :size="17" class="lock" />
+          <div><h3>{{ planForSelected.length ? planTitle : '今日休息' }}</h3><p>{{ planForSelected.length ? '按当前条件安排 · 可替换或标记完成' : '不安排训练，也不影响后续计划' }}</p></div>
         </div>
 
         <div
@@ -185,7 +181,7 @@
           <div class="item-icon"><component :is="iconFor(item.type)" :size="17" /></div>
           <div class="item-info">
             <strong>{{ item.exerciseName }}</strong>
-            <small>{{ item.note }}<em v-if="item.locked"> · 已锁定</em><span v-if="item.completed" class="visually-hidden"> · 已完成</span></small>
+            <small>{{ item.note }}<span v-if="item.completed" class="visually-hidden"> · 已完成</span></small>
           </div>
           <span class="spec">{{ planSpec(item) }}<template v-if="plan?.source !== 'image' && item.plannedDuration !== undefined"> · {{ item.plannedDuration }} min</template></span>
           <div class="item-actions">
@@ -199,7 +195,6 @@
               @click="startItem(item)"
             >跟练</button>
             <button class="mini" :aria-pressed="item.completed" :disabled="!plan" @click="toggleComplete(item)">{{ item.completed ? '撤销完成' : '标记完成' }}</button>
-            <button class="mini" :aria-pressed="item.locked" :disabled="!plan" @click="toggleLock(item)">{{ item.locked ? '解锁' : '锁定' }}</button>
           </div>
         </div>
 
@@ -212,7 +207,7 @@
             <button v-for="alt in row.alts" :key="alt.id" class="alt" @click="applyReplace(row.item, alt)">{{ alt.name }}<small>{{ alt.reason }}</small></button>
           </div>
         </div>
-        <p v-else-if="planForSelected.length" class="replace-none">今天没有符合条件的替换候选：已锁定项目不参与替换，其余候选被器材、场地或"需要避开的"筛掉了。</p>
+        <p v-else-if="planForSelected.length" class="replace-none">今天没有符合条件的替换候选：其余候选被器材、场地或"需要避开的"筛掉了。</p>
 
         <div class="detail-actions">
           <BaseButton
@@ -221,7 +216,6 @@
             :title="hasPendingItems ? '按顺序跟练所选日期的未完成项目' : '所选日期没有待跟练的项目'"
             @click="start"
           >开始跟练</BaseButton>
-          <BaseButton variant="secondary" :icon="RefreshCw" :disabled="!replaceTargets.length" @click="showReplaceHelp">替换说明</BaseButton>
         </div>
       </BaseCard>
     </div>
@@ -252,7 +246,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Plus, History, ChevronLeft, ChevronRight, Dumbbell, Lock, Play, RefreshCw,
+  Plus, History, ChevronLeft, ChevronRight, Dumbbell, Play,
   ArrowRight, Moon, Flame, Wind, PersonStanding, StretchHorizontal, Activity
 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
@@ -401,7 +395,6 @@ function planSpec(item: PlanItem): string {
 /** F04：候选来自动作库，按器材、场地、时长与"需要避开的"过滤，并带可解释原因 */
 const replaceTargets = computed(() =>
   planForSelected.value
-    .filter(i => !i.locked)
     .map(i => {
       const origin = findExercise(i.exerciseName)
       if (!origin) return null
@@ -466,15 +459,6 @@ function start() {
   startItem()
 }
 
-function showReplaceHelp() {
-  store.showToast({
-    type: 'info',
-    title: '替换都按你的条件筛过',
-    message: '每个候选带原因；已锁定项目不会被替换。',
-    duration: 3000
-  })
-}
-
 function applyReplace(item: PlanItem, alt: AlternativeExercise) {
   if (!plan.value) return
   store.acceptAdjustment(plan.value.id, [{
@@ -483,11 +467,6 @@ function applyReplace(item: PlanItem, alt: AlternativeExercise) {
     oldValue: { exerciseName: item.exerciseName, note: item.note },
     newValue: { exerciseName: alt.name, note: `替换自「${item.exerciseName}」：${alt.reason}`, plannedReps: alt.reps ?? item.plannedReps }
   }], `替换「${item.exerciseName}」为「${alt.name}」`)
-}
-
-function toggleLock(item: PlanItem) {
-  if (!plan.value) return
-  store.toggleItemLock(plan.value.id, item.id)
 }
 
 function toggleComplete(item: PlanItem) {
@@ -640,17 +619,13 @@ function openModelPlan() {
 }
 
 function submitPlanFeedback() {
-  if (!plan.value || plan.value.locked || !store.planLlmReady || !store.planFeedbackText.trim()) return
+  if (!plan.value || !store.planLlmReady || !store.planFeedbackText.trim()) return
   void store.generatePlanFeedback(selectedDate.value, store.planFeedbackText)
 }
 
 onUnmounted(() => { store.planFeedbackText = '' })
 
-function regenerate() {
-  store.regenerateWeekPlan(selectedDate.value)
-}
-
-// 停在某一周时确保该周有计划版本（只在本机落盘）
+// 停在某一周时确保该周有计划版本（只在本机落盘）// 停在某一周时确保该周有计划版本（只在本机落盘）
 watch(
   () => toISODate(weekStart(selectedDate.value)),
   () => {
@@ -726,7 +701,7 @@ watch(
 .legend{display:flex;gap:16px;margin:12px 18px 0;padding-top:10px;border-top:1px solid var(--hair-soft);font-size:10.5px;color:var(--color-text-muted)}
 .legend span{display:flex;align-items:center;gap:5px}
 .dot{display:inline-block;width:6px;height:6px;border-radius:50%}
-.dot.plan{background:var(--pole-movement)}.dot.locked{background:var(--pole-movement-strong)}.dot.rest-dot{background:transparent;box-shadow:inset 0 0 0 1px var(--hair-strong)}
+.dot.plan{background:var(--pole-movement)}.dot.rest-dot{background:transparent;box-shadow:inset 0 0 0 1px var(--hair-strong)}
 .detail{--card-pad:0 0 18px}
 .detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:13px 20px 11px;border-bottom:1px solid var(--hair-soft);margin-bottom:0}
 .detail-head h2{font-family:var(--font-num);font-size:19px;font-weight:600;letter-spacing:-.02em;margin-top:5px}
@@ -734,7 +709,7 @@ watch(
 .detail-hero{display:flex;align-items:center;gap:12px;padding:13px 20px;border-bottom:1px dashed var(--color-divider)}
 .detail-icon{width:32px;height:32px;border-radius:var(--radius-sm);color:var(--pole-movement-strong);background:var(--pole-movement-soft);display:grid;place-items:center;flex:none}
 .detail-hero h3{font-size:14.5px;font-weight:600}.detail-hero p{font-size:11.5px;color:var(--color-text-muted);margin:3px 0 0}
-.detail-hero .lock{margin-left:auto;color:var(--color-text-muted)}
+
 /* 计划项：账本行，hover 只改底色，不做位移和图标旋转 */
 .plan-item{display:flex;align-items:center;gap:11px;padding:11px 20px;border-bottom:1px solid var(--hair-soft);transition:background var(--motion-fast),box-shadow var(--motion-fast),opacity var(--motion-fast);flex-wrap:wrap}
 .plan-item:hover{background:var(--color-neutral-soft)}

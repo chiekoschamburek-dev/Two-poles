@@ -105,7 +105,7 @@ export function buildTimeConflictSuggestion(
   const items = plan.items.filter(i => i.date === selectedDate)
   const total = items.reduce((sum, i) => sum + (i.plannedDuration ?? 0), 0)
   if (total <= budget) return null
-  const item = items.find(i => !i.locked && !i.completed)
+  const item = items.find(i => !i.completed)
   if (!item) return null
   const to = nextIsoDate(item.date)
   const fromLabel = shortDate(isoDate(item.date))
@@ -306,11 +306,11 @@ function feedbackMagnitude(item: PlanItem, direction: 'down' | 'up'): FeedbackMa
   }
 }
 
-/** 供反馈规则复用的计划项查找：同日或未来、未完成、未锁定 */
+/** 供反馈规则复用的计划项查找：同日或未来、未完成 */
 export function findNextPlanItem(plan: Plan | null, exerciseName: string, today: string): PlanItem | null {
   if (!plan) return null
   return plan.items
-    .filter(i => i.exerciseName === exerciseName && i.date >= today && !i.completed && !i.locked)
+    .filter(i => i.exerciseName === exerciseName && i.date >= today && !i.completed)
     .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
 }
 

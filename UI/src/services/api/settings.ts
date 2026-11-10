@@ -14,11 +14,6 @@ export interface Confirmation {
   expiresIn: number
 }
 
-export async function getPrivacy(): Promise<PrivacySettings> {
-  const body = await request<{ privacy: PrivacySettings }>('/settings/privacy')
-  return body.privacy
-}
-
 export async function putPrivacy(privacy: Partial<PrivacySettings>): Promise<PrivacySettings> {
   const body = await request<{ privacy: PrivacySettings }>('/settings/privacy', {
     method: 'PUT',

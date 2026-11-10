@@ -211,12 +211,6 @@
       </label>
 
       <label class="toggle">
-        <input type="checkbox" role="switch" :checked="store.privacy.saveVideoLocally" @change="setPrivacy('saveVideoLocally', ($event.target as HTMLInputElement).checked)" />
-        <span class="tg"><i></i></span>
-        <span class="tlabel"><strong>把原始画面存到本机</strong><small>本版本没有实现录制，因此这个开关目前不会改变任何行为。</small></span>
-      </label>
-
-      <label class="toggle">
         <input type="checkbox" role="switch" :checked="store.privacy.showEnergyEstimate" @change="setPrivacy('showEnergyEstimate', ($event.target as HTMLInputElement).checked)" />
         <span class="tg"><i></i></span>
         <span class="tlabel"><strong>显示热量粗估</strong><small>默认关闭。开启后按"区间 + 来源"显示，依赖你填的份量与内置参考值（未与权威成分表核对），不作为营养建议。</small></span>
@@ -234,11 +228,6 @@
       </p>
 
       <div class="fields">
-        <label class="field">
-          <span class="field-label">保留天数（偏好记录）</span>
-          <input v-model.number="retention" type="number" min="7" max="3650" @change="setPrivacy('dataRetentionDays', retention)" />
-          <small class="fine">目前没有自动清理逻辑，超过天数的数据不会被删除。</small>
-        </label>
         <div class="field">
           <span class="field-label">导出格式</span>
           <div class="chips">
@@ -331,7 +320,6 @@
       <p class="sub">导出会把档案、训练与餐食按下面的格式写到本机下载目录，不经过任何服务器。JSON 会包含已保存的照片缩略图，但不包含 IndexedDB 里的原图；CSV 不包含图片。登录后也可以让服务端生成导出作业，文件同样可被表格软件打开。</p>
       <div class="actions">
         <BaseButton :icon="Download" @click="exportData(store.privacy.exportFormat)">导出 {{ store.privacy.exportFormat === 'json' ? 'JSON' : 'CSV' }}</BaseButton>
-        <BaseButton variant="secondary" :icon="RotateCcw" :disabled="!store.sessions.length && !store.meals.length && !store.analyses.length" @click="exportData('json')">另存为 JSON</BaseButton>
         <BaseButton v-if="syncState.user" variant="secondary" :disabled="remoteExporting" @click="exportRemoteData">{{ remoteExporting ? '服务端生成中…' : '服务端导出 CSV' }}</BaseButton>
       </div>
       <p v-if="exportError" class="error" role="alert">{{ exportError }}</p>
@@ -377,7 +365,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ArrowRight, Download, RotateCcw, Trash2 } from 'lucide-vue-next'
+import { ArrowRight, Download, Trash2 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -410,7 +398,6 @@ type BadgeVariant = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 const store = useAppStore()
 const confirming = ref(false)
 const exportError = ref('')
-const retention = ref(store.privacy.dataRetentionDays)
 const authMode = ref<'login' | 'register'>('login')
 const authIdentifier = ref('')
 const authPassword = ref('')
@@ -440,7 +427,7 @@ const syncBadge = computed(() => {
 })
 
 function describePlan(plan: Plan): string {
-  return plan.items.map((item) => `${item.date} ${item.exerciseName} ${item.plannedSets ?? '—'}组 × ${item.plannedReps ?? '—'}次 / ${item.plannedDuration ?? '—'}分钟${item.locked ? '（锁定）' : ''}`).join('；')
+  return plan.items.map((item) => `${item.date} ${item.exerciseName} ${item.plannedSets ?? '—'}组 × ${item.plannedReps ?? '—'}次 / ${item.plannedDuration ?? '—'}分钟`).join('；')
 }
 function localConflictPlan(conflict: SyncConflict): string {
   const local = store.plans.find((plan) => (plan.clientId ?? plan.id) === conflict.clientId)
@@ -559,10 +546,6 @@ const payload = computed(() => ({
 const sizeKb = computed(() => Math.max(1, Math.round(new Blob([JSON.stringify(payload.value)]).size / 1024)))
 
 function setPrivacy<K extends keyof PrivacySettings>(key: K, value: PrivacySettings[K]) {
-  if (key === 'dataRetentionDays' && (!Number.isFinite(Number(value)) || Number(value) < 7)) {
-    retention.value = store.privacy.dataRetentionDays
-    return
-  }
   store.updatePrivacy({ [key]: value } as Partial<PrivacySettings>)
   store.showToast({ type: 'success', title: '设置已保存', message: '只写在本机 localStorage', duration: 2000 })
 }
@@ -777,7 +760,6 @@ async function wipe() {
   }
   store.clearAllData()
   confirming.value = false
-  retention.value = 90
   store.showToast({
     type: 'success',
     title: '数据已清除',

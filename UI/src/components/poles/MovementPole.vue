@@ -62,8 +62,7 @@
               <small>{{ row.detail }}</small>
             </div>
             <span class="step-dur">{{ row.plannedDuration ?? 0 }}<i>min</i></span>
-            <StatusBadge v-if="row.locked" variant="neutral">锁定</StatusBadge>
-            <StatusBadge v-else-if="row.completed" variant="success">已完成</StatusBadge>
+            <StatusBadge v-if="row.completed" variant="success">已完成</StatusBadge>
           </li>
         </ol>
 
@@ -170,8 +169,7 @@
               <span class="mini-name">{{ item.exerciseName }}</span>
               <small>{{ item.plannedSets && item.plannedReps ? `${item.plannedSets} 组 × ${item.plannedReps} 次` : (item.note || '') }}</small>
               <em>{{ item.plannedDuration ?? 0 }} min</em>
-              <StatusBadge v-if="item.locked" variant="neutral">锁定</StatusBadge>
-              <StatusBadge v-else-if="item.completed" variant="success">已完成</StatusBadge>
+              <StatusBadge v-if="item.completed" variant="success">已完成</StatusBadge>
             </li>
           </ul>
           <p v-else class="empty-line">这一天没有安排训练。休息日不影响后续计划。</p>
@@ -332,7 +330,6 @@ const timeline = computed(() => items.value.map(item => {
     exerciseName: item.exerciseName,
     plannedDuration: item.plannedDuration,
     completed: item.completed,
-    locked: item.locked,
     detail: bits.join(' · ') || `${item.plannedDuration ?? 0} 分钟`
   }
 }))

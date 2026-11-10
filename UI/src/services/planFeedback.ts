@@ -38,12 +38,12 @@ function planFields(item: FeedbackFields): FeedbackFields {
 }
 
 export function buildPlanFeedbackMessages(plan: Plan, dates: string[], feedback: string, profile: UserProfile | null): PlanMessages {
-  const items = plan.items.map(item => ({ itemId: item.id, ...planFields(item), locked: item.locked, completed: item.completed }))
+  const items = plan.items.map(item => ({ itemId: item.id, ...planFields(item), completed: item.completed }))
   return {
     system: [
       '你负责根据用户反馈微调现有周训练计划。只建议与反馈相关的改动，保留其余安排。遵守档案里的器材、可用时间与需要避开的条件。',
       '只输出 JSON，例如 {"reason":"解释本次调整","changes":[{"op":"update","itemId":"现有项目的 itemId","item":{"plannedSets":2}},{"op":"remove","itemId":"现有项目的 itemId"},{"op":"add","item":{"date":"YYYY-MM-DD","exerciseName":"动作","type":"其他","plannedDuration":10}}]}。',
-      '日期只能使用给定范围。禁止修改或删除已锁定、已完成的项目。同一个 itemId 最多出现一次。没有需要调整的项目时返回空 changes 和原因。',
+      '日期只能使用给定范围。禁止修改或删除已完成的项目。同一个 itemId 最多出现一次。没有需要调整的项目时返回空 changes 和原因。',
       'update 的 item 只写要改的字段，省略表示保留，可用 null 清除不适用的规格。更换动作时提供新动作的规格。新增动作提供日期、名称、类型及可执行规格。',
       '可改字段为 date、exerciseName、type、note、plannedDuration（分钟）、plannedSets（组）、plannedReps（每组次数）、plannedHoldSeconds（每组秒数）、plannedDistance（米）、plannedTargetMinutes（跟练目标分钟）。调整跑步分钟时同步修改已有的目标分钟和计划时长。',
       `type 只能是 ${TRAINING_TYPES.join('、')}。已有动作优先保留原名，替换时优先选动作库中的合适动作。`,
@@ -108,7 +108,7 @@ export function validatePlanFeedback(raw: unknown, plan: Plan, dates: string[]):
     }
     if (change.op !== 'update' && change.op !== 'remove') return null
     const before = typeof change.itemId === 'string' ? byId.get(change.itemId) : undefined
-    if (!before || before.locked || before.completed || seen.has(before.id) || !dates.includes(before.date)) return null
+    if (!before || before.completed || seen.has(before.id) || !dates.includes(before.date)) return null
     seen.add(before.id)
     if (change.op === 'remove') {
       changes.push({ before: { ...before }, after: null })

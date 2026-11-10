@@ -116,10 +116,10 @@ export function createMockApi() {
       if (request.headers.get('if-match') !== `"${latest.version}"` || adjustment.baseVersion !== latest.version) return error(409, 'conflict', '计划版本冲突', { latest })
       const plan = { ...latest, id: crypto.randomUUID(), version: latest.version + 1, items: latest.items.map((item) => {
         const change = adjustment.changes.find((entry) => entry.itemId === item.id)
-        return !item.locked && !item.completed && change ? { ...item, ...change.newValue } : item
+        return !item.completed && change ? { ...item, ...change.newValue } : item
       }) }
       state.plans.push(plan)
-      return HttpResponse.json({ plan, newVersion: plan.version, lockedPreserved: true, adjustmentId: adjustment.id })
+      return HttpResponse.json({ plan, newVersion: plan.version, adjustmentId: adjustment.id })
     }
     if (path === '/reports/weekly') return HttpResponse.json({ report: buildWeeklyReport(state.sessions, state.meals,
       new Date(`${url.searchParams.get('start')}T00:00:00`), { profile: state.profile }) })

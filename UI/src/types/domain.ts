@@ -172,7 +172,6 @@ export interface Plan {
   weekStartDate: string
   weekEndDate: string
   items: PlanItem[]
-  locked: boolean
   source?: 'rules' | 'llm' | 'image'
   clientId?: string
   serverId?: string
@@ -197,7 +196,6 @@ export interface PlanItem {
   /** steps 模式目标分钟；旧计划没有这个字段时回退动作库默认 */
   plannedTargetMinutes?: number
   note?: string
-  locked: boolean
   completed: boolean
   alternatives?: AlternativeExercise[]
 }
@@ -211,18 +209,9 @@ export interface AlternativeExercise {
   reps?: number
 }
 
-export interface PlanAdjustment {
-  id: string
-  planId: string
-  createdAt: string
-  reason: string
-  changes: PlanChange[]
-  status: 'pending' | 'accepted' | 'rejected'
-}
-
 export interface PlanChange {
   itemId: string
-  type: 'unchanged' | 'changed' | 'locked'
+  type: 'unchanged' | 'changed'
   oldValue?: Partial<PlanItem>
   newValue?: Partial<PlanItem>
 }
@@ -414,37 +403,10 @@ export interface DemoEvent {
   message?: string
 }
 
-export interface PoseKeypoint {
-  x: number
-  y: number
-  confidence: number
-  name: string
-}
-
-export interface PoseFrame {
-  keypoints: PoseKeypoint[]
-  timestamp: number
-  phase: ExercisePhase
-  confidence: number
-}
-
-export interface CameraSession {
-  exerciseName: string
-  exerciseType: TrainingType
-  startTime: string
-  events: DemoEvent[]
-  totalCount: number
-  totalDuration: number
-  manualCorrections: number
-  averageConfidence: number
-}
-
 // === Settings & Privacy ===
 
 export interface PrivacySettings {
   cameraEnabled: boolean
-  saveVideoLocally: boolean
-  dataRetentionDays: number
   exportFormat: 'json' | 'csv'
   /** 热量粗估默认关闭：单张照片估不出分量，只在用户主动打开时才显示区间 */
   showEnergyEstimate: boolean

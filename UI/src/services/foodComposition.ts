@@ -225,15 +225,3 @@ export function estimateEnergy(input: {
     unit
   }
 }
-
-export function summarizeEnergy(items: { foodName: string; category: FoodCategory; portionSize?: number; portionUnit?: string }[], unitGrams?: Record<string, number>) {
-  const estimates = items.map(i => estimateEnergy({ ...i, unitGrams })).filter((e): e is EnergyEstimate => e !== null)
-  if (!estimates.length) return null
-  const counted = estimates.length
-  return {
-    low: estimates.reduce((s, e) => s + e.low, 0),
-    high: estimates.reduce((s, e) => s + e.high, 0),
-    counted,
-    skipped: items.length - counted
-  }
-}

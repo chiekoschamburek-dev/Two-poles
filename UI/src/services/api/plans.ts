@@ -12,14 +12,7 @@ export interface RemoteAdjustment {
 export interface AcceptedAdjustment {
   adjustmentId: string
   newVersion: number
-  lockedPreserved: boolean
   plan: Plan
-}
-
-export async function current(week: string): Promise<Plan | null> {
-  const query = new URLSearchParams({ week })
-  const body = await request<{ plan: Plan | null }>(`/plans/current?${query.toString()}`)
-  return body.plan
 }
 
 export async function create(plan: Plan): Promise<Plan> {

@@ -96,9 +96,6 @@ export const exercises: Exercise[] = [
   E({ id: 'ex-deadlift', name: '硬拉', type: '其他', equipment: ['哑铃'], venues: ['宿舍或家', '健身房'], minutes: 4, sets: 3, reps: 8, intensity: '中', jumpFree: true, kneeFriendly: true, spineFriendly: false, howto: '哑铃贴近小腿，屈髋俯身再伸髋站直', reason: '髋主导的拉力动作；可与动作分析配合复盘', camera: { joint: 'hip', neutral: 165, bottom: 95, minStageMs: 250 }, autoPlan: false, status: 'active', source: EXERCISE_SOURCE })
 ]
 
-/** 档案"需要避开的"选项与动作门槛的对应关系 */
-export const RESTRICTION_KEYS = ['无跳跃', '膝部负担小', '腰部负担小', '低强度起步'] as const
-
 /**
  * 命中这些限制时保留记录功能，但不进入自动训练推荐流程（文档 §1.3、§7）。
  * 它们不是"动作过滤器"，而是适用范围门槛：系统不据此判断动作是否安全。

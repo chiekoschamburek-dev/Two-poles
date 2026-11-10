@@ -54,7 +54,6 @@ ok('无候选时给出原因', noChair.conflicts.length >= 0)
 
 const withChair = buildDayPlan(iso(2), p({ equipment: ['无器材', '椅子'] }))
 ok('有椅子时周三排入坐站训练', withChair.items.some(i => i.type === '坐站训练'))
-ok('坐站训练默认锁定', withChair.items.some(i => i.locked))
 
 const knee = buildDayPlan(iso(2), p({ equipment: ['无器材', '椅子'], restrictions: ['膝部负担小'] }))
 ok('膝部负担小剔除深蹲跳等高膝负荷项', !knee.items.some(i => i.exerciseName === '深蹲跳'))
@@ -214,21 +213,20 @@ store.updateProfile(p({ equipment: ['无器材', '椅子'] }))
 const monday = iso(0)
 const plan = store.ensureWeekPlan(monday)
 const v1 = plan.version
-const sitStand = plan.items.find(i => i.locked)!
 ok('本周计划落盘', store.plans.length === 1 && plan.items.length > 0)
 ok('重复取同一周不新建', store.ensureWeekPlan(monday).id === plan.id)
 
-store.toggleItemLock(plan.id, sitStand.id)
-ok('锁定变更生成新版本', plan.version === v1 + 1 && store.planHistory.length === 1)
-ok('历史版本保留改动前的状态', store.planHistory[0].items.find(i => i.id === sitStand.id)!.locked === true)
+const firstItem = plan.items[0]
+store.markItemCompleted(plan.id, firstItem.id, true)
+ok('完成标记生成新版本', plan.version === v1 + 1 && store.planHistory.length === 1)
+ok('历史版本保留改动前的状态', store.planHistory[0].items.find(i => i.id === firstItem.id)!.completed === false)
 
-const before = plan.items.map(i => ({ n: i.exerciseName, l: i.locked })).slice()
 store.acceptAdjustment(plan.id, plan.items.map(i => ({
   itemId: i.id, type: 'changed' as const, newValue: { exerciseName: '全部改名' }
 })), '测试批量改')
-ok('接受调整保留锁定项', plan.items.every((i, idx) => i.locked === before[idx].l))
+ok('接受调整保留已完成项', plan.items.find(i => i.id === firstItem.id)!.exerciseName !== '全部改名')
 ok('接受调整写入新版本', plan.version === v1 + 2)
-ok('调整原因被记录', plan.reason.includes('测试批量改') && plan.reason.includes('锁定项保持不变'))
+ok('调整原因被记录', plan.reason.includes('测试批量改') && plan.reason.includes('已完成项保持不变'))
 
 const manualPlan = store.addManualItem(plan.id, { date: '2026-10-13', exerciseName: '球场往返跑', minutes: 25 })
 ok('手工录入可用且不依赖自动推荐', !!manualPlan && plan.items.some(i => i.exerciseName === '球场往返跑'))
@@ -718,7 +716,7 @@ ok('训练记录写回 planItemId 与覆盖后的次数', customSession.planItem
   && customSession.completionStatus === 'completed')
 const intervalItem = {
   id: 'interval', planId: 'follow', date: '2026-11-10', exerciseName: '坐站训练', type: '坐站训练' as const,
-  plannedSets: 2, plannedReps: 5, plannedDuration: 2, locked: false, completed: false
+  plannedSets: 2, plannedReps: 5, plannedDuration: 2, completed: false
 }
 const timedGuide = guideExercise(sitDemo, 'timer', intervalItem)
 const cameraGuide = guideExercise(sitDemo, 'camera', intervalItem)
@@ -745,11 +743,11 @@ const timeProfile = p({ availableTimes: ['20 分钟'] })
 const planWithItems = (items: PlanItem[]): Plan => ({
   id: 'plan-time', userId: 'u1', version: 1, createdAt: '2026-11-02T08:00:00.000Z',
   reason: 'test', weekStartDate: '2026-11-02', weekEndDate: '2026-11-08',
-  items, locked: false
+  items
 })
-const timeItem = (id: string, duration: number, locked = false): PlanItem => ({
+const timeItem = (id: string, duration: number, completed = false): PlanItem => ({
   id, planId: 'plan-time', date: '2026-11-02', exerciseName: '坐站训练', type: '坐站训练',
-  plannedDuration: duration, plannedSets: 2, plannedReps: 8, locked, completed: false
+  plannedDuration: duration, plannedSets: 2, plannedReps: 8, completed
 })
 const overBudget = buildTimeConflictSuggestion(planWithItems([timeItem('a', 15), timeItem('b', 10)]), timeProfile, '2026-11-02')
 ok('超预算给出搬移建议', !!overBudget && overBudget.itemId === 'a'
@@ -757,8 +755,8 @@ ok('超预算给出搬移建议', !!overBudget && overBudget.itemId === 'a'
 ok('时间冲突建议带可读原因', !!overBudget && overBudget.reason.includes('超过') && overBudget.reason.includes('20 分钟'))
 const underBudget = buildTimeConflictSuggestion(planWithItems([timeItem('a', 15), timeItem('b', 5)]), timeProfile, '2026-11-02')
 ok('不超预算不提示', underBudget === null)
-const lockedFirst = buildTimeConflictSuggestion(planWithItems([timeItem('a', 15, true), timeItem('b', 10)]), timeProfile, '2026-11-02')
-ok('跳过锁定项', !!lockedFirst && lockedFirst.itemId === 'b')
+const completedFirst = buildTimeConflictSuggestion(planWithItems([timeItem('a', 15, true), timeItem('b', 10)]), timeProfile, '2026-11-02')
+ok('跳过已完成项', !!completedFirst && completedFirst.itemId === 'b')
 ok('无计划不提示', buildTimeConflictSuggestion(null, timeProfile, '2026-11-02') === null)
 const suggestionsOpen = buildAdjustmentSuggestions({
   plan: planWithItems([timeItem('a', 15), timeItem('b', 10)]),
@@ -785,7 +783,7 @@ const fbSession = (
 const fbPlan = (item: Partial<PlanItem> = {}): Plan => planWithItems([{
   id: 'fb-item', planId: 'plan-fb', date: '2026-11-05', exerciseId: 'ex-stand-curl',
   exerciseName: '站姿弯举', type: '站姿弯举', plannedDuration: 3,
-  plannedSets: 2, plannedReps: 10, locked: false, completed: false, ...item
+  plannedSets: 2, plannedReps: 10, completed: false, ...item
 }])
 const fbProfile = p({})
 const highHigh = [fbSession('s1', '2026-10-28', 9), fbSession('s2', '2026-11-01', 8)]
@@ -915,7 +913,7 @@ const nextPlanWithTarget: Plan = {
   ...planWithItems([{
     id: 'next-item', planId: 'next-plan', date: '2026-11-09', exerciseId: 'ex-stand-curl',
     exerciseName: '站姿弯举', type: '站姿弯举', plannedDuration: 3,
-    plannedSets: 2, plannedReps: 10, locked: false, completed: false
+    plannedSets: 2, plannedReps: 10, completed: false
   }]),
   id: 'next-plan', weekStartDate: '2026-11-09', weekEndDate: '2026-11-15'
 }
@@ -1056,7 +1054,7 @@ mem.set(STORAGE_KEYS.profile, JSON.stringify({ ...p({}), mode: 'athlete', modeCh
 const legacyPlan = (id: string, version: number, mode: string) => ({
   id, userId: 'u1', version, createdAt: `2026-11-0${version}T08:00:00.000Z`,
   reason: 'legacy', weekStartDate: '2026-11-02', weekEndDate: '2026-11-08',
-  items: [], locked: false, mode
+  items: [], mode
 } as Plan & { mode: string })
 mem.set(STORAGE_KEYS.plans, JSON.stringify([
   legacyPlan('legacy-public', 1, 'public'),
@@ -1273,16 +1271,12 @@ try {
   }, feedbackDate)!
   const [run, hill, calf, plank, dragon] = existing.items
   store.acceptAdjustment(existing.id, [{ itemId: run.id, type: 'changed', newValue: { plannedTargetMinutes: 30 } }], '设置跟练目标')
-  store.toggleItemLock(existing.id, plank.id)
   store.markItemCompleted(existing.id, dragon.id, true)
   const feedback = '周三没空，轻松跑移到周五，缩短为 20 分钟；上坡跑换为肩环绕，移除提踵，加一项放松。'
   store.planFeedbackText = ` ${feedback} `
   const unchangedVersion = existing.version
-  reply = { changes: [{ op: 'remove', itemId: plank.id }] }
-  await store.generatePlanFeedback(feedbackDate, feedback)
-  ok('模型不能移除锁定动作', store.planDraftState.status === 'error' && existing.version === unchangedVersion)
   reply = { changes: [{ op: 'update', itemId: dragon.id, item: { plannedReps: 10 } }] }
-  await store.retryPlanDraft()
+  await store.generatePlanFeedback(feedbackDate, feedback)
   ok('模型不能修改已完成动作', store.planDraftState.status === 'error' && !store.planDraftState.adjustment)
   reply = { changes: [{ op: 'update', itemId: run.id, item: { date: '2027-01-11' } }] }
   await store.retryPlanDraft()
@@ -1319,12 +1313,12 @@ try {
     && adjusted.version === changedVersion + 1 && adjusted.source === 'image'
     && store.planHistory.at(-1)?.version === changedVersion
     && store.planHistory.at(-1)?.items.some(item => item.id === hill.id && item.exerciseName === originalName))
-  ok('应用已审核的变更，保留锁定项、已完成项和本次未修改的项目', !!adjusted
+  ok('应用已审核的变更，保留已完成项和本次未修改的项目', !!adjusted
     && adjusted.items.some(item => item.id === run.id && item.plannedDuration === 20 && item.plannedTargetMinutes === 20 && item.date === '2027-01-08')
     && adjusted.items.some(item => item.id === hill.id && item.exerciseName === '肩环绕' && item.plannedDistance === undefined && item.plannedReps === 10)
     && !adjusted.items.some(item => item.id === calf.id)
     && adjusted.items.some(item => item.exerciseName === '腹式呼吸放松' && item.plannedHoldSeconds === 60 && item.planId === existing.id)
-    && adjusted.items.some(item => item.id === plank.id && item.locked && item.plannedHoldSeconds === 30)
+    && adjusted.items.some(item => item.id === plank.id && item.plannedHoldSeconds === 30)
     && adjusted.items.some(item => item.id === dragon.id && item.completed && item.plannedReps === 5)
     && adjusted.items.some(item => item.exerciseName === '并发新增'))
   reply = { reason: '当前安排已满足反馈', changes: [{ op: 'update', itemId: run.id, item: { plannedDuration: 20 } }] }

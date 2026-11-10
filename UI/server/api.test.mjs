@@ -322,8 +322,8 @@ test('plans are versioned and stale adjustments return 409', async () => {
     weekEndDate: '2026-11-08',
     reason: '规则计划',
     items: [
-      { id: 'plan-item-locked', date: weekStart, exerciseName: '坐站训练', type: '坐站训练', plannedSets: 2, plannedReps: 8, locked: true },
-      { id: 'plan-item-open', date: weekStart, exerciseName: '站姿弯举', type: '站姿弯举', plannedSets: 2, plannedReps: 10, locked: false }
+      { id: 'plan-item-completed', date: weekStart, exerciseName: '坐站训练', type: '坐站训练', plannedSets: 2, plannedReps: 8, completed: true },
+      { id: 'plan-item-open', date: weekStart, exerciseName: '站姿弯举', type: '站姿弯举', plannedSets: 2, plannedReps: 10 }
     ]
   }
   const created = await request('/plans', { method: 'POST', body: plan, idempotencyKey: 'idem-plan-1' })
@@ -343,7 +343,7 @@ test('plans are versioned and stale adjustments return 409', async () => {
       baseVersion: 1,
       reason: '降低训练量',
       changes: [
-        { itemId: 'plan-item-locked', type: 'changed', newValue: { plannedReps: 99 } },
+        { itemId: 'plan-item-completed', type: 'changed', newValue: { plannedReps: 99 } },
         { itemId: 'plan-item-open', type: 'changed', newValue: { plannedReps: 12, plannedDuration: 6 } }
       ]
     }
@@ -356,12 +356,11 @@ test('plans are versioned and stale adjustments return 409', async () => {
   })
   assert.equal(accepted.status, 200)
   assert.equal(accepted.body.newVersion, 2)
-  const locked = accepted.body.plan.items.find((item) => item.id === 'plan-item-locked')
+  const completed = accepted.body.plan.items.find((item) => item.id === 'plan-item-completed')
   const open = accepted.body.plan.items.find((item) => item.id === 'plan-item-open')
-  assert.equal(locked.plannedReps, 8)
+  assert.equal(completed.plannedReps, 8)
   assert.equal(open.plannedReps, 12)
   assert.equal(open.plannedDuration, 6)
-  assert.equal(accepted.body.lockedPreserved, true)
 
   const oldPlan = await request(`/plans/current?week=${weekStart}`)
   assert.equal(oldPlan.body.plan.version, 2)
@@ -418,11 +417,10 @@ test('weekly report uses server plan and sessions without filling missing RPE wi
 test('privacy settings round-trip', async () => {
   const write = await request('/settings/privacy', {
     method: 'PUT',
-    body: { showEnergyEstimate: true, dataRetentionDays: 30, saveFoodPhotoLocally: false, exportFormat: 'csv' }
+    body: { showEnergyEstimate: true, saveFoodPhotoLocally: false, exportFormat: 'csv' }
   })
   assert.equal(write.status, 200)
   assert.equal(write.body.privacy.showEnergyEstimate, true)
-  assert.equal(write.body.privacy.dataRetentionDays, 30)
   assert.equal(write.body.privacy.saveFoodPhotoLocally, false)
   const read = await request('/settings/privacy')
   assert.equal(read.body.privacy.exportFormat, 'csv')

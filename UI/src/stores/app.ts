@@ -65,8 +65,6 @@ export const useAppStore = defineStore('app', () => {
   const analyses = ref<MotionAnalysis[]>([])
   const privacy = ref<PrivacySettings>({
     cameraEnabled: true,
-    saveVideoLocally: false,
-    dataRetentionDays: 90,
     exportFormat: 'json',
     showEnergyEstimate: false,
     saveFoodPhotoLocally: true
@@ -559,8 +557,7 @@ export const useAppStore = defineStore('app', () => {
         : `未建档，使用不过滤的基础一周模板（${PLAN_RULES_VERSION}）`,
       weekStartDate: iso,
       weekEndDate: toISODate(end),
-      items: items.map(i => ({ ...i, planId: id })),
-      locked: false
+      items: items.map(i => ({ ...i, planId: id }))
     }
     plans.value.push(plan)
     persistState()
@@ -856,7 +853,6 @@ export const useAppStore = defineStore('app', () => {
     const guard = !text ? '请先填写训练反馈。' : planModelError(false)
     if (guard) return fail(guard)
     if (!plan) return fail('请先为所选周创建计划，再提交反馈。')
-    if (plan.locked) return fail('这份周计划已锁定。')
     if (profile && profile.age < AUTO_RECOMMEND_MIN_AGE) return fail('当前档案年龄未达到自动推荐条件，可在计划页手工录入。')
     const restriction = gateReason(profile)
     if (restriction) return fail(restriction)
@@ -867,7 +863,7 @@ export const useAppStore = defineStore('app', () => {
     if (requestId !== planRequestId) return
     if (result.error) return fail(result.error)
     const latest = weekPlan(reference)
-    if (!latest || latest.id !== id || latest.version !== version || latest.locked) return fail(staleFeedbackError)
+    if (!latest || latest.id !== id || latest.version !== version) return fail(staleFeedbackError)
     const adjustment = validatePlanFeedback(extractJson(result.text), latest, dates)
     if (!adjustment) return fail('模型返回了无效的调整，可能涉及受保护项目或范围外的日期。请重试。')
     planDraftState.value = { ...context, status: 'ready', loadingStage: null, adjustment, error: '' }
@@ -884,8 +880,8 @@ export const useAppStore = defineStore('app', () => {
     if (status !== 'ready' || !adjustment?.changes.length || !weekDates?.[0]) return null
     const plan = weekPlan(new Date(`${weekDates[0]}T00:00:00`))
     const changesById = new Map(adjustment.changes.flatMap(change => change.before ? [[change.before.id, change] as const] : []))
-    const adjustable = new Set(plan?.items.filter(item => !item.locked && !item.completed).map(item => item.id))
-    if (!plan || plan.id !== adjustment.planId || plan.version !== adjustment.baseVersion || plan.locked
+    const adjustable = new Set(plan?.items.filter(item => !item.completed).map(item => item.id))
+    if (!plan || plan.id !== adjustment.planId || plan.version !== adjustment.baseVersion
       || [...changesById.keys()].some(id => !adjustable.has(id))) {
       planDraftState.value = { ...planDraftState.value, status: 'error', loadingStage: 'feedback', adjustment: undefined, error: staleFeedbackError }
       return null
@@ -903,7 +899,7 @@ export const useAppStore = defineStore('app', () => {
     })
     for (const { before, after } of adjustment.changes) {
       if (!before && after) {
-        items.push({ ...after, id: newId(), planId: plan.id, exerciseId: findExercise(after.exerciseName)?.id, locked: false, completed: false })
+        items.push({ ...after, id: newId(), planId: plan.id, exerciseId: findExercise(after.exerciseName)?.id, completed: false })
       }
     }
     const updated = bumpVersion(plan, items, `根据反馈调整 · ${adjustment.reason}（${PLAN_RULES_VERSION}）`)
@@ -935,7 +931,6 @@ export const useAppStore = defineStore('app', () => {
           plannedSets: it.plannedSets,
           plannedReps: it.plannedReps,
           note: it.note,
-          locked: false,
           completed: false
         })
       }
@@ -955,7 +950,6 @@ export const useAppStore = defineStore('app', () => {
       weekStartDate: dates[0],
       weekEndDate: dates[6],
       items: [...carried, ...items],
-      locked: draft.dayDate ? (old?.locked ?? false) : false,
       source: draft.source === 'image' || (draft.dayDate && old?.source === 'image') ? 'image' : 'llm'
     }
     plans.value.push(plan)
@@ -996,12 +990,12 @@ export const useAppStore = defineStore('app', () => {
     const changedIds = new Set(changes.filter(c => c.type === 'changed').map(c => c.itemId))
     const items = plan.items.map(item => {
       if (!changedIds.has(item.id)) return item
-      if (item.locked || item.completed) return item
+      if (item.completed) return item
       const ch = changes.find(c => c.itemId === item.id)!
       return { ...item, ...(ch.newValue ?? {}) }
     })
     const moved = changedIds.size
-    const updated = bumpVersion(plan, items, `${reason}（改动 ${moved} 项，锁定项保持不变）`, false)
+    const updated = bumpVersion(plan, items, `${reason}（改动 ${moved} 项，已完成项保持不变）`, false)
     if (plan.serverId) {
       enqueueSync('plan.adjustment', plan.clientId ?? plan.id, {
         plan: { ...updated, items: updated.items.map(item => ({ ...item })) },
@@ -1032,14 +1026,6 @@ export const useAppStore = defineStore('app', () => {
     return !!adjustmentResolutions.value[key]
   }
 
-  function toggleItemLock(planId: string, itemId: string) {
-    const plan = plans.value.find(p => p.id === planId)
-    if (!plan) return
-    const items = plan.items.map(i => (i.id === itemId ? { ...i, locked: !i.locked } : i))
-    const target = items.find(i => i.id === itemId)
-    bumpVersion(plan, items, `${target?.locked ? '锁定' : '解锁'}「${target?.exerciseName ?? itemId}」`)
-  }
-
   function markItemCompleted(planId: string, itemId: string, completed: boolean) {
     const plan = plans.value.find(p => p.id === planId)
     if (!plan) return
@@ -1060,7 +1046,6 @@ export const useAppStore = defineStore('app', () => {
       type: '其他',
       plannedDuration: input.minutes,
       note: input.note ?? '手工录入，不参与自动推荐',
-      locked: false,
       completed: false
     }
     bumpVersion(plan, [...plan.items, item], `手工录入「${input.exerciseName}」`)
@@ -1442,7 +1427,7 @@ export const useAppStore = defineStore('app', () => {
     analyses.value = []
     plans.value = []
     planHistory.value = []
-    privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json', showEnergyEstimate: false, saveFoodPhotoLocally: true }
+    privacy.value = { cameraEnabled: true, exportFormat: 'json', showEnergyEstimate: false, saveFoodPhotoLocally: true }
     speech.value = { enabled: false, voiceURI: '' }
     collapsedCards.value = []
     themePref.value = 'system'
@@ -1541,7 +1526,6 @@ export const useAppStore = defineStore('app', () => {
     rejectAdjustment,
     resolveAdjustment,
     isAdjustmentResolved,
-    toggleItemLock,
     markItemCompleted,
     addManualItem,
     clearAllData

@@ -12,14 +12,6 @@ export function eyebrowDate(d: Date): string {
   return `${WEEKDAYS_EN[d.getDay()]} · ${MONTHS_EN[d.getMonth()]} ${d.getDate()}`
 }
 
-export function greeting(d: Date): string {
-  const h = d.getHours()
-  if (h < 11) return '上午好'
-  if (h < 14) return '中午好'
-  if (h < 18) return '下午好'
-  return '晚上好'
-}
-
 export function displayName(nickname?: string): string {
   return nickname?.trim() || '朋友'
 }

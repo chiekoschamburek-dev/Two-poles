@@ -53,9 +53,6 @@ const KEYS = {
 } as const
 
 export const STORAGE_KEYS = KEYS
-export const SYNC_META_KEY = KEYS.syncMeta
-export const OUTBOX_KEY = KEYS.outbox
-export const CONFLICT_KEY = KEYS.conflicts
 
 function storage(): Storage | null {
   try {
@@ -260,28 +257,10 @@ export function writeOutbox<T>(items: T[]): boolean {
   return writeJson(KEYS.outbox, items)
 }
 
-export function clearOutbox() {
-  removeKey(KEYS.outbox)
-}
-
 export function readSyncConflicts<T>(): T[] {
   return readJson<T[]>(KEYS.conflicts, [])
 }
 
 export function writeSyncConflicts<T>(items: T[]): boolean {
   return writeJson(KEYS.conflicts, items)
-}
-
-export function storedStateSizeKb(): number {
-  const store = storage()
-  if (!store) return 0
-  let total = 0
-  for (const key of [LEGACY_KEY, ...Object.values(KEYS)]) {
-    try {
-      total += (store.getItem(key)?.length ?? 0) * 2
-    } catch {
-      /* 忽略不可读的 key */
-    }
-  }
-  return Math.max(1, Math.round(total / 1024))
 }

@@ -95,7 +95,6 @@ function toPlanItem(ex: Exercise, date: string, version: number): PlanItem {
     plannedHoldSeconds: ex.holdSeconds,
     // 跑步条目在跟练页是 steps 模式；计划里把动作库的分钟数作为目标分钟
     plannedTargetMinutes: ex.type === '跑步' ? ex.minutes : undefined,
-    locked: ex.type === '坐站训练',
     completed: false,
     alternatives: []
   }
@@ -186,10 +185,6 @@ export function alternativesFor(
       sets: e.sets,
       reps: e.reps
     }))
-}
-
-export function itemsFor(d: Date, profile: UserProfile | null = null, version = PLAN_VERSION): PlanItem[] {
-  return buildDayPlan(d, profile, version).items
 }
 
 export function isPlanDay(d: Date, profile: UserProfile | null = null): boolean {

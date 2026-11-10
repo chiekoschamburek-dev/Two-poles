@@ -1,15 +1,6 @@
 import { request } from './http'
 import type { MotionAnalysis } from '@/types/domain'
 
-export async function list(from?: string, to?: string): Promise<MotionAnalysis[]> {
-  const query = new URLSearchParams()
-  if (from) query.set('from', from)
-  if (to) query.set('to', to)
-  const suffix = query.toString() ? `?${query.toString()}` : ''
-  const body = await request<{ analyses: MotionAnalysis[] }>(`/analyses${suffix}`)
-  return body.analyses
-}
-
 export async function create(analysis: MotionAnalysis): Promise<MotionAnalysis> {
   const body = await request<{ analysis: MotionAnalysis }>('/analyses', {
     method: 'POST',

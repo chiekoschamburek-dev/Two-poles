@@ -35,10 +35,6 @@ export function clearAccessToken() {
   accessToken = ''
 }
 
-export function getAccessToken(): string {
-  return accessToken
-}
-
 function timeoutSignal(ms: number): AbortSignal {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return AbortSignal.timeout(ms)
@@ -142,15 +138,6 @@ export async function requestBlob(path: string, init: ApiRequestInit = {}): Prom
   return response.blob()
 }
 
-export async function refreshSession(): Promise<boolean> {
-  return refreshAccessToken()
-}
-
 export function apiUrl(path: string): string {
   return `${apiBase}${path}`
-}
-
-export function remoteDownloadUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path
-  return `${base}${path}`
 }

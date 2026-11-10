@@ -129,19 +129,19 @@ test('store: offline creation, reconnect and delete survive synchronization', as
   assert.ok(!mock.state.meals.some((item) => item.clientId === local.clientId))
 })
 
-test('store: plan locks, adjustments and regeneration persist as distinct versions', async () => {
+test('store: plan completion, adjustments and regeneration persist as distinct versions', async () => {
   const store = useAppStore()
   store.updateProfile({ age: 30, goal: '保持活力', experience: '偶尔运动', availableTimes: ['20 分钟'],
     equipment: ['无器材', '椅子'], availableVenues: ['宿舍或家'], restrictions: [] })
   const plan = store.ensureWeekPlan(new Date(2026, 10, 3))
   await syncNow()
   assert.equal(plan._sync, 'synced')
-  const item = plan.items.find((row) => !row.locked)!
-  store.toggleItemLock(plan.id, item.id)
+  const item = plan.items[0]
+  store.markItemCompleted(plan.id, item.id, true)
   await syncNow()
   assert.equal(plan.version, 2)
-  assert.equal(mock.state.plans[1].items.find((row) => row.id === item.id)?.locked, true)
-  store.toggleItemLock(plan.id, item.id)
+  assert.equal(mock.state.plans[1].items.find((row) => row.id === item.id)?.completed, true)
+  store.markItemCompleted(plan.id, item.id, false)
   await syncNow()
   store.acceptAdjustment(plan.id, [{ itemId: item.id, type: 'changed', newValue: { plannedDuration: 8 } }], '调整时长')
   await syncNow()

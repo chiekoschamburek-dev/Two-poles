@@ -36,9 +36,6 @@ export interface RepMachine {
   reset(text?: string | null): void
   setCalibratedNeutral(value: number | null): void
   snapshot(): RepMachineSnapshot
-  getNeutral(): number
-  getLowThreshold(): number
-  getHighThreshold(): number
 }
 
 /** 阈值状态机的纯函数实现：实时跟练与视频离线分析共用，行为与 F05 现有逻辑一致。 */
@@ -165,9 +162,6 @@ export function createRepMachine(rule: RepRule): RepMachine {
     interrupt,
     reset,
     setCalibratedNeutral(value) { calibratedNeutral = value },
-    snapshot: () => snapshot(),
-    getNeutral: neutral,
-    getLowThreshold: () => midpoint() + (increasing() ? rule.hysteresis : -rule.hysteresis),
-    getHighThreshold: () => midpoint() + (increasing() ? -rule.hysteresis : rule.hysteresis)
+    snapshot: () => snapshot()
   }
 }

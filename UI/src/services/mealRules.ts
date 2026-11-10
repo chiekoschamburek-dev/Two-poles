@@ -112,9 +112,6 @@ export function buildLimitations(hasEstimate: boolean): string[] {
   ]
 }
 
-/** 默认按"不含估算"渲染；有估算时调用方传 hasEstimate */
-export const LIMITATIONS = buildLimitations(false)
-
 /**
  * 单餐只判断"这餐出现了哪些类别"；missingCategories 是记完这餐后**当天**仍缺的类别，
  * 需要传入当天已有的类别（早餐不该被要求覆盖水果和奶类）。

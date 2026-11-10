@@ -29,8 +29,6 @@ import { buildWeeklyReport, isoLocal, mondayOf, weekDates } from './report.mjs'
 const FOOD_CATEGORIES = ['谷薯类', '蔬菜类', '水果类', '蛋类', '奶类', '肉类', '豆类', '坚果类', '油脂类', '其他']
 const DEFAULT_PRIVACY = {
   cameraEnabled: true,
-  saveVideoLocally: false,
-  dataRetentionDays: 90,
   exportFormat: 'json',
   showEnergyEstimate: false,
   saveFoodPhotoLocally: true
@@ -938,10 +936,7 @@ export function createApiServer(options = {}) {
         }
         const merged = { ...current, ...patch }
         if (merged.exportFormat !== 'csv') merged.exportFormat = 'json'
-        if (!Number.isFinite(Number(merged.dataRetentionDays))) merged.dataRetentionDays = 90
-        merged.dataRetentionDays = Math.min(3650, Math.max(7, Math.round(Number(merged.dataRetentionDays))))
         merged.cameraEnabled = !!merged.cameraEnabled
-        merged.saveVideoLocally = !!merged.saveVideoLocally
         merged.showEnergyEstimate = !!merged.showEnergyEstimate
         merged.saveFoodPhotoLocally = !!merged.saveFoodPhotoLocally
         const updatedAt = nowIso()
@@ -1313,7 +1308,6 @@ export function createApiServer(options = {}) {
             return {
               adjustmentId: adjustment.id,
               newVersion: acceptedPlan.version,
-              lockedPreserved: true,
               plan: readPlan(db, acceptedPlan.id)
             }
           }
@@ -1335,7 +1329,7 @@ export function createApiServer(options = {}) {
           if (!change || change.type !== 'changed') continue
           const item = byClientId.get(String(change.itemId))
           if (!item) continue
-          if (item.locked || item.completed) {
+          if (item.completed) {
             continue
           }
           const patch = change.newValue && typeof change.newValue === 'object' ? change.newValue : {}
@@ -1381,7 +1375,6 @@ export function createApiServer(options = {}) {
         return {
           adjustmentId: adjustment.id,
           newVersion: latestRow.version + 1,
-          lockedPreserved: true,
           plan: readPlan(db, newPlanId)
         }
       })
