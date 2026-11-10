@@ -31,6 +31,7 @@ import WellnessDock from '@/components/wellness/WellnessDock.vue'
 import { useAppStore } from '@/stores/app'
 import { useWellnessDock } from '@/composables/useWellnessDock'
 import { startSupplementScheduler } from '@/composables/useSupplementReminders'
+import { initDietFeedback, stopDietFeedback } from '@/composables/useDietFeedback'
 import { resetBodyScroll } from '@/services/scrollLock'
 
 const mobileOpen = ref(false)
@@ -57,10 +58,13 @@ onMounted(() => {
     // 页面在前台时用站内 Toast；切到后台时由 Service Worker 补一条系统通知
     store.showToast({ type: 'info', title, message, duration: 10000 })
   })
+  // 饮食反馈自己 watch 餐食变更并弹 Toast，只需要在数据就绪后启动一次
+  initDietFeedback()
 })
 
 onBeforeUnmount(() => {
   stopSupplements?.()
+  stopDietFeedback()
 })
 </script>
 

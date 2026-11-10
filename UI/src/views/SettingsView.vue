@@ -244,6 +244,32 @@
       </div>
     </BaseCard>
 
+    <!-- 饮食反馈：规则检测保底，配置了模型才润色；默认开，时间可改 -->
+    <BaseCard class="section animate-slide-in-up">
+      <h2>饮食建议</h2>
+      <p class="sub">按当天已记条目的类别结构给提示（如主食占比偏高、蛋白质类缺失）。规则文案保底；配置了「模型接入」时会把建议润色得更口语。只做结构参考，不做营养诊断。</p>
+
+      <label class="toggle">
+        <input type="checkbox" role="switch" :checked="dietSettings.enabled" @change="setDietFeedback('enabled', ($event.target as HTMLInputElement).checked)" />
+        <span class="tg"><i></i></span>
+        <span class="tlabel"><strong>开启饮食建议</strong><small>记录或修改餐食后即时提示，每条建议每天最多弹一次；{{ dietSettings.summaryTime }} 汇总一次全天。卡片上的「今日不再提醒」只关当天的弹出，卡片本身仍可查看。</small></span>
+      </label>
+
+      <div class="fields">
+        <div class="field">
+          <span class="field-label">晚间总结时间</span>
+          <input
+            type="time"
+            :value="dietSettings.summaryTime"
+            :disabled="!dietSettings.enabled"
+            aria-label="设置每日饮食总结时间"
+            @change="setDietFeedback('summaryTime', ($event.target as HTMLInputElement).value)"
+          />
+        </div>
+      </div>
+      <p class="fine">当天正餐记不满 {{ DIET_THRESHOLDS.summaryMinMeals }} 餐时不生成全天结论；规则与阈值见饮食记录页卡片的版本标注。设置只写在本机。</p>
+    </BaseCard>
+
     <!-- 语音播报（F19）：本机 speechSynthesis，零上传；默认关闭避免与读屏双声道 -->
     <BaseCard class="section animate-slide-in-up">
       <h2>语音播报</h2>
@@ -371,6 +397,8 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
 import { useSpeech } from '@/composables/useSpeech'
+import { useDietFeedback, type DietFeedbackSettings } from '@/composables/useDietFeedback'
+import { DIET_THRESHOLDS } from '@/services/dietFeedbackRules'
 import type { Plan, PlanCompletionStyle, PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { goalSummary } from '@/services/profileRules'
@@ -547,6 +575,14 @@ const sizeKb = computed(() => Math.max(1, Math.round(new Blob([JSON.stringify(pa
 
 function setPrivacy<K extends keyof PrivacySettings>(key: K, value: PrivacySettings[K]) {
   store.updatePrivacy({ [key]: value } as Partial<PrivacySettings>)
+  store.showToast({ type: 'success', title: '设置已保存', message: '只写在本机 localStorage', duration: 2000 })
+}
+
+// ——— 饮食反馈 ———
+const { settings: dietSettings, updateSettings: updateDietFeedbackSettings } = useDietFeedback()
+
+function setDietFeedback<K extends 'enabled' | 'summaryTime'>(key: K, value: DietFeedbackSettings[K]) {
+  updateDietFeedbackSettings({ [key]: value })
   store.showToast({ type: 'success', title: '设置已保存', message: '只写在本机 localStorage', duration: 2000 })
 }
 

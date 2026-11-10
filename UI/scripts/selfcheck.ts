@@ -5,6 +5,8 @@ import { buildDayPlan, alternativesFor, isPlanDay, AUTO_RECOMMEND_MIN_AGE } from
 import { buildWeeklyReport, loadOf, weekStart } from '@/services/weekRules'
 import { buildLoadSeries, intensitySplit, loadZone } from '@/services/loadRules'
 import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, inferMealType, suggestCategory, RULE_VERSION } from '@/services/mealRules'
+import { buildDietPhraseMessages, validateDietPhrases } from '@/services/llm'
+import { dayIntakeFacts, dietFindings, limitImmediate, meetsImmediateGate, meetsSummaryGate, DIET_THRESHOLDS, DIET_RULE_VERSION } from '@/services/dietFeedbackRules'
 import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
 import { validateRecognitionObject, validateRecognitionText } from '@/services/foodRecognition'
 import { activeExercises, CAMERA_COUNTABLE, exercises, EXERCISE_CATALOG_VERSION, findExercise, gateReason } from '@/services/exercises'
@@ -1718,6 +1720,75 @@ ok('分析删除吸收创建与更新', analysisDeleteOps.length === 1 && analys
 enqueue('analysis.create', 'local-analysis-b', { id: 'local-analysis-b' })
 ok('不同 clientId 的分析创建各自保留', listOutbox().length === 2)
 clearOutbox()
+
+console.log('\n37. 饮食反馈：结构规则、门槛与润色校验')
+ok('反馈规则版本已登记', DIET_RULE_VERSION === 'diet-feedback-v1')
+const dm = (date: string, mealType: Meal['mealType'], rows: MealItem[]): Meal =>
+  ({ id: `dm-${date}-${mealType}`, userId: 'u1', date, mealType, time: '12:00', completeness: 'complete', items: rows, analyzed: false, createdAt: date })
+const D = '2026-11-11'
+
+const singleItemFacts = dayIntakeFacts([dm(D, 'lunch', [mi('米饭', '谷薯类', 1, '碗')])], D)
+ok('只有 1 项不满足即时门槛', !meetsImmediateGate(singleItemFacts) && dietFindings(singleItemFacts, '18:00').length === 0)
+ok('dayIntakeFacts 统计条目与类别', singleItemFacts.itemCount === 1 && singleItemFacts.categories[0] === '谷薯类')
+
+// R2 主食占比：4 项里 2 项谷薯 = 50% 触发；3 项不到最少条目数不触发
+const stapleFacts = dayIntakeFacts([dm(D, 'lunch', [
+  mi('米饭', '谷薯类', 1, '碗'), mi('面条', '谷薯类', 1, '碗'), mi('苹果', '水果类', 1, '个'), mi('牛奶', '奶类', 1, '杯')
+])], D)
+const stapleFindings = dietFindings(stapleFacts, '12:00')
+ok('谷薯类过半触发主食偏高', stapleFindings.some(f => f.id === 'staple-heavy'), JSON.stringify(stapleFindings.map(f => f.id)))
+ok('主食偏高依据带占比', stapleFindings.find(f => f.id === 'staple-heavy')?.basis.includes('2 /') === true)
+const fewFacts = dayIntakeFacts([dm(D, 'lunch', [mi('米饭', '谷薯类'), mi('面条', '谷薯类'), mi('苹果', '水果类')])], D)
+ok('条目不足最少值不算占比', !dietFindings(fewFacts, '12:00').some(f => f.id === 'staple-heavy'))
+
+// R1/R3/R4 缺失类有 15:00 时间门槛
+const noProteinFacts = dayIntakeFacts([dm(D, 'lunch', [mi('米饭', '谷薯类', 1, '碗'), mi('苹果', '水果类', 1, '个')])], D)
+ok('14:59 不催缺失类', !dietFindings(noProteinFacts, '14:59').some(f => f.id === 'protein-missing'))
+const afternoonFindings = dietFindings(noProteinFacts, '15:00')
+ok('15:00 起提示蛋白质缺失', afternoonFindings.some(f => f.id === 'protein-missing'))
+ok('同一时点提示蔬菜缺失，已有水果不再催水果', afternoonFindings.some(f => f.id === 'veg-missing') && !afternoonFindings.some(f => f.id === 'fruit-missing'))
+ok('有蛋白质不再提示缺失', !dietFindings(dayIntakeFacts([dm(D, 'lunch', [mi('米饭', '谷薯类'), mi('鸡蛋', '蛋类')])], D), '18:00').some(f => f.id === 'protein-missing'))
+
+// R5 加餐：门槛要求至少 1 餐正餐，纯加餐日不反馈
+const snackFacts = dayIntakeFacts([
+  dm(D, 'lunch', [mi('米饭', '谷薯类', 1, '碗')]),
+  dm(D, 'snack', [mi('坚果', '坚果类', 1, '把')]),
+  dm(D, 'snack', [mi('酸奶', '奶类', 1, '杯')]),
+  dm(D, 'snack', [mi('苹果', '水果类', 1, '个')])
+], D)
+ok('20:00 前/不足 3 次不提示加餐', !dietFindings(snackFacts, '19:59').some(f => f.id === 'snack-heavy') && !dietFindings(dayIntakeFacts([dm(D, 'snack', [mi('坚果', '坚果类')]), dm(D, 'snack', [mi('酸奶', '奶类')])], D), '20:00').some(f => f.id === 'snack-heavy'))
+ok('20:00 起 3 次加餐触发', dietFindings(snackFacts, '20:00').some(f => f.id === 'snack-heavy'))
+
+// 优先级与条数上限：无蛋白质、无蔬菜、无水果且谷薯过半的一天，四条全中
+const priorityFacts = dayIntakeFacts([dm(D, 'lunch', [
+  mi('米饭', '谷薯类', 1, '碗'), mi('面条', '谷薯类', 1, '碗'), mi('米线', '谷薯类', 1, '碗'), mi('坚果', '坚果类', 1, '把')
+])], D)
+const priorityFindings = dietFindings(priorityFacts, '18:00')
+ok('即时反馈最多 2 条', limitImmediate(priorityFindings).length === DIET_THRESHOLDS.maxImmediate && priorityFindings.length > DIET_THRESHOLDS.maxImmediate)
+ok('按优先级排序：蛋白质 → 主食 → 蔬菜 → 水果', priorityFindings.map(f => f.id).join(',') === 'protein-missing,staple-heavy,veg-missing,fruit-missing')
+
+// 晚间总结：门槛 2 餐、不限条数、回顾语气
+ok('总结要 2 餐正餐', !meetsSummaryGate(priorityFacts) && dietFindings(priorityFacts, '21:30', { summary: true }).length === 0)
+const summaryFacts = dayIntakeFacts([
+  dm(D, 'lunch', [mi('米饭', '谷薯类', 1, '碗'), mi('面条', '谷薯类', 1, '碗')]),
+  dm(D, 'dinner', [mi('米线', '谷薯类', 1, '碗'), mi('坚果', '坚果类', 1, '把')])
+], D)
+ok('总结模式过门槛后列出全部规则', dietFindings(summaryFacts, '21:30', { summary: true }).length === 4)
+ok('总结门槛不够不生成', dietFindings(dayIntakeFacts([dm(D, 'lunch', [mi('米饭', '谷薯类'), mi('苹果', '水果类')])], D), '21:30', { summary: true }).length === 0)
+
+// 润色输出校验：未知 id 丢弃、空/超长退回规则文案
+const phraseTarget = afternoonFindings[0]
+const phraseOk = validateDietPhrases({ items: [
+  { id: phraseTarget.id, advice: '晚饭加个鸡蛋或一杯牛奶就好。' },
+  { id: 'made-up', advice: '不存在的一条' },
+  { id: 'veg-missing', advice: '' },
+  { id: 'fruit-missing', advice: 'x'.repeat(101) }
+] }, afternoonFindings)
+ok('合法润色被接受', phraseOk.phrases[phraseTarget.id] === '晚饭加个鸡蛋或一杯牛奶就好。')
+ok('未知 id / 空文案 / 超长都退回保底', !('made-up' in phraseOk.phrases) && !('veg-missing' in phraseOk.phrases) && !('fruit-missing' in phraseOk.phrases) && phraseOk.warnings.length > 0)
+ok('非 JSON 输出整包退回', Object.keys(validateDietPhrases('乱字符串', afternoonFindings).phrases).length === 0)
+const dietMsgs = buildDietPhraseMessages(afternoonFindings, noProteinFacts, false)
+ok('润色提示词带结论与条目', dietMsgs.system.includes('不得新增问题') && dietMsgs.user.includes('米饭'))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

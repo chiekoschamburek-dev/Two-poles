@@ -30,6 +30,9 @@
 
     <StatStrip :items="mealStats" />
 
+    <!-- 今日饮食反馈：只看今天，历史日期不给反馈 -->
+    <DietFeedbackCard v-if="isToday" class="diet-feedback-slot" />
+
     <BaseCard class="capture-hero">
       <div class="hero-copy">
         <span class="micro">Photo first</span>
@@ -274,6 +277,7 @@ import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import InsightCard from '@/components/common/InsightCard.vue'
 import StatStrip, { type StatItem } from '@/components/common/StatStrip.vue'
+import DietFeedbackCard from '@/components/meals/DietFeedbackCard.vue'
 import MealForm from '@/components/meals/MealForm.vue'
 import FoodCaptureDialog from '@/components/meals/FoodCaptureDialog.vue'
 import MealPhotoViewer from '@/components/meals/MealPhotoViewer.vue'
@@ -678,6 +682,7 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 
 /* ——— 拍照主入口 ——— */
 .capture-hero{margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-color:var(--color-accent-line);background:linear-gradient(120deg,var(--color-accent-soft),var(--color-card) 62%)}
+.diet-feedback-slot{margin-top:14px}
 .hero-copy{min-width:0}
 .hero-copy h2{font-size:24px;margin:6px 0 0;letter-spacing:-.02em}
 .hero-copy p{margin:7px 0 0;max-width:580px;font-size:12.5px;line-height:1.7;color:var(--color-text-secondary)}

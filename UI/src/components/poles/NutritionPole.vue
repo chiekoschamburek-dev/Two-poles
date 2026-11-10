@@ -37,6 +37,7 @@
       role="tabpanel"
       aria-labelledby="nutrition-tab-today"
     >
+      <DietFeedbackCard />
       <BaseCard variant="flush" class="block">
         <div class="block-head">
           <span class="micro">今天的三餐</span>
@@ -262,6 +263,7 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
 import ShapeState from '@/components/common/ShapeState.vue'
 import FoodCaptureDialog from '@/components/meals/FoodCaptureDialog.vue'
+import DietFeedbackCard from '@/components/meals/DietFeedbackCard.vue'
 import MealPhotoViewer from '@/components/meals/MealPhotoViewer.vue'
 import PoleMark from './PoleMark.vue'
 import PoleShell from './PoleShell.vue'

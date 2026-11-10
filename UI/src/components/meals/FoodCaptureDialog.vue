@@ -155,9 +155,6 @@
                 <span class="nm">{{ item.foodName }}</span>
                 <span class="cat">{{ item.category }}</span>
                 <span class="portion">{{ portionText(item) }}</span>
-                <span v-if="item.source === 'photo' && item.confidence !== undefined" class="conf" :class="{ low: isLow(item) }">
-                  {{ confidencePct(item) }}%
-                </span>
                 <span v-if="item.uncertain" class="flag">待确认</span>
                 <button v-if="item.uncertain" type="button" class="text-btn confirm-item" @click="confirmItem(item)">
                   确认无误
@@ -209,8 +206,8 @@
                   :aria-label="`删除第 ${index + 1} 项`"
                   @click="removeRow(index)"
                 ><X :size="15" /></button>
-                <span v-if="item.source === 'photo' && item.confidence !== undefined" class="e-meta">
-                  模型置信度 {{ confidencePct(item) }}%{{ item.uncertain ? ' · 待确认' : wasUnsure(item) ? ' · 已确认' : '' }}
+                <span v-if="item.source === 'photo'" class="e-meta">
+                  照片识别{{ item.uncertain ? ' · 待确认' : wasUnsure(item) ? ' · 已确认' : '' }}
                   <button v-if="item.uncertain" type="button" class="text-btn inline-confirm" @click="confirmItem(item)">
                     确认无误
                   </button>
@@ -610,14 +607,6 @@ function itemFromRecognized(food: RecognizedFood): EditableItem {
     nutrition: food.nutrition,
     catAuto: false
   }
-}
-
-function isLow(item: EditableItem): boolean {
-  return !item.userConfirmed && (item.confidence ?? 1) < LOW_CONFIDENCE
-}
-
-function confidencePct(item: EditableItem): number {
-  return Math.round((item.confidence ?? 0) * 100)
 }
 
 function portionText(item: EditableItem): string {
@@ -1020,8 +1009,6 @@ async function save() {
 .nm{font-weight:600;color:var(--color-ink);overflow-wrap:anywhere}
 .cat{font-size:11px;color:var(--color-text-muted);white-space:nowrap}
 .portion{font-family:var(--font-num);font-size:11.5px;color:var(--color-text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
-.conf{font-family:var(--font-num);font-size:10.5px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);padding:2px 7px;border-radius:999px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.conf.low{color:var(--color-caution);background:var(--color-caution-soft);box-shadow:inset 0 0 0 1px rgba(138,90,0,.18)}
 .flag{font-size:10.5px;font-weight:600;color:var(--color-caution);border:1px solid rgba(138,90,0,.28);padding:2px 6px;border-radius:5px;white-space:nowrap}
 .flag.ok{color:var(--color-success);border-color:var(--color-accent-line);background:var(--color-success-soft)}
 .energy{font-family:var(--font-num);font-size:10.5px;color:var(--color-text-muted);font-variant-numeric:tabular-nums}
