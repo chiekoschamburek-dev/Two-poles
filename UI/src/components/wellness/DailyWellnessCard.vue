@@ -6,7 +6,7 @@
       class="w-toggle"
       :aria-expanded="expanded"
       :aria-controls="detailId"
-      :aria-label="`${card.title}（含进阶补充），${expanded ? '收起详解' : '展开详解'}`"
+      :aria-label="`${card.title}${hasExtra ? '（含进阶补充）' : ''}，${expanded ? '收起详解' : '展开详解'}`"
       @click.stop="expanded = !expanded"
     >
       <span class="w-icon" aria-hidden="true">
@@ -16,7 +16,7 @@
       <span class="w-text">
         <span class="w-eyebrow micro">
           今日 Tips · {{ card.category }} / {{ card.topic }}
-          <em class="w-badge">进阶补充</em>
+          <em v-if="hasExtra" class="w-badge">进阶补充</em>
         </span>
         <span class="w-title">{{ card.title }}</span>
         <span class="w-summary">{{ card.summary }}</span>
@@ -44,7 +44,7 @@
         </div>
 
         <aside class="w-side">
-          <section class="w-extra" aria-label="进阶补充">
+          <section v-if="hasExtra" class="w-extra" aria-label="进阶补充">
             <span class="w-extra-label">进阶补充 · {{ card.extra.focus }}</span>
             <p v-for="(paragraph, i) in card.extra.detail" :key="`ad-${i}`">{{ paragraph }}</p>
             <ul>
@@ -98,6 +98,8 @@ const props = withDefaults(
 const expanded = ref(false)
 const toggleBtn = ref<HTMLButtonElement | null>(null)
 const card = computed(() => pickDailyWellnessCard(props.date))
+/** 旧缓存/旧数据可能没有 extra；缺少时只隐藏进阶补充，不让整张卡崩掉 */
+const hasExtra = computed(() => !!card.value.extra)
 const detailId = computed(() => `wellness-detail-${card.value.id}`)
 
 /** 整卡点击只是鼠标/触屏的快捷方式：只在收起时展开，不抢头部按钮的收起职责 */
