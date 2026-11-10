@@ -14,7 +14,7 @@ import { applyPlanOverrides, getDemoExercise, guideExercise, readPlanOverrides, 
 import { useRepCounter } from '@/composables/useRepCounter'
 import { createRepMachine } from '@/composables/repMachine'
 import type { RepMachineSnapshot } from '@/composables/repMachine'
-import { analyzeMotion, analyzeGait, detectView, precheckMotion, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
+import { analyzeMotion, analyzeGait, classifyAction, detectView, precheckMotion, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
 import { rulesFor } from '@/services/motionRules'
 import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
@@ -1489,21 +1489,32 @@ ok('躯干前倾偏大产生关注项', leaningSquat.findings.some(f => f.ruleId
 ok('所有关注项都有文献出处', [shallowSquat, bentSquat, leaningSquat].every(result =>
   result.findings.every(f => f.sourceLabel.includes('NSCA'))))
 ok('结果不含评分字段', !('score' in goodResult) && goodResult.findings.every(f => !('score' in f)))
-const goodPrecheck = precheckMotion(goodSquat)
-ok('合格视频可分析并提示力量动作歧义', goodPrecheck.verdict === 'degraded'
+const goodPrecheck = precheckMotion({ fps: goodSquat.fps, frames: goodSquat.frames })
+ok('合格深蹲自动识别且不再提示歧义', goodPrecheck.verdict === 'ok'
+  && goodPrecheck.action === 'squat' && goodPrecheck.actionConfident === true
   && goodPrecheck.view === 'side' && goodPrecheck.repCount === 2
-  && goodPrecheck.reasons.some(reason => reason.includes('深蹲与硬拉')))
+  && !goodPrecheck.reasons.some(reason => reason.includes('深蹲与硬拉')))
+const deadliftSeries = buildSquatSeries({ reps: 2, bottomKnee: 150, lean: 65 })
+const deadliftPrecheck = precheckMotion({ fps: deadliftSeries.fps, frames: deadliftSeries.frames })
+ok('髋铰链大前倾识别为硬拉', deadliftPrecheck.action === 'deadlift' && deadliftPrecheck.actionConfident === true
+  && !deadliftPrecheck.reasons.some(reason => reason.includes('深蹲与硬拉')))
+const ambiguousStrength = buildSquatSeries({ reps: 2, bottomKnee: 120, lean: 40 })
+const ambiguousClass = classifyAction(ambiguousStrength.frames, ambiguousStrength.fps)
+ok('特征不明确时默认深蹲并标注低置信', ambiguousClass.action === 'squat' && !ambiguousClass.confident)
+const ambiguousStrengthPrecheck = precheckMotion({ fps: ambiguousStrength.fps, frames: ambiguousStrength.frames })
+ok('特征不明确走降级并提示可切换', ambiguousStrengthPrecheck.verdict === 'degraded' && ambiguousStrengthPrecheck.actionConfident === false
+  && ambiguousStrengthPrecheck.reasons.some(reason => reason.includes('特征不明确')))
 const lowVisibility = goodSquat.frames.map((frame, index) => index % 3 === 0 ? frame : { ...frame, visibility: 0.2 })
-const degradedPrecheck = precheckMotion({ ...goodSquat, frames: lowVisibility })
+const degradedPrecheck = precheckMotion({ fps: goodSquat.fps, frames: lowVisibility })
 ok('可见度偏低走降级而不是拒绝', degradedPrecheck.verdict === 'degraded'
   && degradedPrecheck.reasons.some(reason => reason.includes('可见度')))
 const stillFrames = buildSquatSeries({ reps: 1, bottomKnee: 172 })
-const noRepPrecheck = precheckMotion(stillFrames)
+const noRepPrecheck = precheckMotion({ fps: stillFrames.fps, frames: stillFrames.frames })
 ok('没有完整重复时降级并说明', noRepPrecheck.verdict === 'degraded' && noRepPrecheck.repCount === 0
   && noRepPrecheck.reasons.some(reason => reason.includes('完整重复')))
-const emptyPrecheck = precheckMotion({ action: 'squat', fps: 15, frames: [] })
-ok('没有人体时拒绝', emptyPrecheck.verdict === 'rejected' && emptyPrecheck.view === null)
-const unknownViewPrecheck = precheckMotion({ action: 'squat', fps: 15, frames: ambiguous })
+const emptyPrecheck = precheckMotion({ fps: 15, frames: [] })
+ok('没有人体时拒绝', emptyPrecheck.verdict === 'rejected' && emptyPrecheck.view === null && emptyPrecheck.action === null)
+const unknownViewPrecheck = precheckMotion({ fps: 15, frames: ambiguous })
 ok('视角无法判定时拒绝', unknownViewPrecheck.verdict === 'rejected'
   && unknownViewPrecheck.reasons.some(reason => reason.includes('视角')))
 
@@ -1587,6 +1598,11 @@ const gait = analyzeGait(runningFrames, 30)
 ok('跑姿至少识别 5 个步态周期', gait.cycles >= 5, `cycles=${gait.cycles}`)
 ok('跑姿步频为合理正数', gait.cadence !== null && gait.cadence > 120, `cadence=${gait.cadence}`)
 ok('跑姿触地时间与垂直振幅可测', gait.contactTimeMs !== null && gait.verticalOscillation !== null)
+const runningClass = classifyAction(runningFrames, 30)
+ok('步态特征命中时自动判为跑姿', runningClass.action === 'running' && runningClass.confident)
+const runningPrecheck = precheckMotion({ fps: 30, frames: runningFrames })
+ok('跑姿检查自动路由且不拒绝', runningPrecheck.action === 'running' && runningPrecheck.verdict !== 'rejected'
+  && runningPrecheck.gaitCycles !== null)
 const runningResult = analyzeMotion({ action: 'running', view: 'side', fps: 30, frames: runningFrames })
 ok('跑姿结果给步态周期而不是重复次数', runningResult.repCount === null && runningResult.gaitCycles === gait.cycles)
 ok('正常跑姿不误报触地膝过伸', !runningResult.findings.some(finding => finding.ruleId === 'RUN-SE-02'))
@@ -1600,15 +1616,19 @@ ok('触地膝角过伸命中', overextendedResult.findings.some(finding => findi
 const leaningFrames = Array.from({ length: 120 }, (_, index) => runningFrame((index + 1) * (1000 / 30), { trunkLean: 30 }))
 const leaningResult = analyzeMotion({ action: 'running', view: 'side', fps: 30, frames: leaningFrames })
 ok('躯干前倾偏离参考区间命中', leaningResult.findings.some(finding => finding.ruleId === 'RUN-SE-01'))
-const noGaitPrecheck = precheckMotion({ action: 'running', fps: 15, frames: stillFrames.frames })
-ok('跑姿没有连续步态时拒绝', noGaitPrecheck.verdict === 'rejected')
-const wrongActionPrecheck = precheckMotion({ action: 'squat', fps: 30, frames: runningFrames })
-ok('力量动作选到交替跑姿视频时拒绝', wrongActionPrecheck.verdict === 'rejected'
-  && wrongActionPrecheck.reasons.some(reason => reason.includes('跑步步态')))
-const stillStrengthPrecheck = precheckMotion({ action: 'squat', fps: 15, frames: stillFrames.frames })
-ok('双脚不交替的动作不误判为跑姿', stillStrengthPrecheck.verdict !== 'rejected')
-const fewCyclesPrecheck = precheckMotion({ action: 'running', fps: 30, frames: runningFrames.slice(0, 30) })
-ok('跑姿周期不足时降级', fewCyclesPrecheck.verdict === 'degraded' && (fewCyclesPrecheck.gaitCycles ?? 0) < 5)
+const noGaitPrecheck = precheckMotion({ fps: 15, frames: stillFrames.frames })
+ok('无步态的静止视频不判为跑姿，走力量降级', noGaitPrecheck.verdict === 'degraded'
+  && noGaitPrecheck.action === 'squat' && noGaitPrecheck.actionConfident === false)
+const runningVideoPrecheck = precheckMotion({ fps: 30, frames: runningFrames })
+ok('跑步视频自动路由为跑姿而不是拒绝', runningVideoPrecheck.action === 'running'
+  && runningVideoPrecheck.actionConfident === true && runningVideoPrecheck.verdict !== 'rejected')
+const stillStrengthPrecheck = precheckMotion({ fps: 15, frames: stillFrames.frames })
+ok('双脚不交替的动作不误判为跑姿', stillStrengthPrecheck.action === 'squat' && stillStrengthPrecheck.verdict !== 'rejected')
+const fewCyclesPrecheck = precheckMotion({ fps: 30, frames: runningFrames.slice(0, 60) })
+ok('跑步特征存疑时按跑姿降级而不是误判成力量', fewCyclesPrecheck.action === 'running'
+  && fewCyclesPrecheck.actionConfident === false && fewCyclesPrecheck.verdict === 'degraded'
+  && (fewCyclesPrecheck.gaitCycles ?? 0) < 5,
+  `action=${fewCyclesPrecheck.action} confident=${fewCyclesPrecheck.actionConfident} verdict=${fewCyclesPrecheck.verdict} cycles=${fewCyclesPrecheck.gaitCycles}`)
 
 console.log('\n33. 视频分析：跑姿正面规则')
 const frontRunFrames = Array.from({ length: 120 }, (_, index) =>

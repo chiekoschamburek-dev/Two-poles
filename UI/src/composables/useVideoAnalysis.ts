@@ -229,15 +229,20 @@ export function useVideoAnalysis() {
     }
   }
 
-  async function precheck(action: AnalysisAction): Promise<MotionPrecheckResult> {
+  /**
+   * 可分析性检查 + 动作自动识别。动作不再由用户预选：
+   * 统一按 15fps 采一段样帧（最多 10 秒，兼顾步态检测的时间分辨率），
+   * 判定出的动作随结果返回，全帧分析再按动作各自的帧率跑。
+   */
+  async function precheck(): Promise<MotionPrecheckResult> {
     if (!video || !duration.value) throw new VideoAnalysisError('decode', '请先选择视频')
     const seq = beginRun()
     phase.value = 'precheck'
     progress.value = 0
     statusText.value = '正在检查视频是否可分析……'
     try {
-      const fps = action === 'running' ? 15 : 10
-      const span = Math.min(duration.value, action === 'running' ? 10 : 8)
+      const fps = 15
+      const span = Math.min(duration.value, 10)
       const count = Math.max(12, Math.floor(span * fps))
       const frames: MotionFrame[] = []
       for (let index = 0; index < count; index++) {
@@ -248,7 +253,7 @@ export function useVideoAnalysis() {
         progress.value = (index + 1) / count
         statusText.value = `正在检查 ${index + 1} / ${count} 帧`
       }
-      return precheckMotion({ action, fps, frames })
+      return precheckMotion({ fps, frames })
     } finally {
       if (seq === runSeq) {
         phase.value = 'idle'

@@ -22,30 +22,15 @@
     <template v-if="step === 'pick' || step === 'error'">
       <section class="an-card">
         <div class="an-card-head">
-          <h2>选择动作与视频</h2>
+          <h2>选择视频</h2>
           <span>本地 · 不上传</span>
-        </div>
-        <div class="an-actions" role="radiogroup" aria-label="分析动作">
-          <button
-            v-for="item in actions"
-            :key="item.id"
-            type="button"
-            role="radio"
-            :aria-checked="action === item.id"
-            :class="{ on: action === item.id }"
-            @click="action = item.id"
-          >
-            <Video :size="14" />
-            <span>{{ item.label }}</span>
-            <small>{{ item.hint }}</small>
-          </button>
         </div>
 
         <div class="an-upload">
           <span class="an-upload-ic"><Upload :size="15" /></span>
           <div class="an-upload-copy">
             <strong>{{ fileName || '从相册选择视频' }}</strong>
-            <span>mp4 / webm / mov · 1–60 秒 · ≤ 200MB</span>
+            <span>mp4 / webm / mov · 1–60 秒 · ≤ 200MB · 动作自动识别</span>
           </div>
           <button class="an-pick" type="button" :disabled="busy" @click="pickFile">
             {{ fileName ? '重新选择' : '选择视频' }}
@@ -106,7 +91,7 @@
       </section>
 
       <section class="an-flow" aria-label="分析流程">
-        <div><span class="num">01</span><b>可分析性检查</b><small>全身入镜 / 视角 / 动作匹配</small></div>
+        <div><span class="num">01</span><b>可分析性检查</b><small>全身入镜 / 视角 / 自动识别动作</small></div>
         <div><span class="num">02</span><b>端侧逐帧识别</b><small>视频不上传，分析后丢弃</small></div>
         <div><span class="num">03</span><b>问题清单</b><small>关键帧 · 阈值 · 出处</small></div>
       </section>
@@ -116,7 +101,23 @@
       <BaseCard class="panel">
         <h2>视频可分析</h2>
         <dl class="summary">
-          <div><dt>动作</dt><dd>{{ actionLabel }}</dd></div>
+          <div>
+            <dt>动作</dt>
+            <dd>
+              自动识别：{{ actionLabel }}
+              <span v-if="canSwitchAction" class="switch-group" role="group" aria-label="切换动作">
+                <button
+                  v-for="item in switchableActions"
+                  :key="item.id"
+                  type="button"
+                  class="switch-chip"
+                  :class="{ on: action === item.id }"
+                  :aria-pressed="action === item.id"
+                  @click="switchAction(item.id)"
+                >{{ item.label }}</button>
+              </span>
+            </dd>
+          </div>
           <div><dt>视角</dt><dd>{{ viewLabel(precheckResult.view) }}</dd></div>
           <div><dt>{{ action === 'running' ? '步态周期' : '完整重复' }}</dt><dd>{{ action === 'running' ? `${precheckResult.gaitCycles ?? '—'} 个` : `${precheckResult.repCount ?? '—'} 次` }}</dd></div>
           <div><dt>时长</dt><dd>{{ duration.toFixed(1) }} 秒</dd></div>
@@ -163,7 +164,7 @@
         <div>
           <span class="micro">RESULT</span>
           <h2>{{ actionLabel }} · {{ viewLabel(precheckResult.view) }}视角</h2>
-          <p>{{ result.repCount !== null ? `识别到 ${result.repCount} 次完整重复` : (result.gaitCycles !== null ? `识别到 ${result.gaitCycles} 个步态周期` : '按所选动作完成分析') }}</p>
+          <p>{{ result.repCount !== null ? `识别到 ${result.repCount} 次完整重复` : (result.gaitCycles !== null ? `识别到 ${result.gaitCycles} 个步态周期` : '按自动识别的动作完成分析') }}</p>
         </div>
       </div>
 
@@ -210,6 +211,9 @@
 
       <p class="disclaimer">{{ disclaimer }}</p>
       <div class="actions">
+        <BaseButton v-if="canSwitchAction" variant="ghost" @click="switchAndRerun">
+          识别错了？按{{ otherActionLabel }}重新分析
+        </BaseButton>
         <BaseButton variant="secondary" @click="resetAll">换一个视频</BaseButton>
       </div>
     </template>
@@ -240,10 +244,16 @@ import type {
 
 type Step = 'pick' | 'prechecked' | 'analyzing' | 'result' | 'rejected' | 'error'
 
-const actions: { id: AnalysisAction; label: string; hint: string }[] = [
-  { id: 'squat', label: '深蹲', hint: '侧面或正面' },
-  { id: 'deadlift', label: '硬拉', hint: '侧面或正面' },
-  { id: 'running', label: '跑姿', hint: '跑步机侧拍优先' }
+const ACTION_LABELS: Record<AnalysisAction, string> = {
+  squat: '深蹲',
+  deadlift: '硬拉',
+  running: '跑姿'
+}
+
+/** 可改判的范围：跑姿由步态特征判定，特征强，不提供手动改判 */
+const switchableActions: { id: AnalysisAction; label: string }[] = [
+  { id: 'squat', label: '深蹲' },
+  { id: 'deadlift', label: '硬拉' }
 ]
 
 const disclaimer = '规则参考各关注项所列文献，阈值由本项目自行翻译，未经运动医学或体能专业人士审核；结果仅供复盘参考，不构成诊断或训练处方。'
@@ -261,10 +271,45 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
 const saving = ref(false)
 const keyframeUrls = ref<Record<string, string>>({})
+/** 本次分析已保存的记录 id；改判重跑时先删掉它，避免同一段视频留两条结果 */
+const savedRecordId = ref<string | null>(null)
 
 const busy = computed(() => phase.value === 'precheck')
-const actionLabel = computed(() => actions.find(item => item.id === action.value)?.label ?? '')
+const actionLabel = computed(() => ACTION_LABELS[action.value])
+const otherActionLabel = computed(() => action.value === 'squat' ? '硬拉' : '深蹲')
+/** 力量动作二分允许改判；跑姿不提供 */
+const canSwitchAction = computed(() =>
+  action.value === 'squat' || (action.value === 'deadlift' && precheckResult.value !== null)
+)
 const viewLabel = (view: AnalysisView | null) => view === 'side' ? '侧面' : view === 'front' ? '正面' : '未知'
+
+/** 用户改判后同步检查结果：清除特征不明确/重复数这些跟动作绑定的口径 */
+function applySwitchedAction(next: AnalysisAction) {
+  action.value = next
+  if (!precheckResult.value) return
+  const reasons = precheckResult.value.reasons.filter(reason => !reason.includes('深蹲与硬拉'))
+  precheckResult.value = {
+    ...precheckResult.value,
+    action: next,
+    actionConfident: true,
+    repCount: precheckResult.value.action === next ? precheckResult.value.repCount : null,
+    reasons
+  }
+}
+
+function switchAction(next: AnalysisAction) {
+  if (next === action.value) return
+  applySwitchedAction(next)
+}
+
+async function switchAndRerun() {
+  if (savedRecordId.value) store.removeAnalysis(savedRecordId.value)
+  savedRecordId.value = null
+  result.value = null
+  applySwitchedAction(action.value === 'squat' ? 'deadlift' : 'squat')
+  revokeKeyframeUrls()
+  await startAnalysis()
+}
 
 function pickFile() {
   fileInput.value?.click()
@@ -286,6 +331,7 @@ function resetState() {
   fileName.value = ''
   selectedFile.value = null
   saving.value = false
+  savedRecordId.value = null
 }
 
 function revokeKeyframeUrls() {
@@ -308,7 +354,8 @@ async function runFile(file: File) {
   errorMessage.value = ''
   try {
     await prepare(file)
-    precheckResult.value = await precheck(action.value)
+    precheckResult.value = await precheck()
+    action.value = precheckResult.value.action ?? 'squat'
     step.value = precheckResult.value.verdict === 'rejected' ? 'rejected' : 'prechecked'
   } catch (error) {
     if (isCancelled(error)) return
@@ -374,6 +421,7 @@ async function persistResult(analysisResult: MotionAnalysisResult, view: Analysi
     _sync: 'pending'
   }
   store.addAnalysis(record)
+  savedRecordId.value = id
   return { ...analysisResult, findings }
 }
 
@@ -489,29 +537,21 @@ onUnmounted(revokeKeyframeUrls)
 .an-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--color-divider); margin-bottom: 10px; }
 .an-card-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
 .an-card-head > span { font-family: var(--font-num); font-size: 8.5px; letter-spacing: .04em; color: var(--color-text-muted); white-space: nowrap; }
-.an-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.an-actions button {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  column-gap: 5px;
-  row-gap: 2px;
-  min-width: 0;
-  padding: 8px 9px;
+.switch-group { display: inline-flex; gap: 5px; margin-left: 8px; vertical-align: middle; }
+.switch-chip {
+  padding: 3px 10px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-base);
-  background: #fbfaf7;
+  border-radius: 999px;
+  background: var(--color-card);
   color: var(--color-text-secondary);
   font-family: inherit;
-  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
   cursor: pointer;
   transition: border-color var(--motion-fast), background var(--motion-fast);
 }
-.an-actions button svg { grid-row: 1; width: 14px; height: 14px; color: var(--color-text-muted); }
-.an-actions button span { grid-column: 2; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
-.an-actions button small { grid-column: 1 / -1; font-size: 8px; line-height: 1.35; color: var(--color-text-muted); }
-.an-actions button.on { border-color: var(--pole-movement-line); background: var(--pole-movement-soft); color: var(--pole-movement-strong); }
-.an-actions button.on svg { color: var(--pole-movement-strong); }
+.switch-chip:hover { border-color: var(--pole-movement-line); }
+.switch-chip.on { border-color: var(--pole-movement-line); background: var(--pole-movement-soft); color: var(--pole-movement-strong); }
 .an-upload { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding: 9px 10px; border: 1px dashed var(--hair-strong); border-radius: var(--radius-lg); background: #fbfaf7; }
 .an-upload-ic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: var(--radius-base); background: var(--color-card); border: 1px solid var(--color-border); color: var(--pole-movement-strong); }
 .an-upload-copy { flex: 1; min-width: 0; }

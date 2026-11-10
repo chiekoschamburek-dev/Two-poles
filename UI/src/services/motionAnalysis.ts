@@ -439,10 +439,78 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   }
 }
 
-export function precheckMotion(input: MotionFramesInput): MotionPrecheckResult {
+/** 动作自动判定阈值：端侧启发式，未经标注样本校准；判定结果允许用户在分析前/后改判 */
+export const ACTION_CLASSIFY_THRESHOLDS = {
+  /** 全程最小膝角（髋膝踝角，伸直为 180°）≤ 该值视为深蹲特征 */
+  squatMaxKneeAngle: 100,
+  /** 全程最大躯干前倾（相对竖直，度数）≥ 该值视为硬拉特征 */
+  deadliftMinTrunkLean: 55,
+  /** 跑姿判定（置信档）沿用原「动作不符」拒绝口径：交替触地次数与步频下限 */
+  runMinFootStrikes: 8,
+  runMinCadence: 140,
+  /** 跑姿判定（存疑档）：像跑步但不够典型，按跑姿分析并降级标注，避免整段误判成力量动作 */
+  runIshMinFootStrikes: 3,
+  runIshMinCadence: 120
+} as const
+
+export interface ActionClassification {
+  action: AnalysisAction
+  /** false = 特征不明确，默认按深蹲分析并降级标注，用户可改判 */
+  confident: boolean
+  signals: {
+    minKneeAngle: number | null
+    maxTrunkLean: number | null
+    gaitFootStrikes: number
+    gaitCadence: number | null
+  }
+}
+
+/**
+ * 自动判定动作：交替足触地达标判跑姿；否则按「深蹲膝屈深、硬拉髋铰链躯干前倾大」二分。
+ * 正面视角的躯干前倾在画面上投影很弱，判不出时走默认（深蹲）并标 confident=false，
+ * 由用户改判兜底——不在端侧硬猜。
+ */
+export function classifyAction(frames: MotionFrame[], fps: number): ActionClassification {
+  const gait = analyzeGait(frames, fps)
+  const signals: ActionClassification['signals'] = {
+    minKneeAngle: null,
+    maxTrunkLean: null,
+    gaitFootStrikes: gait.footStrikes,
+    gaitCadence: gait.cadence
+  }
+  if (gait.alternating && gait.footStrikes >= ACTION_CLASSIFY_THRESHOLDS.runMinFootStrikes
+    && gait.cadence !== null && gait.cadence >= ACTION_CLASSIFY_THRESHOLDS.runMinCadence) {
+    return { action: 'running', confident: true, signals }
+  }
+  // 存疑档必须看 alternating：深蹲的踝部起伏也会被算成「触地」，但左右不交替；
+  // alternating 要求 ≥4 次触地，很短的跑步片段可能判不出来——宁可按力量降级 + 用户改判，不硬猜
+  if (gait.alternating && gait.footStrikes >= ACTION_CLASSIFY_THRESHOLDS.runIshMinFootStrikes
+    && gait.cadence !== null && gait.cadence >= ACTION_CLASSIFY_THRESHOLDS.runIshMinCadence) {
+    return { action: 'running', confident: false, signals }
+  }
+  for (const frame of frames) {
+    if (frame.visibility < MIN_FRAME_VISIBILITY) continue
+    const knee = jointAngle(frame, 'knee')
+    if (knee.angle !== null && (signals.minKneeAngle === null || knee.angle < signals.minKneeAngle)) {
+      signals.minKneeAngle = knee.angle
+    }
+    const side = sideJointPoint(frame, 'knee')?.side ?? 'left'
+    const lean = trunkAngle(frame.points.shoulder[side], frame.points.hip[side])
+    if (lean !== null && (signals.maxTrunkLean === null || lean > signals.maxTrunkLean)) {
+      signals.maxTrunkLean = lean
+    }
+  }
+  const kneeHit = signals.minKneeAngle !== null && signals.minKneeAngle <= ACTION_CLASSIFY_THRESHOLDS.squatMaxKneeAngle
+  const trunkHit = signals.maxTrunkLean !== null && signals.maxTrunkLean >= ACTION_CLASSIFY_THRESHOLDS.deadliftMinTrunkLean
+  if (kneeHit && !trunkHit) return { action: 'squat', confident: true, signals }
+  if (trunkHit && !kneeHit) return { action: 'deadlift', confident: true, signals }
+  return { action: 'squat', confident: false, signals }
+}
+
+export function precheckMotion(input: { fps: number; frames: MotionFrame[] }): MotionPrecheckResult {
   const usable = input.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
   if (!input.frames.length || !usable.length) {
-    return { verdict: 'rejected', reasons: ['没有检测到人体：请确认全身入镜、光线充足后重试'], view: null, repCount: null, gaitCycles: null }
+    return { verdict: 'rejected', reasons: ['没有检测到人体：请确认全身入镜、光线充足后重试'], view: null, repCount: null, gaitCycles: null, action: null, actionConfident: false }
   }
   const reasons: string[] = []
   let degraded = false
@@ -453,37 +521,42 @@ export function precheckMotion(input: MotionFramesInput): MotionPrecheckResult {
   }
   const viewResult = detectView(input.frames)
   if (!viewResult.view) {
-    return { verdict: 'rejected', reasons: ['无法判定分析视角：请从侧面或正面全身入镜，手机与髋同高'], view: null, repCount: null, gaitCycles: null }
+    return { verdict: 'rejected', reasons: ['无法判定分析视角：请从侧面或正面全身入镜，手机与髋同高'], view: null, repCount: null, gaitCycles: null, action: null, actionConfident: false }
   }
+  const classification = classifyAction(input.frames, input.fps)
   let repCount: number | null = null
   let gaitCycles: number | null = null
-  if (input.action === 'running') {
+  if (classification.action === 'running') {
     const gait = analyzeGait(input.frames, input.fps)
     gaitCycles = gait.cycles
-    if (gait.footStrikes === 0) {
-      return { verdict: 'rejected', reasons: ['没有检测到连续跑步步态：请拍摄包含至少 5 个步态周期的侧面或正面跑步画面'], view: viewResult.view, repCount: null, gaitCycles }
+    if (gait.cycles === 0) {
+      return { verdict: 'rejected', reasons: ['没有检测到连续跑步步态：请拍摄包含至少 5 个步态周期的侧面或正面跑步画面'], view: viewResult.view, repCount: null, gaitCycles, action: 'running', actionConfident: true }
     }
     if (gait.cycles < 5) {
       degraded = true
       reasons.push(`步态周期不足（识别到 ${gait.cycles} 个，至少 5 个），结果置信度低`)
+    } else if (!classification.confident) {
+      degraded = true
+      reasons.push('跑步步态特征不够明显：结果按跑姿分析，如这不是跑步视频请重新拍摄')
     }
   } else {
-    const gait = analyzeGait(input.frames, input.fps)
-    if (gait.alternating && gait.footStrikes >= 8 && gait.cadence !== null && gait.cadence >= 140) {
-      return {
-        verdict: 'rejected',
-        reasons: ['检测到连续交替的跑步步态，与所选力量动作不符：请选择「跑姿」或上传力量动作视频'],
-        view: viewResult.view,
-        repCount: null,
-        gaitCycles: gait.cycles
-      }
-    }
-    repCount = segmentReps(input.frames, input.action).count
-    degraded = true
-    reasons.push('深蹲与硬拉的动作区分不可靠：结果按你选择的动作分析')
+    repCount = segmentReps(input.frames, classification.action).count
     if (repCount === 0) {
+      degraded = true
       reasons.push('未识别到完整重复动作：请完整拍摄至少 1 次动作后重试')
     }
+    if (!classification.confident) {
+      degraded = true
+      reasons.push('深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作')
+    }
   }
-  return { verdict: degraded ? 'degraded' : 'ok', reasons, view: viewResult.view, repCount, gaitCycles }
+  return {
+    verdict: degraded ? 'degraded' : 'ok',
+    reasons,
+    view: viewResult.view,
+    repCount,
+    gaitCycles,
+    action: classification.action,
+    actionConfident: classification.confident
+  }
 }

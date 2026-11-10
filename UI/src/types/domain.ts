@@ -68,6 +68,10 @@ export interface MotionPrecheckResult {
   view: AnalysisView | null
   repCount: number | null
   gaitCycles: number | null
+  /** 自动识别的动作；连人体/视角都没过时为 null */
+  action: AnalysisAction | null
+  /** false = 深蹲/硬拉特征不明确，默认按深蹲分析，允许改判 */
+  actionConfident: boolean
 }
 
 export interface MotionAnalysis {
