@@ -12,7 +12,6 @@
       </div>
       <div class="version">
         <History :size="16" /> 当前版本 <strong>{{ plan ? `v${plan.version}` : '未生成' }}</strong>
-        <span class="ver-mode">{{ plan ? (plan.mode === 'public' ? '大众模式' : '运动员模式') : currentLabel }}</span>
         <button class="regen" title="用内置规则按当前档案重算，不调用模型" @click="regenerate">按规则重算</button>
         <button
           class="regen ai"
@@ -23,6 +22,9 @@
       </div>
     </div>
 
+    <p v-if="showProfilePrompt && !store.hasProfile" class="gate-note" role="status">
+      请先填写并保存个人档案。 <RouterLink to="/onboarding">填写档案</RouterLink>
+    </p>
     <p v-if="notice.gateNote" class="gate-note" role="status">{{ notice.gateNote }}</p>
     <p v-if="plan" class="ver-reason">v{{ plan.version }} 原因：{{ plan.reason }}<em v-if="planHistoryCount">· 本机另存 {{ planHistoryCount }} 个历史版本</em></p>
     <ul v-if="notice.conflicts.length" class="conflicts" role="status">
@@ -234,7 +236,7 @@
       <div class="card-head"><div><span class="eyebrow">VERSIONS</span><h3>本机计划历史</h3></div><span class="fine">{{ planHistoryCount }} 个版本</span></div>
       <ul class="verlist">
         <li v-for="h in recentHistory" :key="`${h.id}-v${h.version}`">
-          <b>v{{ h.version }}</b><span>{{ h.mode === 'public' ? '大众' : '运动员' }}</span><em>{{ h.reason }}</em><small>{{ h.createdAt.slice(0, 16).replace('T', ' ') }}</small>
+          <b>v{{ h.version }}</b><em>{{ h.reason }}</em><small>{{ h.createdAt.slice(0, 16).replace('T', ' ') }}</small>
         </li>
       </ul>
     </BaseCard>
@@ -273,6 +275,7 @@ const selected = ref(toISODate(now))
 const manualOpen = ref(false)
 const manual = ref({ date: toISODate(now), name: '', minutes: 20 })
 const manualError = ref('')
+const showProfilePrompt = ref(false)
 const manualMode = ref<'single' | 'materials'>('single')
 const materialScope = ref<'day' | 'week'>('week')
 const materialDate = ref(selected.value)
@@ -291,7 +294,6 @@ const icons: Partial<Record<TrainingType, typeof Wind>> = {
   其他: Dumbbell
 }
 
-const currentLabel = computed(() => (store.isAthleteMode ? '运动员模式' : '大众模式'))
 const selectedDate = computed(() => new Date(`${selected.value}T00:00:00`))
 const materialTarget = computed(() => {
   const date = new Date(`${materialDate.value}T00:00:00`)
@@ -340,7 +342,7 @@ const notice = computed(() => store.dayPlanNotice(selectedDate.value))
 function itemsOn(d: Date): PlanItem[] {
   const p = store.weekPlan(d)
   if (p) return p.items.filter(i => i.date === toISODate(d))
-  return buildDayPlan(d, store.userProfile, store.currentMode).items
+  return buildDayPlan(d, store.userProfile).items
 }
 
 const cells = computed(() => monthCells(cursor.value.year, cursor.value.month))
@@ -413,7 +415,7 @@ const cyclePhases = computed(() => {
     if (!start) return null
     const ref = new Date(start)
     ref.setDate(start.getDate() + i * 7)
-    return buildWeeklyReport(store.sessions, store.meals, ref, { profile: store.userProfile, mode: store.currentMode }).totalLoad
+    return buildWeeklyReport(store.sessions, store.meals, ref, { profile: store.userProfile }).totalLoad
   })
   const peak = Math.max(0, ...loads.filter((l): l is number => l !== null))
   const activeIndex = start ? Math.floor(Math.max(0, now.getTime() - start.getTime()) / 604800000) : -1
@@ -624,7 +626,12 @@ function generateFromMaterials() {
 }
 
 function openModelPlan() {
-  void store.generatePlanQuestions()
+  if (!store.hasProfile) {
+    showProfilePrompt.value = true
+    return
+  }
+  showProfilePrompt.value = false
+  void store.generatePlanQuestions(selectedDate.value)
 }
 
 function submitPlanFeedback() {
@@ -638,9 +645,9 @@ function regenerate() {
   store.regenerateWeekPlan(selectedDate.value)
 }
 
-// 停在某一周时确保该周在当前模式下有计划版本（只在本机落盘）
+// 停在某一周时确保该周有计划版本（只在本机落盘）
 watch(
-  () => [toISODate(weekStart(selectedDate.value)), store.currentMode].join('|'),
+  () => toISODate(weekStart(selectedDate.value)),
   () => {
     if (!store.weekPlan(selectedDate.value)) store.ensureWeekPlan(selectedDate.value)
   },
@@ -662,12 +669,12 @@ watch(
 .tabs button.active{background:var(--color-card);color:var(--color-ink);font-weight:600;box-shadow:var(--shadow-sm)}
 .version{display:flex;align-items:center;gap:8px;font-family:var(--font-num);font-size:12px;color:var(--color-text-muted);font-variant-numeric:tabular-nums}
 .version strong{color:var(--color-ink);font-weight:600}
-.ver-mode{font-size:10.5px;letter-spacing:.04em;padding:2px 6px;border:1px solid var(--color-border);border-radius:var(--radius-sm);color:var(--color-text-secondary)}
 .regen{font-size:11.5px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);padding:5px 10px;border-radius:var(--radius-sm);min-height:28px;border:1px solid var(--pole-movement-line);transition:border-color var(--motion-fast)}
 .regen:hover{border-color:var(--pole-movement)}
 .regen.ai{background:var(--color-card)}
 .regen:disabled{opacity:.45;cursor:not-allowed}
 .gate-note{font-size:12.5px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:var(--radius-sm);padding:10px 12px;margin:0 0 10px;line-height:1.65;box-shadow:inset 3px 0 0 var(--color-caution)}
+.gate-note a{font-weight:700;text-decoration:underline}
 .ver-reason{font-size:11.5px;color:var(--color-text-muted);margin:0 0 12px;line-height:1.6}
 .ver-reason em{font-style:normal;margin-left:6px}
 .conflicts{margin:0 0 14px;padding:10px 12px 10px 28px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);font-size:12px;color:var(--color-text-secondary);line-height:1.7}
@@ -782,7 +789,6 @@ watch(
 .verlist li{display:flex;align-items:baseline;gap:10px;font-size:12px;color:var(--color-text-secondary);padding:8px 0;border-top:1px solid var(--hair-soft);flex-wrap:wrap}
 .verlist b{font-family:var(--font-num);color:var(--color-ink);font-size:12px;font-weight:600}
 .verlist em{font-style:normal;flex:1;min-width:180px;color:var(--color-text-muted)}
-.verlist span{font-size:10.5px;color:var(--color-text-muted);padding:1px 5px;border:1px solid var(--color-border);border-radius:4px}
 .verlist small{font-family:var(--font-num);font-size:10.5px;color:var(--color-text-muted);font-variant-numeric:tabular-nums}
 /* 计划页属于运动侧：info 徽标与按钮焦点收到陶土色；success / caution / danger 继续承担状态语义 */
 .detail :deep(.badge.info){color:var(--pole-movement-strong);background:var(--pole-movement-soft);box-shadow:inset 0 0 0 1px var(--pole-movement-line)}

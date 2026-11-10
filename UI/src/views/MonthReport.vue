@@ -36,7 +36,7 @@ const report = computed(() => buildMonthlyReport(
   store.sessions,
   store.meals,
   refDate.value,
-  { profile: store.userProfile, mode: store.currentMode },
+  { profile: store.userProfile },
   now
 ))
 const md = (iso: string): string => {

@@ -155,3 +155,19 @@ test('store: plan locks, adjustments and regeneration persist as distinct versio
   assert.equal(mock.state.plans.length, 5)
   assert.equal(mock.state.plans[0].version, 1, '旧版本不覆盖')
 })
+
+test('store: clearing optional profile fields clears their saved account values', async () => {
+  const store = useAppStore()
+  store.updateProfile({ age: 30, nickname: '测试档案', height: 172, targetEvent: '测试比赛' })
+  await syncNow()
+  assert.equal(mock.state.profile?.nickname, '测试档案')
+  assert.equal(mock.state.profile?.height, 172)
+  assert.equal(mock.state.profile?.targetEvent, '测试比赛')
+
+  store.updateProfile({ nickname: undefined, height: undefined, targetEvent: undefined })
+  await syncNow()
+  assert.equal(mock.state.profile?.nickname, null)
+  assert.equal(mock.state.profile?.height, null)
+  assert.equal(mock.state.profile?.targetEvent, null)
+  assert.equal(mock.state.profile?.age, 30)
+})

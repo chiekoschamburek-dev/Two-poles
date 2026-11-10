@@ -16,8 +16,8 @@ export interface AcceptedAdjustment {
   plan: Plan
 }
 
-export async function current(week: string, mode: 'public' | 'athlete'): Promise<Plan | null> {
-  const query = new URLSearchParams({ week, mode })
+export async function current(week: string): Promise<Plan | null> {
+  const query = new URLSearchParams({ week })
   const body = await request<{ plan: Plan | null }>(`/plans/current?${query.toString()}`)
   return body.plan
 }

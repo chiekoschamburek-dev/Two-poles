@@ -329,8 +329,7 @@ const timeline = computed(() => items.value.map(item => {
 }))
 
 const week = computed(() => buildWeeklyReport(store.sessions, store.meals, now, {
-  profile: store.userProfile,
-  mode: store.currentMode
+  profile: store.userProfile
 }))
 const weekRange = computed(() => {
   const start = weekStart(now)
@@ -340,9 +339,7 @@ const weekRange = computed(() => {
 })
 const kicker = computed(() => {
   const p = store.userProfile
-  const phase = store.isAthleteMode
-    ? (p?.cyclePhase || '周期训练')
-    : (p?.goal || '基础体能')
+  const phase = p?.cyclePhase || p?.goal || '基础体能'
   return `${eyebrowDate(now)} · ${phase}`
 })
 const venueLabel = computed(() => store.userProfile?.availableVenues?.length
@@ -372,7 +369,7 @@ const weekCells = computed<WeekCell[]>(() => {
     const plan = store.weekPlan(d)
     const list = plan
       ? plan.items.filter(item => item.date === iso)
-      : buildDayPlan(d, store.userProfile, store.currentMode).items
+      : buildDayPlan(d, store.userProfile).items
     return {
       iso,
       day: d.getDate(),
@@ -410,12 +407,11 @@ const loadBars = computed(() => {
 })
 const hasLoad = computed(() => week.value.totalLoad !== null)
 
-const isAthlete = computed(() => store.isAthleteMode)
 const loadSeries = computed(() => buildLoadSeries(store.sessions, now))
 const split = computed(() => intensitySplit(store.sessions, { since: loadSeries.value.points[0]?.date }))
 const lowShare = computed(() => split.value.lowShare === null ? null : Math.round(split.value.lowShare * 100))
 const acwrNote = computed(() => {
-  if (!isAthlete.value) return ''
+  if (!loadSeries.value.coveredDays) return ''
   const zone = loadZone(loadSeries.value.acwr)
   if (loadSeries.value.acwr === null) {
     return `ACWR 还需 ${loadSeries.value.daysNeeded} 天样本，暂不给比值。`

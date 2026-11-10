@@ -237,9 +237,8 @@ function weekdayOf(iso: string): string {
   return `周${WEEKDAY[w] ?? '?'}`
 }
 
-function profileSnapshot(profile: UserProfile, mode: 'public' | 'athlete'): Record<string, unknown> {
+function profileSnapshot(profile: UserProfile): Record<string, unknown> {
   const body: Record<string, unknown> = {
-    模式: mode === 'athlete' ? '运动员模式' : '大众模式',
     年龄: profile.age,
     主要目标: profile.goal,
     运动经验: profile.experience,
@@ -250,19 +249,16 @@ function profileSnapshot(profile: UserProfile, mode: 'public' | 'athlete'): Reco
     身高_cm: profile.height ?? null,
     体重_kg: profile.weight ?? null
   }
-  if (mode === 'athlete') {
-    body['专项'] = profile.discipline ?? null
-    body['周期阶段'] = profile.cyclePhase ?? null
-    body['周期'] = profile.cycleStartDate && profile.cycleEndDate
-      ? `${profile.cycleStartDate} → ${profile.cycleEndDate}`
-      : null
-    body['阶段重点'] = profile.cycleFocus ?? null
-    body['比赛目标'] = profile.goalType === 'competition'
-      ? { 赛事: profile.targetEvent ?? null, 日期: profile.targetEventDate ?? null, 目标成绩: profile.targetResult ?? null }
-      : null
-    body['PB'] = (profile.personalBests ?? []).map(p => `${p.event} ${p.result}`)
-    body['极限重量'] = (profile.gymRecords ?? []).map(r => `${r.lift} ${r.weight}kg${r.reps ? ` × ${r.reps}` : ''}（${r.kind === '1rm' ? '1RM' : '训练最高'}）`)
+  // 专项与周期信息选填：填了就注入，没填不出现
+  if (profile.discipline) body['专项'] = profile.discipline
+  if (profile.cyclePhase) body['周期阶段'] = profile.cyclePhase
+  if (profile.cycleStartDate && profile.cycleEndDate) body['周期'] = `${profile.cycleStartDate} → ${profile.cycleEndDate}`
+  if (profile.cycleFocus) body['阶段重点'] = profile.cycleFocus
+  if (profile.goalType === 'competition' && profile.targetEvent) {
+    body['比赛目标'] = { 赛事: profile.targetEvent, 日期: profile.targetEventDate ?? null, 目标成绩: profile.targetResult ?? null }
   }
+  if (profile.personalBests?.length) body['PB'] = profile.personalBests.map(p => `${p.event} ${p.result}`)
+  if (profile.gymRecords?.length) body['极限重量'] = profile.gymRecords.map(r => `${r.lift} ${r.weight}kg${r.reps ? ` × ${r.reps}` : ''}（${r.kind === '1rm' ? '1RM' : '训练最高'}）`)
   return body
 }
 
@@ -282,10 +278,9 @@ function answerLines(context?: PlanAnswerContext): string[] {
 /** 先问再生成：只输出补充问题，不生成计划 */
 export function buildPlanQuestionMessages(
   profile: UserProfile,
-  mode: 'public' | 'athlete',
   dates: string[]
 ): PlanMessages {
-  const body = profileSnapshot(profile, mode)
+  const body = profileSnapshot(profile)
   const system = [
     '你是训练计划助手。现在先不要生成训练计划，只判断现有档案里还缺哪些会显著改变排课的信息，并向用户提问。',
     '只输出一个 JSON 对象，不要 Markdown 代码块，不要任何解释文字。',
@@ -377,7 +372,6 @@ export function desiredWeeklySessions(
 export function buildPlanMessages(
   profile: UserProfile | null,
   dates: string[],
-  mode: 'public' | 'athlete',
   context?: PlanAnswerContext,
   source?: PlanSourceInput
 ): PlanMessages {
@@ -395,13 +389,13 @@ export function buildPlanMessages(
     singleDay ? '2. days 最多只含一个训练日，使用指定的唯一日期。资料明确指定了其他训练日期时，返回空 days 并在 reason 中提示日期冲突。'
       : source
       ? '2. 训练日期和频次以资料中的安排为准。有明确训练表时，只录入其中的训练日。只有训练需求时，按需求制定安排。'
-      : '2. 必须遵守用户补充回答里的每周训练次数：回答 N 次，就安排 N 个训练日（最多 6 个，至少保留 1 个休息日）。如果回答里没有次数，大众模式默认安排 4–5 个训练日，运动员模式安排 5–6 个；不要默认只排三天。',
+      : '2. 优先采用补充回答中的每周训练次数，其次采用档案目标中明确写出的频次。要求 N 次就安排 N 个训练日（最多 6 个，至少保留 1 个休息日）。没有明确频次时，默认安排 4–5 个训练日，不要默认只排三天。',
     '3. 如果用户回答与"每次可用时间"冲突，优先满足训练次数，缩短单次项目数量或时长，并在 reason 里说明这个取舍。',
     '4. 每天项目不超过 4 个，单日总时长不超过该用户填写的可用时间上限。',
     '5. exerciseName 优先从给定动作库里选；库里的动作不够用时才写别的，但要写清楚。',
     '6. 尊重"需要避开"的条件：例如避开跳跃就不要安排冲击类动作；有伤病、孕期或未成年限制时，不强行加量。',
     '7. 不提供医疗、康复、伤病或营养处方，不承诺成绩，不评价身体好坏。',
-    '8. 不要输出 BMI、健康结论或"你应该能举多少"这类推断。',
+    '8. 档案中的空白字段表示未填写，不补造个人信息。不要输出 BMI、健康结论或"你应该能举多少"这类推断。',
     ...(source ? [
       '9. 根据用户提供的文本排课。已有训练表时，优先保留其中的训练日、动作、时长和组次。',
       '10. 资料中的星期对应本次可选日期，明确的日期只在落入本次范围时使用。不把其他周的明确日期悄悄改到本周。没有档案时不要编造个人条件。',
@@ -410,7 +404,7 @@ export function buildPlanMessages(
   ].join('\n')
 
   const userLines = [
-    profile ? `档案：${JSON.stringify(profileSnapshot(profile, mode), null, 2)}` : `模式：${mode === 'athlete' ? '运动员' : '大众'}，暂无档案`,
+    profile ? `档案：${JSON.stringify(profileSnapshot(profile), null, 2)}` : '暂无档案',
     ''
   ]
   if (answers.length) {

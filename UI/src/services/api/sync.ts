@@ -1,5 +1,5 @@
 import { request } from './http'
-import type { Meal, Mode, MotionAnalysis, Plan, PrivacySettings, TrainingSession, UserProfile } from '@/types/domain'
+import type { Meal, MotionAnalysis, Plan, PrivacySettings, TrainingSession, UserProfile } from '@/types/domain'
 
 export interface DeletedRecord {
   id: string
@@ -14,7 +14,6 @@ export interface RemoteSyncSnapshot {
   meals: Meal[]
   plans: Plan[]
   analyses: MotionAnalysis[]
-  modeLog: { from: Mode; to: Mode; at: string; openPlanCount: number }[]
   deleted: {
     sessions: DeletedRecord[]
     meals: DeletedRecord[]

@@ -189,7 +189,7 @@ async function loadRemoteReport() {
   // 本机计划还没同步到服务端时，服务端算不出计划场次，继续用本机口径
   if (syncState.pending || syncState.status === 'offline' || syncState.status === 'syncing' || (localPlan && localPlan._sync !== 'synced')) return
   try {
-    const result = await fetchWeeklyReport(toISODate(start.value), store.currentMode) as ReportView
+    const result = await fetchWeeklyReport(toISODate(start.value)) as ReportView
     if (requestId === reportRequest) remoteReport.value = result
   } catch {
     if (requestId === reportRequest) remoteReport.value = null
@@ -199,7 +199,6 @@ async function loadRemoteReport() {
 watch(
   [
     () => toISODate(start.value),
-    () => store.currentMode,
     () => syncState.lastSyncAt,
     () => syncState.pending,
     () => syncState.status,
@@ -210,7 +209,7 @@ watch(
 )
 
 const report = computed<ReportView>(() =>
-  remoteReport.value ?? buildWeeklyReport(store.sessions, store.meals, refDate.value, { profile: store.userProfile, mode: store.currentMode })
+  remoteReport.value ?? buildWeeklyReport(store.sessions, store.meals, refDate.value, { profile: store.userProfile })
 )
 const sessions = computed(() => {
   const iso = days.value.map(toISODate)

@@ -1,7 +1,7 @@
 // 计划生成的单一来源：PlanView、周报与侧栏都用它，避免"计划数"两处算得不一样。
-// F04 的条件过滤在这里落地：先按年龄与模式决定能否自动推荐，再按器材、场地、时长与"需要避开的"筛动作库。
+// F04 的条件过滤在这里落地：先按年龄决定能否自动推荐，再按器材、场地、时长与"需要避开的"筛动作库。
 // 约束无解时如实返回冲突原因，不强行安排（文档 §3.4.3(1)、§7）。
-import type { AlternativeExercise, Mode, PlanItem, TrainingType, UserProfile } from '@/types/domain'
+import type { AlternativeExercise, PlanItem, TrainingType, UserProfile } from '@/types/domain'
 import { toISODate } from '@/utils/time'
 import {
   activeExercises,
@@ -12,8 +12,8 @@ import {
   type Venue
 } from './exercises'
 
-export const PLAN_VERSION = 3
-export const PLAN_RULES_VERSION = 'plan-rules-v3'
+export const PLAN_VERSION = 4
+export const PLAN_RULES_VERSION = 'plan-rules-v4'
 
 /** 每周固定安排的星期：周一、周三、周五（0=周日） */
 const TRAINING_WEEKDAYS = [1, 3, 5]
@@ -104,7 +104,7 @@ function toPlanItem(ex: Exercise, date: string, version: number): PlanItem {
 /**
  * 生成某一天的计划。profile 为空时退回"不过滤"的基础模板（未建档用户的默认视图）。
  */
-export function buildDayPlan(d: Date, profile: UserProfile | null = null, mode: Mode = 'public', version = PLAN_VERSION): DayPlan {
+export function buildDayPlan(d: Date, profile: UserProfile | null = null, version = PLAN_VERSION): DayPlan {
   const date = toISODate(d)
   const empty = { items: [], conflicts: [], auto: true, ruleVersion: PLAN_RULES_VERSION }
   if (!TRAINING_WEEKDAYS.includes(d.getDay())) return { ...empty, items: [] }
@@ -131,36 +131,21 @@ export function buildDayPlan(d: Date, profile: UserProfile | null = null, mode: 
   const conflicts: string[] = []
   let remaining = budget
 
-  // 运动员首期以录入的跑步周期为基准，主项是有氧；大众模式主项是力量类
-  const mainTypes: TrainingType[] = mode === 'athlete'
-    ? ['跑步', '舒缓整理']
-    : ['坐站训练', '站姿弯举', '其他']
+  // 主项是力量类：热身之后按坐站、弯举、其他的顺序填剩余时间
+  const mainTypes: TrainingType[] = ['坐站训练', '站姿弯举', '其他']
 
-  if (mode === 'athlete') {
-    // 有氧主项按整段可用时间安排，不能被"留 6 分钟给别的"挤掉
-    const run = pick('跑步', profile, venues, used, remaining)
-    if (run.ex) { items.push(toPlanItem(run.ex, date, version)); used.add(run.ex.id); remaining -= run.ex.minutes }
-    else conflicts.push(...(run.blocked.length ? run.blocked : ['动作库里没有符合条件的跑步或快走条目']))
-    if (remaining >= 4) {
-      const helper = pick('其他', profile, venues, used, remaining - 2)
-      if (helper.ex) { items.unshift(toPlanItem(helper.ex, date, version)); used.add(helper.ex.id); remaining -= helper.ex.minutes }
-      else conflicts.push(...helper.blocked)
-    }
-  } else {
-    const warm = pick('动态热身', profile, venues, used, Math.min(4, budget))
-    if (warm.ex) { items.push(toPlanItem(warm.ex, date, version)); used.add(warm.ex.id); remaining -= warm.ex.minutes }
-    else conflicts.push(...warm.blocked)
+  const warm = pick('动态热身', profile, venues, used, Math.min(4, budget))
+  if (warm.ex) { items.push(toPlanItem(warm.ex, date, version)); used.add(warm.ex.id); remaining -= warm.ex.minutes }
+  else conflicts.push(...warm.blocked)
 
-    for (const t of mainTypes) {
-      if (remaining < 3) break
-      const got = pick(t, profile, venues, used, remaining)
-      if (got.ex) { items.push(toPlanItem(got.ex, date, version)); used.add(got.ex.id); remaining -= got.ex.minutes }
-      else if (got.blocked.length) conflicts.push(...got.blocked)
-      if (t === '坐站训练' || t === '站姿弯举') continue
-    }
-    if (!items.some(i => i.type === '坐站训练' || i.type === '站姿弯举' || i.type === '其他')) {
-      conflicts.push('今天没有可安排的力量动作：可能是器材与"需要避开的"把候选都筛掉了')
-    }
+  for (const t of mainTypes) {
+    if (remaining < 3) break
+    const got = pick(t, profile, venues, used, remaining)
+    if (got.ex) { items.push(toPlanItem(got.ex, date, version)); used.add(got.ex.id); remaining -= got.ex.minutes }
+    else if (got.blocked.length) conflicts.push(...got.blocked)
+  }
+  if (!items.some(i => i.type === '坐站训练' || i.type === '站姿弯举' || i.type === '其他')) {
+    conflicts.push('今天没有可安排的力量动作：可能是器材与"需要避开的"把候选都筛掉了')
   }
 
   if (remaining >= 2) {
@@ -203,10 +188,10 @@ export function alternativesFor(
     }))
 }
 
-export function itemsFor(d: Date, profile: UserProfile | null = null, mode: Mode = 'public', version = PLAN_VERSION): PlanItem[] {
-  return buildDayPlan(d, profile, mode, version).items
+export function itemsFor(d: Date, profile: UserProfile | null = null, version = PLAN_VERSION): PlanItem[] {
+  return buildDayPlan(d, profile, version).items
 }
 
-export function isPlanDay(d: Date, profile: UserProfile | null = null, mode: Mode = 'public'): boolean {
-  return buildDayPlan(d, profile, mode).items.length > 0
+export function isPlanDay(d: Date, profile: UserProfile | null = null): boolean {
+  return buildDayPlan(d, profile).items.length > 0
 }

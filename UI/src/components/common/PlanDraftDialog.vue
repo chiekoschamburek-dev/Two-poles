@@ -15,7 +15,9 @@
           <span class="spin" aria-hidden="true"></span>
           <p v-if="state.loadingStage === 'image'">正在读取图片中的训练内容…</p>
           <p v-else-if="state.loadingStage === 'feedback'">正在结合反馈和现有计划生成调整建议…</p>
-          <p v-else>{{ state.loadingStage === 'questions' ? '模型正在看档案，准备几个问题…' : state.fromMaterials ? '正在根据提供的资料生成计划…' : '正在结合档案与你的回答生成计划…' }}</p>
+          <p v-else-if="state.loadingStage === 'questions'">模型正在看档案，准备几个问题…</p>
+          <p v-else-if="state.fromMaterials">正在根据提供的资料生成计划…</p>
+          <p v-else>{{ state.questions.length ? '正在结合档案与你的回答生成计划…' : '正在根据个人档案生成计划…' }}</p>
           <small>通常 10–60 秒；模型慢的时候会更久，关闭窗口会放弃本次结果。</small>
         </div>
 
@@ -66,7 +68,7 @@
               />
             </section>
           </div>
-          <p class="fine">回答完所有问题后才能生成计划；也可以跳过，模型会按档案里的默认频次安排（大众模式 4–5 天）。</p>
+          <p class="fine">回答完所有问题后才能生成计划；也可以跳过，模型会按档案里的默认频次安排（每周 4–5 个训练日）。</p>
         </template>
 
         <template v-else-if="state.adjustment">
@@ -202,7 +204,7 @@
           </template>
           <template v-else-if="state.status === 'ready'">
             <button class="btn ghost" type="button" @click="regen">{{ imageImport ? '重新识别' : '重新生成' }}</button>
-            <button v-if="!state.fromMaterials" class="btn ghost" type="button" @click="reask">重新提问</button>
+            <button v-if="state.questions.length" class="btn ghost" type="button" @click="reask">重新提问</button>
             <span class="spacer"></span>
             <button class="btn ghost" type="button" @click="close">先不录入</button>
             <button class="btn primary" type="button" :disabled="!totalItems" @click="confirm">

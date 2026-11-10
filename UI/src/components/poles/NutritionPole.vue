@@ -309,7 +309,7 @@ const records = computed(() => store.meals
   .slice()
   .sort((a, b) => a.time.localeCompare(b.time) || a.createdAt.localeCompare(b.createdAt)))
 
-const kicker = computed(() => `${eyebrowDate(now)} · ${store.isAthleteMode ? '周期营养' : '饮食结构'}`)
+const kicker = computed(() => `${eyebrowDate(now)} · ${store.userProfile?.cyclePhase ? '周期营养' : '饮食结构'}`)
 
 const mealChip = computed(() => `${dayFacts.value.recordedSlots} / 3 餐`)
 const mealChipTone = computed<'' | 'ok' | 'part'>(() => {
@@ -339,8 +339,7 @@ const coverageRows = computed(() => FOOD_CATEGORIES.slice(0, 8).map(name => ({
 })))
 
 const weekReport = computed(() => buildWeeklyReport(store.sessions, store.meals, now, {
-  profile: store.userProfile,
-  mode: store.currentMode
+  profile: store.userProfile
 }))
 const weekCells = computed(() => weekDates(weekStart(now)).map(d => {
   const iso = toISODate(d)

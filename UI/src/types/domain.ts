@@ -1,7 +1,5 @@
 // ===== Domain Type Definitions =====
 
-export type Mode = 'public' | 'athlete'
-
 export type SyncState = 'pending' | 'synced' | 'conflict'
 
 export type MealCompleteness = 'complete' | 'partial' | 'unknown'
@@ -124,8 +122,6 @@ export interface GymRecord {
 
 export interface UserProfile {
   id: string
-  mode: Mode
-  modeChangedAt: string
 
   // Common fields
   nickname?: string
@@ -139,13 +135,13 @@ export interface UserProfile {
   availableVenues?: string[]
   restrictions: string[]
 
-  // 身体数据（两种模式都可用，选填）
+  // 身体数据（选填）
   /** 身高 cm */
   height?: number
   /** 体重 kg；旧档案里已有这个字段，继续沿用 */
   weight?: number
 
-  // Athlete-specific fields
+  // 专项与周期字段（选填，所有用户都可填写）
   discipline?: string
   cyclePhase?: string
   cycleStartDate?: string
@@ -172,7 +168,6 @@ export interface Plan {
   userId: string
   version: number
   createdAt: string
-  mode: Mode
   reason: string
   weekStartDate: string
   weekEndDate: string
@@ -393,7 +388,7 @@ export interface WeeklyReport {
   totalDuration: number
   totalDistance: number
 
-  // Load summary (athlete mode)
+  // Load summary
   totalLoad: number | null
   loadByDay: (number | null)[]
   missingSessions: string[]

@@ -221,7 +221,7 @@
       </aside>
     </div>
 
-    <BaseCard v-if="store.isAthleteMode" class="timeline">
+    <BaseCard class="timeline">
       <div class="card-head">
         <div>
           <span class="micro">Training day timeline</span>

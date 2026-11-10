@@ -150,8 +150,6 @@ function profileJson(row) {
   if (!row) return null
   return {
     id: row.user_id,
-    mode: row.mode,
-    modeChangedAt: row.mode_changed_at ?? row.updated_at,
     nickname: row.nickname ?? undefined,
     avatarDataUrl: row.avatar_data_url ?? undefined,
     age: row.age,
@@ -328,7 +326,6 @@ function planJson(row, items) {
     version: row.version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    mode: row.mode,
     reason: row.reason,
     weekStartDate: row.week_start,
     weekEndDate: row.week_end,
@@ -353,12 +350,12 @@ function readMeal(db, mealId) {
   return row ? mealJson(row, readItems(db, 'meal_items', 'meal_record_id', mealId)) : null
 }
 
-function latestPlan(db, userId, weekStart, mode) {
+function latestPlan(db, userId, weekStart) {
   const row = db.prepare(`
     SELECT * FROM plans
-    WHERE user_id = ? AND week_start = ? AND mode = ? AND deleted_at IS NULL
+    WHERE user_id = ? AND week_start = ? AND deleted_at IS NULL
     ORDER BY version DESC LIMIT 1
-  `).get(userId, weekStart, mode)
+  `).get(userId, weekStart)
   return row ? readPlan(db, row.id) : null
 }
 
@@ -432,7 +429,6 @@ function writeProfile(db, userId, raw, current) {
     const bytes = Buffer.from(avatar.slice(prefix.length), 'base64')
     assert(bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9, invalidAvatar)
   }
-  const mode = profile.mode === 'athlete' ? 'athlete' : 'public'
   const availableTimes = stringArray(profile.availableTimes, 12)
   const equipment = stringArray(profile.equipment, 30)
   const venues = stringArray(profile.availableVenues, 10)
@@ -444,15 +440,14 @@ function writeProfile(db, userId, raw, current) {
   assert(height === null || (height >= 80 && height <= 260), '身高超出合理范围')
   assert(weight === null || (weight >= 20 && weight <= 400), '体重超出合理范围')
 
-  const previousMode = current?.mode
   db.prepare(`
     INSERT INTO profiles (
       user_id, nickname, avatar_data_url, age, goal, experience, available_times_json, equipment_json,
-      available_venues_json, restrictions_json, mode, mode_changed_at, height, weight,
+      available_venues_json, restrictions_json, height, weight,
       discipline, cycle_phase, cycle_start, cycle_end, goal_type, target_event,
       target_event_date, target_result, cycle_focus, personal_bests_json,
       gym_records_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       nickname = excluded.nickname,
       avatar_data_url = excluded.avatar_data_url,
@@ -463,8 +458,6 @@ function writeProfile(db, userId, raw, current) {
       equipment_json = excluded.equipment_json,
       available_venues_json = excluded.available_venues_json,
       restrictions_json = excluded.restrictions_json,
-      mode = excluded.mode,
-      mode_changed_at = excluded.mode_changed_at,
       height = excluded.height,
       weight = excluded.weight,
       discipline = excluded.discipline,
@@ -490,8 +483,6 @@ function writeProfile(db, userId, raw, current) {
     jsonText(equipment),
     jsonText(venues),
     jsonText(restrictions),
-    mode,
-    stringOrNull(profile.modeChangedAt, 40) ?? now,
     height,
     weight,
     stringOrNull(profile.discipline, 80),
@@ -507,12 +498,6 @@ function writeProfile(db, userId, raw, current) {
     jsonText(gymRecords),
     now
   )
-  if (previousMode && previousMode !== mode) {
-    db.prepare(`
-      INSERT INTO mode_changes (id, user_id, from_mode, to_mode, at, open_plan_count)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(randomUUID(), userId, previousMode, mode, now, 0)
-  }
   return db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(userId)
 }
 
@@ -655,7 +640,7 @@ export function exportPayload(db, userId, format) {
     ...plans.flatMap((plan) => plan.items.map((item) => [
       '计划', item.date, '', item.exerciseName, item.type,
       item.plannedDuration ?? '', item.plannedDistance ?? '', item.plannedReps ?? '', item.plannedSets ?? '', '',
-      '', '', '', item.completed ? '已完成' : '待完成', `v${plan.version}｜${plan.mode === 'public' ? '大众' : '运动员'}｜${plan.reason}`
+      '', '', '', item.completed ? '已完成' : '待完成', `v${plan.version}｜${plan.reason}`
     ])),
     ...analyses.map((analysis) => [
       '分析', analysis.date, '', analysis.exerciseName, analysis.action,
@@ -681,7 +666,6 @@ function wipeUser(db, userId, deleteUser) {
     db.prepare('DELETE FROM profiles WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM privacy_settings WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM sync_state WHERE user_id = ?').run(userId)
-    db.prepare('DELETE FROM mode_changes WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM export_jobs WHERE user_id = ?').run(userId)
     if (deleteUser) db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM confirm_tokens WHERE user_id = ?').run(userId)
@@ -1225,8 +1209,7 @@ export function createApiServer(options = {}) {
     if (path === '/plans/current' && method === 'GET') {
       const week = mondayOf(url.searchParams.get('week') ?? isoLocal(new Date()))
       if (!week) fail('validation_failed', 400, 'week 参数不是有效日期')
-      const mode = url.searchParams.get('mode') === 'athlete' ? 'athlete' : 'public'
-      const plan = latestPlan(db, user.id, isoLocal(week), mode)
+      const plan = latestPlan(db, user.id, isoLocal(week))
       return sendJson(res, 200, { plan })
     }
 
@@ -1246,12 +1229,11 @@ export function createApiServer(options = {}) {
       const weekStart = mondayOf(raw.weekStartDate)
       assert(weekStart, '计划缺少有效的周起始日期')
       const weekStartIso = isoLocal(weekStart)
-      const mode = raw.mode === 'athlete' ? 'athlete' : 'public'
       const sameVersion = db.prepare(`
-        SELECT * FROM plans WHERE user_id = ? AND week_start = ? AND mode = ? AND version = ?
-      `).get(user.id, weekStartIso, mode, version)
+        SELECT * FROM plans WHERE user_id = ? AND week_start = ? AND version = ?
+      `).get(user.id, weekStartIso, version)
       if (sameVersion) {
-        const latest = latestPlan(db, user.id, weekStartIso, mode)
+        const latest = latestPlan(db, user.id, weekStartIso)
         return sendJson(res, 409, {
           code: 'conflict',
           message: '计划版本冲突',
@@ -1266,7 +1248,7 @@ export function createApiServer(options = {}) {
       const now = nowIso()
       db.exec('BEGIN')
       try {
-        const current = latestPlan(db, user.id, weekStartIso, mode)
+        const current = latestPlan(db, user.id, weekStartIso)
         if (current) {
           const baseVersion = planBaseVersion(req, body)
           if (current.version !== baseVersion || version !== baseVersion + 1) {
@@ -1275,12 +1257,12 @@ export function createApiServer(options = {}) {
         }
         db.prepare(`
           INSERT INTO plans (
-            id, user_id, client_id, version, mode, week_start, week_end, reason,
+            id, user_id, client_id, version, week_start, week_end, reason,
             rules_version, source, locked, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          id, user.id, clientId, version, mode, weekStartIso, weekEndDate,
-          stringOrNull(raw.reason, 500) ?? '本机计划同步', stringOrNull(raw.rulesVersion, 80) ?? 'plan-rules-v3',
+          id, user.id, clientId, version, weekStartIso, weekEndDate,
+          stringOrNull(raw.reason, 500) ?? '本机计划同步', stringOrNull(raw.rulesVersion, 80) ?? 'plan-rules-v4',
           stringOrNull(raw.source, 20) ?? 'rules', raw.locked ? 1 : 0,
           stringOrNull(raw.createdAt, 40) ?? now, now
         )
@@ -1338,9 +1320,9 @@ export function createApiServer(options = {}) {
         }
         const latestRow = db.prepare(`
           SELECT * FROM plans
-          WHERE user_id = ? AND week_start = ? AND mode = ? AND deleted_at IS NULL
+          WHERE user_id = ? AND week_start = ? AND deleted_at IS NULL
           ORDER BY version DESC LIMIT 1
-        `).get(user.id, planRow.week_start, planRow.mode)
+        `).get(user.id, planRow.week_start)
         if (!latestRow) fail('not_found', 404, '计划不存在')
         if (latestRow.version !== baseVersion || adjustment.base_version !== baseVersion) {
           fail('conflict', 409, '计划已被其他版本更新，请比较最新计划后重新提交',
@@ -1372,11 +1354,11 @@ export function createApiServer(options = {}) {
         const newPlanId = randomUUID()
         db.prepare(`
           INSERT INTO plans (
-            id, user_id, client_id, version, mode, week_start, week_end, reason,
+            id, user_id, client_id, version, week_start, week_end, reason,
             rules_version, source, locked, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          newPlanId, user.id, `adjustment:${adjustment.id}`, latestRow.version + 1, latestRow.mode,
+          newPlanId, user.id, `adjustment:${adjustment.id}`, latestRow.version + 1,
           latestRow.week_start, latestRow.week_end, `${latestRow.reason}（调整 ${adjustment.id}）`,
           latestRow.rules_version, latestRow.source, latestRow.locked, now, now
         )
@@ -1409,8 +1391,7 @@ export function createApiServer(options = {}) {
     if (path === '/reports/weekly' && method === 'GET') {
       const start = mondayOf(url.searchParams.get('start') ?? isoLocal(new Date()))
       if (!start) fail('validation_failed', 400, 'start 参数不是有效日期')
-      const mode = url.searchParams.get('mode') === 'athlete' ? 'athlete' : 'public'
-      const plan = latestPlan(db, user.id, isoLocal(start), mode)
+      const plan = latestPlan(db, user.id, isoLocal(start))
       const days = weekDates(start)
       const from = isoLocal(days[0])
       const to = isoLocal(days.at(-1))
@@ -1454,12 +1435,6 @@ export function createApiServer(options = {}) {
         : db.prepare('SELECT * FROM motion_analyses WHERE user_id = ? ORDER BY date DESC, created_at DESC').all(user.id)
       const plans = db.prepare('SELECT * FROM plans WHERE user_id = ? AND deleted_at IS NULL ORDER BY week_start ASC, version ASC').all(user.id)
         .map((row) => planJson(row, readItems(db, 'plan_items', 'plan_id', row.id)))
-      const modeLog = db.prepare('SELECT * FROM mode_changes WHERE user_id = ? ORDER BY at ASC').all(user.id).map((row) => ({
-        from: row.from_mode,
-        to: row.to_mode,
-        at: row.at,
-        openPlanCount: row.open_plan_count ?? 0
-      }))
       const deleted = {
         sessions: sessionRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
         meals: mealRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
@@ -1478,7 +1453,6 @@ export function createApiServer(options = {}) {
         meals: mealRows.filter((row) => !row.deleted_at).map((row) => mealJson(row, readItems(db, 'meal_items', 'meal_record_id', row.id))),
         analyses: analysisRows.filter((row) => !row.deleted_at).map(analysisJson),
         plans,
-        modeLog,
         deleted
       })
     }

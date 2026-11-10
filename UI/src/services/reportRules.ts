@@ -1,6 +1,6 @@
 // 期间报告：近四周与自然月共用同一套聚合口径。
 // 负荷只在“当天所有场次都有 RPE 与时长”时计算；缺失的一天不计入，也不补 0。
-import type { FoodCategory, Meal, Mode, TrainingSession, UserProfile } from '@/types/domain'
+import type { FoodCategory, Meal, TrainingSession, UserProfile } from '@/types/domain'
 import { toISODate } from '@/utils/time'
 import { isPlanDay } from '@/services/planRules'
 import { FOOD_CATEGORIES, RULE_VERSION } from '@/services/mealRules'
@@ -58,7 +58,6 @@ export interface PeriodReport {
 
 export interface PeriodContext {
   profile?: UserProfile | null
-  mode?: Mode
 }
 
 const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate())
@@ -112,7 +111,7 @@ function blockOf(
     trainingDays: trainingDays.size,
     sessions: inBlock.length,
     minutes: inBlock.reduce((sum, s) => sum + (s.actualDuration ?? 0), 0),
-    plannedDays: days.filter(day => isPlanDay(new Date(`${day}T00:00:00`), ctx.profile ?? null, ctx.mode ?? 'public')).length,
+    plannedDays: days.filter(day => isPlanDay(new Date(`${day}T00:00:00`), ctx.profile ?? null)).length,
     mealDays: new Set(blockMeals.map(m => m.date)).size,
     completeMeals,
     partialMeals: blockMeals.length - completeMeals

@@ -58,7 +58,7 @@ export function createMockApi() {
     }
     if (path === '/sync') {
       const snapshot: RemoteSyncSnapshot = { serverTime: stamp(), profile: state.profile, privacy: state.privacy,
-        sessions: state.sessions, meals: state.meals, analyses: state.analyses, plans: state.plans, modeLog: [], deleted: state.deleted }
+        sessions: state.sessions, meals: state.meals, analyses: state.analyses, plans: state.plans, deleted: state.deleted }
       return HttpResponse.json(snapshot)
     }
     for (const resource of ['sessions', 'meals', 'analyses'] as const) {
@@ -96,7 +96,7 @@ export function createMockApi() {
       const raw = body.plan as Plan
       const existing = state.plans.find((plan) => plan.clientId === (raw.clientId ?? raw.id))
       if (existing) return HttpResponse.json({ plan: existing })
-      const latest = state.plans.filter((plan) => plan.weekStartDate === raw.weekStartDate && plan.mode === raw.mode).sort((a, b) => b.version - a.version)[0]
+      const latest = state.plans.filter((plan) => plan.weekStartDate === raw.weekStartDate).sort((a, b) => b.version - a.version)[0]
       if (latest && !request.headers.has('if-match')) return error(428, 'precondition_required', '计划写入需要 If-Match')
       if (latest && (request.headers.get('if-match') !== `"${latest.version}"` || raw.version !== latest.version + 1)) return error(409, 'conflict', '计划版本冲突', { latest })
       const plan = { ...raw, id: crypto.randomUUID(), serverId: undefined, clientId: raw.clientId ?? raw.id, updatedAt: stamp() }
@@ -122,7 +122,7 @@ export function createMockApi() {
       return HttpResponse.json({ plan, newVersion: plan.version, lockedPreserved: true, adjustmentId: adjustment.id })
     }
     if (path === '/reports/weekly') return HttpResponse.json({ report: buildWeeklyReport(state.sessions, state.meals,
-      new Date(`${url.searchParams.get('start')}T00:00:00`), { profile: state.profile, mode: 'public' }) })
+      new Date(`${url.searchParams.get('start')}T00:00:00`), { profile: state.profile }) })
     if (path === '/export' && method === 'POST') {
       const id = crypto.randomUUID()
       state.exports.set(id, { format: body.format, content: JSON.stringify({ profile: state.profile, sessions: state.sessions, meals: state.meals, plans: state.plans }) })

@@ -10,34 +10,8 @@
     </div>
 
     <BaseCard class="section animate-slide-in-up">
-      <h2>使用方式</h2>
-      <p class="sub">切换前会先列出差异与未完成的计划，确认后才生效；已有记录与计划版本不会被改写。</p>
-      <div class="choices">
-        <button
-          v-for="m in modes"
-          :key="m.id"
-          class="choice"
-          :class="{ active: store.currentMode === m.id }"
-          :aria-pressed="store.currentMode === m.id"
-          :disabled="store.pendingSwitch !== null"
-          @click="store.requestModeSwitch(m.id)"
-        >
-          <strong>{{ m.label }}</strong><small>{{ m.desc }}</small>
-        </button>
-      </div>
-
-      <div v-if="preview" class="switch-confirm" role="group" aria-labelledby="sw-title">
-        <strong id="sw-title">切换到{{ preview.toLabel }}？</strong>
-        <p class="sw-lead">{{ preview.openPlanNote }}</p>
-        <div class="sw-cols">
-          <div><span>会变化</span><ul><li v-for="d in preview.differences" :key="d">{{ d }}</li></ul></div>
-          <div><span>保持不变</span><ul><li v-for="k in preview.keeps" :key="k">{{ k }}</li></ul></div>
-        </div>
-        <div class="actions">
-          <BaseButton size="sm" @click="store.confirmModeSwitch()">确认切换</BaseButton>
-          <BaseButton variant="ghost" size="sm" @click="store.cancelModeSwitch()">取消，保持{{ preview.fromLabel }}</BaseButton>
-        </div>
-      </div>
+      <h2>档案</h2>
+      <p class="sub">训练与饮食安排按档案生成；专项、周期与比赛目标等信息选填，填写后会纳入计划与负荷展示。</p>
       <div class="row-line">
         <div><strong>档案</strong><small>{{ profileLine }}</small><em v-if="goalLine" class="goal-line">{{ goalLine }}</em></div>
         <RouterLink class="link" to="/onboarding">{{ store.hasProfile ? '修改档案' : '去建档' }} <ArrowRight :size="14" /></RouterLink>
@@ -351,7 +325,7 @@
 
     <BaseCard class="section danger animate-slide-in-up">
       <h2>清除全部数据</h2>
-      <p class="sub">删除档案、模式、全部训练与餐食记录，并清空本机存储。此操作不可撤销。登录状态下会先清除服务端数据，再清本机；两步都成功才提示完成。</p>
+      <p class="sub">删除档案、全部训练与餐食记录，并清空本机存储。此操作不可撤销。登录状态下会先清除服务端数据，再清本机；两步都成功才提示完成。</p>
       <template v-if="!confirming">
         <BaseButton variant="danger" :icon="Trash2" :disabled="!hasData && !syncState.user" @click="confirming = true">清除全部数据</BaseButton>
         <p v-if="!hasData && !syncState.user" class="fine">现在没有任何可清除的记录。</p>
@@ -470,10 +444,6 @@ const syncBadgeVariant = computed<BadgeVariant>(() => {
   return 'success'
 })
 
-const modes: { id: 'public' | 'athlete'; label: string; desc: string }[] = [
-  { id: 'public', label: '大众模式', desc: '按器材与时长过滤的一周安排、摄像头计数、简单餐次确认' },
-  { id: 'athlete', label: '运动员模式', desc: '周期与锁定训练、距离时长与 RPE 负荷、训练日用餐时间线' }
-]
 const formats: { id: PrivacySettings['exportFormat']; label: string }[] = [
   { id: 'json', label: 'JSON（完整结构）' },
   { id: 'csv', label: 'CSV（表格软件可开）' }
@@ -545,20 +515,18 @@ const profileLine = computed(() => {  const p = store.userProfile
   if (body) bits.push(body)
   return bits.join(' · ')
 })
-/** 运动员档案多一行目标摘要：比赛目标与周期目标的说法由 profileRules 统一 */
+/** 填了比赛或周期目标时多一行目标摘要，说法由 profileRules 统一 */
 const goalLine = computed(() => {
   const p = store.userProfile
-  if (!p || store.currentMode !== 'athlete') return ''
+  if (!p) return ''
+  if (!p.targetEvent?.trim() && !p.discipline?.trim() && !p.cyclePhase?.trim()) return ''
   return goalSummary(p)
 })
 const rpeMissing = computed(() => store.sessions.filter(s => s.rpe === null).length)
-const preview = computed(() => store.switchPreview)
 const hasData = computed(() => store.sessions.length + store.meals.length + store.plans.length > 0 || store.hasProfile)
 const payload = computed(() => ({
   exportedAt: new Date().toISOString(),
   profile: store.userProfile,
-  mode: store.currentMode,
-  modeLog: store.modeLog,
   privacy: store.privacy,
   sessions: store.sessions,
   // 原图在本机 IndexedDB，不随 JSON 导出；photoId 在导出文件里也就没有意义
@@ -621,7 +589,7 @@ function toCsv(): string {
     ...store.plans.flatMap(p => p.items.map(i => [
       '计划', i.date, '', i.exerciseName, i.type,
       i.plannedDuration ?? '', i.plannedDistance ?? '', i.plannedReps ?? '', i.plannedSets ?? '', '',
-      '', '', '', i.completed ? '已完成' : '待完成', `v${p.version}｜${p.mode === 'public' ? '大众' : '运动员'}｜${p.reason}`
+      '', '', '', i.completed ? '已完成' : '待完成', `v${p.version}｜${p.reason}`
     ])),
     ...store.analyses.map(a => [
       '分析', a.date, '', a.exerciseName, a.action,
@@ -809,19 +777,6 @@ async function wipe() {
 .section{padding:22px;margin-bottom:14px}
 .section h2{font-size:17px;margin-bottom:6px}
 .sub{font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:0 0 14px}
-.switch-confirm{display:grid;gap:10px;padding:14px;border-radius:14px;background:var(--color-neutral-soft);border:1px solid var(--color-accent-line);margin-bottom:14px}
-.switch-confirm>strong{font-size:14px;color:var(--color-ink)}
-.sw-lead{font-size:12px;color:var(--color-caution);background:var(--color-caution-soft);border-radius:10px;padding:9px 11px;margin:0;line-height:1.6}
-.sw-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px}
-.sw-cols span{display:block;font-weight:700;color:var(--color-text-muted);margin-bottom:4px}
-.sw-cols ul{margin:0;padding-left:16px;line-height:1.7;color:var(--color-text-secondary)}
-@media(max-width:560px){.sw-cols{grid-template-columns:1fr}}
-.choices{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
-.choice{padding:15px 16px;border-radius:14px;text-align:left;background:var(--color-neutral-soft);border:1px solid transparent;transition:all var(--motion-base) var(--easing-ease-out)}
-.choice strong{display:block;font-size:14px;color:var(--color-ink)}
-.choice small{display:block;font-size:12px;color:var(--color-text-secondary);margin-top:5px;line-height:1.6}
-.choice:hover{transform:translateY(-2px);box-shadow:var(--shadow-sm)}
-.choice.active{background:var(--color-accent-soft);border-color:var(--color-accent-line);box-shadow:var(--shadow-accent)}
 .row-line{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-top:14px;border-top:1px solid var(--color-divider)}
 .row-line strong{display:block;font-size:13px;color:var(--color-ink)}
 .row-line small{display:block;font-size:12px;color:var(--color-text-secondary);margin-top:3px}
@@ -858,7 +813,7 @@ async function wipe() {
 .confirm p{font-size:13px;color:var(--color-danger);margin:0 0 12px;line-height:1.7}
 .section.danger h2{color:var(--color-danger)}
 .foot{font-size:11px;color:var(--color-text-muted);text-align:center;margin:16px 0 0}
-@media(max-width:767px){.choices,.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-head{flex-direction:column;align-items:flex-start}.actions :deep(button){width:100%}}
+@media(max-width:767px){.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-head{flex-direction:column;align-items:flex-start}.actions :deep(button){width:100%}}
 .llm-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px}
 .llm-pick button{padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:600;min-height:38px;color:var(--color-text-secondary);background:var(--color-neutral-soft);border:1px solid transparent}
 .llm-pick button.on{background:var(--color-accent);color:var(--color-on-accent)}

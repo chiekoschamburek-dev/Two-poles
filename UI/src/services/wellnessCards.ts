@@ -16,8 +16,8 @@ export type WellnessTopic =
   | '膳食结构'
   | '训练饮食'
 
-/** 只在大众/运动员模式的"运动员模式"下追加展示，同一张卡不因模式换卡 */
-export interface WellnessAthleteNote {
+/** 所有用户展开卡片时都能看到的进阶补充，同一张卡不因任何条件换卡 */
+export interface WellnessExtraNote {
   focus: string
   detail: string[]
   points: string[]
@@ -34,8 +34,8 @@ export interface WellnessCard {
   points: string[]
   source: string
   tags: string[]
-  /** 运动员模式追加的专业补充 */
-  athlete: WellnessAthleteNote
+  /** 进阶补充：面向想更进一步的训练者 */
+  extra: WellnessExtraNote
 }
 
 /** 展开区末尾统一使用的免责声明 */
@@ -67,7 +67,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${NSCA}；${PHYSIO}`,
     tags: ['深蹲', '下肢', '动作质量'],
-    athlete: {
+    extra: {
       focus: '按专项选变式，先做动作筛查',
       detail: [
         '力量项目常把深蹲当作主项，按周期安排强度与训练量；跑跳类项目更常把它当辅助，用来补下肢力量与躯干稳定。前蹲对躯干直立要求更高，箱式深蹲便于控制底部位置，都是可选的变式。',
@@ -97,7 +97,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${ACSM}；${NSCA}`,
     tags: ['俯卧撑', '上肢', '退阶'],
-    athlete: {
+    extra: {
       focus: '从自重推力到专项推力',
       detail: [
         '对运动员来说，俯卧撑更像基础推力与核心稳定的补充。想增加难度可以抬高脚、加底部暂停或增加负重，但前提是身体线条和肩胛控制稳定，否则只是把代偿做得更重。',
@@ -127,7 +127,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: NSCA,
     tags: ['弯举', '上臂', '离心'],
-    athlete: {
+    extra: {
       focus: '弯举在专项里的位置',
       detail: [
         '弯举主要练肘屈肌与部分前臂肌群，对需要抓握、拉拽的项目是辅助项。它不能替代引体向上、划船这类多关节拉力训练，后者对专项的迁移更直接。',
@@ -157,7 +157,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${ACSM}；${PHYSIO}`,
     tags: ['热身', '动态活动', '训练准备'],
-    athlete: {
+    extra: {
       focus: '专项热身要模拟比赛动作',
       detail: [
         '比赛或专项训练前的热身，应包含专项动作的低强度版本：短跑选手做加速跑与动态摆腿，球类项目加入变向与落地缓冲，举重项目用空杆走完整动作模式。',
@@ -187,7 +187,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${PHYSIO}；${NSCA}`,
     tags: ['ATP-PC', '爆发力', '组间休息'],
-    athlete: {
+    extra: {
       focus: '用输出判断间歇质量',
       detail: [
         '专项里的短时高强度间歇，通常按 1:10 以上的工作休息比安排，并留出足够的被动恢复；但具体时长要以速度或功率不明显下降为准，而不是照抄一个固定秒数。',
@@ -217,7 +217,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: NSCA,
     tags: ['组间休息', '训练变量', '恢复'],
-    athlete: {
+    extra: {
       focus: '把休息写进训练计划',
       detail: [
         '竞技训练中，组间休息是计划的一部分：力量与爆发课需要更长恢复以保住质量，代谢类或循环课则有意压缩休息。同一个动作在不同课次里的安排可以完全不同。',
@@ -247,7 +247,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${NSCA}；${ACSM}`,
     tags: ['渐进超负荷', '训练计划', '恢复'],
-    athlete: {
+    extra: {
       focus: '周期化地把负荷推上去',
       detail: [
         '竞技训练不会每周都加量，而是按周期在负荷与减量之间摆动：积累期逐步提高训练量或强度，减量期主动降低负荷，让适应在比赛时显现出来。',
@@ -277,7 +277,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${ACSM}；${PHYSIO}`,
     tags: ['恢复', '酸痛', '睡眠'],
-    athlete: {
+    extra: {
       focus: '恢复是训练计划的一部分',
       detail: [
         '运动员的恢复手段里，睡眠的作用最确定：赛前和密集训练期适当延长夜间睡眠，通常比依赖额外的恢复设备更有效。训练后的碳水与蛋白质补充也应排进日程。',
@@ -309,7 +309,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${D}；${WHO}`,
     tags: ['抗炎饮食', '膳食模式', '超加工食品'],
-    athlete: {
+    extra: {
       focus: '抗炎饮食落到运动员餐盘',
       detail: [
         '对运动员来说，抗炎饮食的重点仍是整体结构：训练日保证足够的碳水与蛋白质，同时让蔬果、全谷物、豆类、坚果和鱼类占据餐盘的主要位置。',
@@ -339,7 +339,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${D}；中国营养学会《中国居民膳食营养素参考摄入量》`,
     tags: ['蛋白质', '三餐', '食物多样'],
-    athlete: {
+    extra: {
       focus: '把蛋白质分配到全天',
       detail: [
         '训练量较大时，把蛋白质分散到 3–5 次进食中比集中在一餐更容易落实，也便于配合训练后的补充。具体克数需要按体重、项目和周期阶段计算。',
@@ -369,7 +369,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: D,
     tags: ['蔬果', '膳食纤维', '食物多样'],
-    athlete: {
+    extra: {
       focus: '蔬果与训练恢复',
       detail: [
         '高强度训练期，蔬果提供的钾、镁等矿物质参与恢复过程。与其依赖果汁或浓缩饮品，不如在正餐和加餐里安排完整的水果与蔬菜。',
@@ -399,7 +399,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: D,
     tags: ['全谷物', '碳水', '主食'],
-    athlete: {
+    extra: {
       focus: '碳水与训练量匹配',
       detail: [
         '耐力项目的碳水摄入通常需要随训练量提高，赛前还会做碳水补充。具体克数按项目、体重和比赛时间计算，不宜照搬他人的方案。',
@@ -429,7 +429,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: D,
     tags: ['脂肪', '坚果', '食物选择'],
-    athlete: {
+    extra: {
       focus: '脂肪与能量密度',
       detail: [
         '耐力项目在训练量大的阶段能量需求高，适量脂肪有助于提高能量密度；但训练前和赛中仍应避免高脂食物，以免胃排空变慢、引起不适。',
@@ -459,7 +459,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${D}；${ACSM}`,
     tags: ['补水', '电解质', '运动饮水'],
-    athlete: {
+    extra: {
       focus: '用体重变化估算补液',
       detail: [
         '训练或比赛前后称体重，可以粗略估算汗液丢失：每减轻 1 公斤，大致需要补充 1–1.5 升液体（包含随餐摄入）。这只是起始参考，仍需按口渴和尿色微调。',
@@ -489,7 +489,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${ACSM}；${D}`,
     tags: ['训练饮食', '碳水', '进餐时机'],
-    athlete: {
+    extra: {
       focus: '围绕课次安排进餐',
       detail: [
         '一天两练或训练量很大时，两节课之间需要补充碳水和蛋白质；具体间隔与份量，按课次强度和总训练量安排，而不是套用固定模板。',
@@ -519,7 +519,7 @@ export const wellnessCards: WellnessCard[] = [
     ],
     source: `${D}；${WHO}`,
     tags: ['超加工食品', '含糖饮料', '配料表'],
-    athlete: {
+    extra: {
       focus: '比赛期的食物选择',
       detail: [
         '比赛期和外出比赛时，食物选择受条件限制。优先按平时的结构点餐：主食、蛋白质、蔬菜和饮水各占一部分；条件实在有限时，先保证能量和饮水，再考虑其他。',

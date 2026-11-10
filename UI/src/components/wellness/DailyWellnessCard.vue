@@ -6,7 +6,7 @@
       class="w-toggle"
       :aria-expanded="expanded"
       :aria-controls="detailId"
-      :aria-label="`${card.title}${store.isAthleteMode ? '（含运动员补充）' : ''}，${expanded ? '收起详解' : '展开详解'}`"
+      :aria-label="`${card.title}（含进阶补充），${expanded ? '收起详解' : '展开详解'}`"
       @click.stop="expanded = !expanded"
     >
       <span class="w-icon" aria-hidden="true">
@@ -16,7 +16,7 @@
       <span class="w-text">
         <span class="w-eyebrow micro">
           今日 Tips · {{ card.category }} / {{ card.topic }}
-          <em v-if="store.isAthleteMode" class="w-mode">运动员补充</em>
+          <em class="w-badge">进阶补充</em>
         </span>
         <span class="w-title">{{ card.title }}</span>
         <span class="w-summary">{{ card.summary }}</span>
@@ -44,12 +44,11 @@
         </div>
 
         <aside class="w-side">
-          <!-- 仅在运动员模式追加；卡片本身不随模式切换 -->
-          <section v-if="store.isAthleteMode" class="w-athlete" aria-label="运动员补充">
-            <span class="w-athlete-label">运动员补充 · {{ card.athlete.focus }}</span>
-            <p v-for="(paragraph, i) in card.athlete.detail" :key="`ad-${i}`">{{ paragraph }}</p>
+          <section class="w-extra" aria-label="进阶补充">
+            <span class="w-extra-label">进阶补充 · {{ card.extra.focus }}</span>
+            <p v-for="(paragraph, i) in card.extra.detail" :key="`ad-${i}`">{{ paragraph }}</p>
             <ul>
-              <li v-for="(point, i) in card.athlete.points" :key="`ap-${i}`">{{ point }}</li>
+              <li v-for="(point, i) in card.extra.points" :key="`ap-${i}`">{{ point }}</li>
             </ul>
           </section>
 
@@ -81,7 +80,6 @@
 import { computed, nextTick, ref } from 'vue'
 import { ChevronDown, ChevronUp, HeartPulse, Leaf } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
-import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 
 const props = withDefaults(
@@ -97,7 +95,6 @@ const props = withDefaults(
   { date: () => new Date(), compact: false }
 )
 
-const store = useAppStore()
 const expanded = ref(false)
 const toggleBtn = ref<HTMLButtonElement | null>(null)
 const card = computed(() => pickDailyWellnessCard(props.date))
@@ -186,7 +183,7 @@ async function collapseFromBottom() {
 }
 .w-text { min-width: 0; }
 .w-eyebrow { display: block; color: var(--color-accent); }
-.w-mode {
+.w-badge {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 5px;
@@ -267,35 +264,35 @@ async function collapseFromBottom() {
   transform: rotate(45deg);
 }
 
-.w-athlete {
+.w-extra {
   margin-top: 16px;
   padding: 12px 14px 13px;
   border: 1px solid var(--color-accent-line);
   border-radius: var(--radius-md);
   background: var(--color-accent-soft);
 }
-.w-athlete-label {
+.w-extra-label {
   display: block;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--color-accent-strong);
 }
-.w-athlete p {
+.w-extra p {
   margin: 6px 0 0;
   font-size: 12.5px;
   line-height: 1.75;
   color: var(--color-text-secondary);
 }
-.w-athlete ul { display: grid; gap: 4px; margin-top: 7px; }
-.w-athlete li {
+.w-extra ul { display: grid; gap: 4px; margin-top: 7px; }
+.w-extra li {
   position: relative;
   padding-left: 12px;
   font-size: 12px;
   line-height: 1.65;
   color: var(--color-text-secondary);
 }
-.w-athlete li::before {
+.w-extra li::before {
   content: '';
   position: absolute;
   left: 0;
@@ -378,9 +375,9 @@ async function collapseFromBottom() {
     padding-left: 26px;
     border-left: 1px solid var(--hair-soft);
   }
-  .w-athlete { margin-top: 0; }
+  .w-extra { margin-top: 0; }
   .w-side > .w-tags:first-child { margin-top: 0; }
-  .w-athlete + .w-tags { margin-top: 14px; }
+  .w-extra + .w-tags { margin-top: 14px; }
   .w-meta { margin-top: 14px; }
   /* 右侧一栏被拉到与正文同高，收起按钮落在末尾而不是悬在半空 */
   .w-collapse { align-self: flex-start; margin-top: auto; }

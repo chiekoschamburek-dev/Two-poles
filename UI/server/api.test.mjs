@@ -93,15 +93,13 @@ test('device account can bind a registered identifier without losing the session
 test('profile round-trips and validates age', async () => {
   const invalid = await request('/profile', {
     method: 'PUT',
-    body: { age: 9, mode: 'public' }
+    body: { age: 9 }
   })
   assert.equal(invalid.status, 400)
   assert.equal(invalid.body.code, 'validation_failed')
 
   const profile = {
     id: 'ignored',
-    mode: 'athlete',
-    modeChangedAt: '2026-11-01T00:00:00.000Z',
     nickname: '同步测试',
     age: 24,
     goal: '耐力',
@@ -118,7 +116,7 @@ test('profile round-trips and validates age', async () => {
   const response = await request('/profile', { method: 'PUT', body: profile })
   assert.equal(response.status, 200)
   assert.equal(response.body.profile.age, 24)
-  assert.equal(response.body.profile.mode, 'athlete')
+  assert.equal(response.body.profile.goal, '耐力')
   assert.deepEqual(response.body.profile.restrictions, ['膝关节不适'])
   const read = await request('/profile')
   assert.equal(read.body.profile.nickname, '同步测试')
@@ -320,7 +318,6 @@ test('plans are versioned and stale adjustments return 409', async () => {
     id: 'local-plan-1',
     clientId: 'local-plan-1',
     version: 1,
-    mode: 'public',
     weekStartDate: weekStart,
     weekEndDate: '2026-11-08',
     reason: '规则计划',
@@ -336,7 +333,7 @@ test('plans are versioned and stale adjustments return 409', async () => {
   const replay = await request('/plans', { method: 'POST', body: plan, idempotencyKey: 'idem-plan-1' })
   assert.equal(replay.status, 201)
 
-  const current = await request(`/plans/current?week=${weekStart}&mode=public`)
+  const current = await request(`/plans/current?week=${weekStart}`)
   assert.equal(current.body.plan.version, 1)
 
   const adjustment = await request(`/plans/${planId}/adjustments`, {
@@ -366,7 +363,7 @@ test('plans are versioned and stale adjustments return 409', async () => {
   assert.equal(open.plannedDuration, 6)
   assert.equal(accepted.body.lockedPreserved, true)
 
-  const oldPlan = await request(`/plans/current?week=${weekStart}&mode=public`)
+  const oldPlan = await request(`/plans/current?week=${weekStart}`)
   assert.equal(oldPlan.body.plan.version, 2)
 
   const retry = await request(`/plans/adjustments/${adjustment.body.adjustment.id}/accept`, {
@@ -406,7 +403,7 @@ test('plans are versioned and stale adjustments return 409', async () => {
 })
 
 test('weekly report uses server plan and sessions without filling missing RPE with zero', async () => {
-  const response = await request(`/reports/weekly?start=${weekStart}&mode=public`)
+  const response = await request(`/reports/weekly?start=${weekStart}`)
   assert.equal(response.status, 200)
   const report = response.body.report
   assert.equal(report.weekStartDate, weekStart)
@@ -443,7 +440,7 @@ test('sync returns changed records and tombstones', async () => {
   assert.ok(response.body.analyses.some((analysis) => analysis.clientId === 'local-analysis-2'))
   assert.ok(response.body.deleted.analyses.some((analysis) => analysis.clientId === 'local-analysis-1'))
   assert.equal(response.body.plans.at(-1).version, 2)
-  assert.ok(Array.isArray(response.body.modeLog))
+  assert.equal(response.body.modeLog, undefined)
 })
 
 test('export jobs produce JSON and spreadsheet-friendly CSV', async () => {
@@ -585,7 +582,7 @@ test('registered accounts can login, refresh, logout and delete', async () => {
   const profile = await request('/profile', {
     method: 'PUT',
     token: refresh.body.accessToken,
-    body: { age: 30, mode: 'public', availableTimes: [], equipment: [], restrictions: [] }
+    body: { age: 30, availableTimes: [], equipment: [], restrictions: [] }
   })
   assert.equal(profile.status, 200)
 

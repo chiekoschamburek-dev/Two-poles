@@ -1,5 +1,5 @@
 // 周报聚合：负荷只在 RPE 有记录的日子计算，缺失的日子保持"未记录"而不是 0。
-import type { FoodCategory, Meal, Mode, TrainingSession, UserProfile, WeeklyReport } from '@/types/domain'
+import type { FoodCategory, Meal, TrainingSession, UserProfile, WeeklyReport } from '@/types/domain'
 import { toISODate } from '@/utils/time'
 import { isPlanDay } from './planRules'
 import { FOOD_CATEGORIES, RULE_VERSION } from './mealRules'
@@ -8,7 +8,6 @@ export const WEEK_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 
 export interface ReportContext {
   profile?: UserProfile | null
-  mode?: Mode
 }
 
 export function weekStart(d: Date): Date {
@@ -52,7 +51,6 @@ export function buildWeeklyReport(
   ctx: ReportContext = {}
 ): WeekSummary {
   const profile = ctx.profile ?? null
-  const mode = ctx.mode ?? 'public'
   const start = weekStart(reference)
   const days = weekDates(start)
   const isoDays = days.map(toISODate)
@@ -68,7 +66,7 @@ export function buildWeeklyReport(
     return loads.reduce<number>((sum, l) => sum + (l ?? 0), 0)
   })
 
-  const plannedDays = days.filter(d => isPlanDay(d, profile, mode)).map(toISODate)
+  const plannedDays = days.filter(d => isPlanDay(d, profile)).map(toISODate)
   const completedDates = [...new Set(inWeek.map(s => s.date))]
   const countedDays = loadByDay.filter(l => l !== null)
   // 合计只累加有 RPE 的天；缺的天不进合计，并在数据质量里说明覆盖范围

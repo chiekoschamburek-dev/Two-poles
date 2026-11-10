@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, Mode, MotionAnalysis, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
+import type { AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, MotionAnalysis, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
@@ -59,7 +59,6 @@ export interface NewMealInput {
 
 export const useAppStore = defineStore('app', () => {
   // === State ===
-  const currentMode = ref<Mode>('public')
   const userProfile = ref<UserProfile | null>(null)
   const sessions = ref<TrainingSession[]>([])
   const meals = ref<Meal[]>([])
@@ -91,8 +90,6 @@ export const useAppStore = defineStore('app', () => {
   let quotaWarned = false
 
   // === Computed ===
-  const isPublicMode = computed(() => currentMode.value === 'public')
-  const isAthleteMode = computed(() => currentMode.value === 'athlete')
   const hasProfile = computed(() => !!userProfile.value)
 
   // === Actions ===
@@ -119,7 +116,6 @@ export const useAppStore = defineStore('app', () => {
     void refreshLlmStatus()
     darkMedia?.addEventListener?.('change', applyTheme)
     const data = loadStoredState()
-    currentMode.value = data.mode === 'athlete' ? 'athlete' : 'public'
     // 旧档案没有 PB / 极限数组：在这里补齐，页面就不用到处写 `?? []`
     userProfile.value = normalizeProfile(data.profile ?? null)
     sessions.value = Array.isArray(data.sessions) ? data.sessions : []
@@ -134,7 +130,6 @@ export const useAppStore = defineStore('app', () => {
     applyTheme()
     if (Array.isArray(data.plans)) plans.value = data.plans
     if (Array.isArray(data.planHistory)) planHistory.value = data.planHistory
-    if (Array.isArray(data.modeLog)) modeLog.value = data.modeLog
     if (data.unitGrams && typeof data.unitGrams === 'object') {
       const clean: Record<string, number> = {}
       // 上限只防手滑（1 碗 = 5 kg），不是营养判断
@@ -158,7 +153,6 @@ export const useAppStore = defineStore('app', () => {
    */
   function persistState() {
     const state = {
-      mode: currentMode.value,
       profile: userProfile.value,
       sessions: sessions.value,
       meals: meals.value,
@@ -169,7 +163,6 @@ export const useAppStore = defineStore('app', () => {
       theme: themePref.value,
       plans: plans.value,
       planHistory: planHistory.value,
-      modeLog: modeLog.value,
       unitGrams: unitGrams.value,
       adjustmentResolutions: adjustmentResolutions.value
     }
@@ -411,7 +404,7 @@ export const useAppStore = defineStore('app', () => {
     const remotePlans = snapshot.plans ?? []
     const grouped = new Map<string, Plan[]>()
     for (const plan of remotePlans) {
-      const key = `${plan.weekStartDate}|${plan.mode}`
+      const key = plan.weekStartDate
       const list = grouped.get(key) ?? []
       list.push(plan)
       grouped.set(key, list)
@@ -422,7 +415,7 @@ export const useAppStore = defineStore('app', () => {
       const local = plans.value.find((item) =>
         (item.clientId && item.clientId === remote.clientId) ||
         (item.serverId && item.serverId === remote.serverId) ||
-        (item.weekStartDate === remote.weekStartDate && item.mode === remote.mode)
+        item.weekStartDate === remote.weekStartDate
       )
       if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
         local.serverId = local.serverId ?? remote.serverId ?? remote.id
@@ -448,15 +441,6 @@ export const useAppStore = defineStore('app', () => {
       if (keys.some((key) => knownPlans.has(key))) continue
       planHistory.value.push({ ...remote, _sync: 'synced' })
       keys.forEach((key) => knownPlans.add(key))
-    }
-
-    const logKeys = new Set(modeLog.value.map((entry) => `${entry.at}|${entry.from}|${entry.to}`))
-    for (const entry of snapshot.modeLog ?? []) {
-      const key = `${entry.at}|${entry.from}|${entry.to}`
-      if (!logKeys.has(key)) {
-        modeLog.value.push(entry)
-        logKeys.add(key)
-      }
     }
     persistState()
   }
@@ -541,121 +525,17 @@ export const useAppStore = defineStore('app', () => {
     enqueueSync('plan.create', plan.clientId, { ...plan, items: plan.items.map((item) => ({ ...item })) })
   }
 
-  /**
-   * 模式切换：先给出差异与未完成计划，用户确认后才落地（文档 F02 / §3.3 / §6.1 / §7）。
-   * 切换只改变后续操作的界面配置，不改写任何已有计划——旧模式的计划保持可见。
-   */
-  const pendingSwitch = ref<Mode | null>(null)
-  /** 切换历史快照：谁在什么时候从哪个模式切到哪个模式、当时有几份未完成计划 */
-  const modeLog = ref<{ from: Mode; to: Mode; at: string; openPlanCount: number }[]>([])
-
-  const openPlans = computed(() =>
-    plans.value.filter(p => p.items.some(i => !i.completed))
-  )
-
-  const switchPreview = computed(() => {
-    const target = pendingSwitch.value
-    if (!target) return null
-    const from = currentMode.value
-    const carry = openPlans.value.filter(p => p.mode === from)
-    return {
-      from,
-      to: target,
-      fromLabel: from === 'public' ? '大众模式' : '运动员模式',
-      toLabel: target === 'public' ? '大众模式' : '运动员模式',
-      differences: target === 'athlete'
-        ? ['首页改为四周周期与计划实际对照', '训练记录增加距离与训练类型', '饮食页增加训练日与用餐时间线', '负荷按 session-RPE × 分钟计，缺 RPE 不计入']
-        : ['首页改为今日安排与开始跟练', '计划改为按器材与时长过滤的一周模板', '饮食只显示类别与记录完整度，不显示训练时间线'],
-      keeps: ['已有的训练与餐食记录不会被删除或改写', `已存在的 ${plans.value.length} 份计划保留原模式与规则版本`],
-      openPlanCount: carry.length,
-      openPlanNote: carry.length
-        ? `有 ${carry.length} 份${from === 'public' ? '大众' : '运动员'}模式下未完成的计划：切换后仍然可见，不会自动变成新模式的安排；需要时你在计划页明确复制或调整。`
-        : '当前没有未完成的计划。'
-    }
-  })
-
-  function requestModeSwitch(target: Mode) {
-    if (target === currentMode.value) return null
-    pendingSwitch.value = target
-    return switchPreview.value
-  }
-
-  function cancelModeSwitch() {
-    pendingSwitch.value = null
-  }
-
-  function confirmModeSwitch() {
-    const target = pendingSwitch.value
-    if (!target) return
-    const from = currentMode.value
-    currentMode.value = target
-    if (userProfile.value) {
-      userProfile.value.mode = target
-      userProfile.value.modeChangedAt = new Date().toISOString()
-      userProfile.value.updatedAt = userProfile.value.modeChangedAt
-    }
-    modeLog.value.push({ from, to: target, at: new Date().toISOString(), openPlanCount: openPlans.value.length })
-    pendingSwitch.value = null
-    persistState()
-    queueProfileSync()
-    showToast({
-      type: 'success',
-      title: `已切换到${target === 'public' ? '大众' : '运动员'}模式`,
-      message: `已记录 ${modeLog.value.length} 次切换；原有记录与计划版本未改动`,
-      duration: 3500
-    })
-  }
-
-  /** 保存档案时应用表单中明确选择的训练模式。 */
-  function commitMode(target: Mode) {
-    if (target === currentMode.value) return
-    const from = currentMode.value
-    currentMode.value = target
-    if (userProfile.value) {
-      userProfile.value.mode = target
-      userProfile.value.modeChangedAt = new Date().toISOString()
-      userProfile.value.updatedAt = userProfile.value.modeChangedAt
-    }
-    modeLog.value.push({ from, to: target, at: new Date().toISOString(), openPlanCount: openPlans.value.length })
-    persistState()
-    queueProfileSync()
-  }
-
-  /** 明确把某份旧计划复制成新模式的草稿（不做即不生成，防止静默覆盖） */
-  function copyPlanToMode(planId: string, target: Mode): Plan | null {
-    const src = plans.value.find(p => p.id === planId)
-    if (!src || src.mode === target) return null
-    const copy: Plan = {
-      ...src,
-      id: newId(),
-      clientId: undefined,
-      serverId: undefined,
-      _sync: 'pending',
-      version: 1,
-      mode: target,
-      createdAt: new Date().toISOString(),
-      reason: `由「${src.mode === 'public' ? '大众' : '运动员'}模式」v${src.version} 复制而来`,
-      items: src.items.map(i => ({ ...i, id: `${i.date}-${i.exerciseName}-c`, planId: '', completed: false }))
-    }
-    copy.items.forEach(i => { i.planId = copy.id })
-    plans.value.push(copy)
-    persistState()
-    queuePlanSync(copy)
-    showToast({ type: 'success', title: '已复制为新模式的计划', message: '原计划保持不变', duration: 3000 })
-    return copy
-  }
-
-  /** 本周（周一为起点）在当前模式下的计划；没有就按档案生成 v1 并落盘 */
+  /** 本周（周一为起点）的计划；没有就按档案生成 v1 并落盘 */
   function ensureWeekPlan(reference: Date, queue = true): Plan {
     const start = weekStart(reference)
     const iso = toISODate(start)
-    const found = plans.value.find(p => p.weekStartDate === iso && p.mode === currentMode.value)
+    const found = plans.value.find(p => p.weekStartDate === iso)
     if (found) return found
     const items: PlanItem[] = []
     for (let i = 0; i < 7; i++) {
       const d = new Date(start)
       d.setDate(start.getDate() + i)
-      items.push(...buildDayPlan(d, userProfile.value, currentMode.value, PLAN_VERSION).items)
+      items.push(...buildDayPlan(d, userProfile.value, PLAN_VERSION).items)
     }
     const id = newId()
     const end = new Date(start)
@@ -665,7 +545,6 @@ export const useAppStore = defineStore('app', () => {
       userId: userProfile.value?.id || 'demo-user',
       version: 1,
       createdAt: new Date().toISOString(),
-      mode: currentMode.value,
       reason: userProfile.value
         ? `按器材、时间与"需要避开的"条件生成（${PLAN_RULES_VERSION}）`
         : `未建档，使用不过滤的基础一周模板（${PLAN_RULES_VERSION}）`,
@@ -682,14 +561,14 @@ export const useAppStore = defineStore('app', () => {
 
   function weekPlan(reference: Date): Plan | null {
     const iso = toISODate(weekStart(reference))
-    return plans.value.find(p => p.weekStartDate === iso && p.mode === currentMode.value) ?? null
+    return plans.value.find(p => p.weekStartDate === iso) ?? null
   }
 
   /** 某天计划生成时被挡掉的条件与年龄门槛，界面要如实列出 */
   function dayPlanNotice(reference: Date) {
     const p = weekPlan(reference)
     const stored = p ? p.items.filter(i => i.date === toISODate(reference)) : []
-    const generated = buildDayPlan(reference, userProfile.value, currentMode.value)
+    const generated = buildDayPlan(reference, userProfile.value)
     return {
       items: stored.length ? stored : generated.items,
       conflicts: generated.conflicts,
@@ -812,7 +691,7 @@ export const useAppStore = defineStore('app', () => {
       warnings: []
     }
     const dates = planWeekDates(reference)
-    const messages = buildPlanQuestionMessages(userProfile.value!, currentMode.value, dates)
+    const messages = buildPlanQuestionMessages(userProfile.value!, dates)
     const res = await callPlanProxy(llmConfig.value, messages)
     if (requestId !== planRequestId) return
     if (res.error) {
@@ -904,7 +783,7 @@ export const useAppStore = defineStore('app', () => {
       }
       return
     }
-    const messages = buildPlanMessages(userProfile.value, dates, currentMode.value, context, source)
+    const messages = buildPlanMessages(userProfile.value, dates, context, source)
     const res = await callPlanProxy(config, messages)
     if (requestId !== planRequestId) return
     if (res.error) {
@@ -1063,7 +942,6 @@ export const useAppStore = defineStore('app', () => {
       userId: userProfile.value?.id || 'demo-user',
       version: (old?.version ?? 0) + 1,
       createdAt: new Date().toISOString(),
-      mode: currentMode.value,
       reason: `${draft.reason}（模型：${draft.model || '未命名'}，已由你确认 · ${PLAN_RULES_VERSION}）`,
       weekStartDate: dates[0],
       weekEndDate: dates[6],
@@ -1161,7 +1039,7 @@ export const useAppStore = defineStore('app', () => {
     bumpVersion(plan, items, `标记「${name}」为${completed ? '已完成' : '未完成'}`)
   }
 
-  /** 手工录入：未满 18 岁与运动员模式的唯一安排入口 */
+  /** 手工录入：不满足自动推荐条件（如未满 18 岁）时的安排入口 */
   function addManualItem(planId: string, input: { date: string; exerciseName: string; minutes: number; note?: string }) {
     const plan = plans.value.find(p => p.id === planId)
     if (!plan) return null
@@ -1190,8 +1068,6 @@ export const useAppStore = defineStore('app', () => {
     } else {
       userProfile.value = {
         id: newId(),
-        mode: currentMode.value,
-        modeChangedAt: updatedAt,
         age: 25,
         goal: '',
         experience: '',
@@ -1551,15 +1427,12 @@ export const useAppStore = defineStore('app', () => {
    * Clear all data
    */
   function clearAllData() {
-    currentMode.value = 'public'
     userProfile.value = null
     sessions.value = []
     meals.value = []
     analyses.value = []
     plans.value = []
     planHistory.value = []
-    modeLog.value = []
-    pendingSwitch.value = null
     privacy.value = { cameraEnabled: true, saveVideoLocally: false, dataRetentionDays: 90, exportFormat: 'json', showEnergyEstimate: false, saveFoodPhotoLocally: true }
     speech.value = { enabled: false, voiceURI: '' }
     collapsedCards.value = []
@@ -1580,14 +1453,13 @@ export const useAppStore = defineStore('app', () => {
     showToast({
       type: 'success',
       title: '数据已清除',
-      message: '档案、训练、餐食、分析记录、照片、计划版本、切换记录与本机换算口径都已从本机删除',
+      message: '档案、训练、餐食、分析记录、照片、计划版本与本机换算口径都已从本机删除',
       duration: 3000
     })
   }
 
   return {
     // State
-    currentMode,
     userProfile,
     sessions,
     meals,
@@ -1600,8 +1472,6 @@ export const useAppStore = defineStore('app', () => {
     themePref,
     plans,
     planHistory,
-    modeLog,
-    pendingSwitch,
     unitGrams,
     adjustmentResolutions,
     llmConfig,
@@ -1611,20 +1481,11 @@ export const useAppStore = defineStore('app', () => {
     planLlmReady,
 
     // Computed
-    isPublicMode,
-    isAthleteMode,
     hasProfile,
-    openPlans,
-    switchPreview,
 
     // Actions
     init,
     persistState,
-    requestModeSwitch,
-    confirmModeSwitch,
-    cancelModeSwitch,
-    commitMode,
-    copyPlanToMode,
     updateProfile,
     showToast,
     dismissToast,

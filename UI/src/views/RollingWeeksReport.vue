@@ -22,7 +22,7 @@ const report = computed(() => buildRollingFourWeeksReport(
   store.sessions,
   store.meals,
   now,
-  { profile: store.userProfile, mode: store.currentMode }
+  { profile: store.userProfile }
 ))
 const md = (iso: string): string => {
   const [, m, d] = iso.split('-')

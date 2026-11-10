@@ -40,39 +40,37 @@ function iso(offsetDays: number) {
   return d
 }
 const base = {
-  id: 'u1', mode: 'public' as const, modeChangedAt: '', age: 30, goal: '保持活力',
+  id: 'u1', age: 30, goal: '保持活力',
   experience: '偶尔运动', availableTimes: ['20 分钟'], equipment: [] as string[],
   availableVenues: ['宿舍或家'], restrictions: [] as string[]
 }
 const p = (over: Partial<UserProfile>): UserProfile => ({ ...base, ...over })
 
 console.log('\n1. F04 条件过滤（器材 / 限制 / 年龄 / 适用范围）')
-const noChair = buildDayPlan(iso(0), p({ equipment: ['无器材'] }), 'public')
+const noChair = buildDayPlan(iso(0), p({ equipment: ['无器材'] }))
 ok('周一有安排', noChair.items.length > 0, JSON.stringify(noChair.items.map(i => i.exerciseName)))
 ok('未选椅子时不排坐站训练', !noChair.items.some(i => i.type === '坐站训练'))
 ok('无候选时给出原因', noChair.conflicts.length >= 0)
 
-const withChair = buildDayPlan(iso(2), p({ equipment: ['无器材', '椅子'] }), 'public')
+const withChair = buildDayPlan(iso(2), p({ equipment: ['无器材', '椅子'] }))
 ok('有椅子时周三排入坐站训练', withChair.items.some(i => i.type === '坐站训练'))
 ok('坐站训练默认锁定', withChair.items.some(i => i.locked))
 
-const knee = buildDayPlan(iso(2), p({ equipment: ['无器材', '椅子'], restrictions: ['膝部负担小'] }), 'public')
+const knee = buildDayPlan(iso(2), p({ equipment: ['无器材', '椅子'], restrictions: ['膝部负担小'] }))
 ok('膝部负担小剔除深蹲跳等高膝负荷项', !knee.items.some(i => i.exerciseName === '深蹲跳'))
 
-const minor = buildDayPlan(iso(0), p({ age: 16 }), 'public')
+const minor = buildDayPlan(iso(0), p({ age: 16 }))
 ok('未满 18 岁不生成自动推荐', minor.auto === false && minor.items.length === 0)
 ok('给出年龄门槛说明', !!minor.gateNote && minor.gateNote.includes('18'))
 
-const preg = buildDayPlan(iso(0), p({ restrictions: ['孕期或产后'] }), 'public')
+const preg = buildDayPlan(iso(0), p({ restrictions: ['孕期或产后'] }))
 ok('孕期不进自动推荐但可记录', preg.auto === false && !!preg.gateNote)
 ok('gateReason 独立可用', gateReason({ restrictions: ['伤病或遵医嘱限制'] }) !== null)
 
-const athleteHome = buildDayPlan(iso(4), p({ equipment: ['无器材'] }), 'athlete')
-ok('场地只填宿舍时不给跑步安排并说明原因', !athleteHome.items.some(i => i.type === '跑步') && athleteHome.conflicts.some(x => x.includes('场地')))
-const athleteOutdoor = buildDayPlan(iso(4), p({ equipment: ['无器材'], availableVenues: ['户外'] }), 'athlete')
-ok('周五运动员模式以有氧为主', athleteOutdoor.items.some(i => i.type === '跑步'), JSON.stringify(athleteOutdoor.items.map(i => i.exerciseName)))
+const fridayPlan = buildDayPlan(iso(4), p({ equipment: ['无器材'] }))
+ok('周五使用统一模板而不是运动员有氧模板', fridayPlan.items.length > 0 && !fridayPlan.items.some(i => i.type === '跑步'), JSON.stringify(fridayPlan.items.map(i => i.exerciseName)))
 
-const tight = buildDayPlan(iso(0), p({ availableTimes: ['10 分钟'] }), 'public')
+const tight = buildDayPlan(iso(0), p({ availableTimes: ['10 分钟'] }))
 ok('10 分钟预算内排得下', tight.items.reduce((s, i) => s + (i.plannedDuration ?? 0), 0) <= 10)
 
 ok('替换候选带原因', alternativesFor(activeExercises().find(e => e.name === '站姿弯举')!, p({ equipment: ['无器材', '弹力带'] })).every(a => a.reason.length > 0))
@@ -93,16 +91,16 @@ const s = (date: string, dur: number, rpe: number | null, extra: Partial<Trainin
   cameraUsed: false, manualCorrections: 0, createdAt: `${date}T09:00:00.000Z`, ...extra
 })
 const sessions = [s('2026-10-12', 20, 5), s('2026-10-14', 30, null), s('2026-10-16', 10, 4)]
-const rep = buildWeeklyReport(sessions, [], iso(0), { profile: p({}), mode: 'public' })
+const rep = buildWeeklyReport(sessions, [], iso(0), { profile: p({}) })
 ok('单日负荷 = 时长 × RPE', loadOf(sessions[0]) === 100)
 ok('缺 RPE 的单次不可算', loadOf(sessions[1]) === null)
 ok('合计只含有 RPE 的天（100 + 40）', rep.totalLoad === 140, String(rep.totalLoad))
 ok('缺 RPE 的天记为未计入', rep.unloadedDays === 1, String(rep.unloadedDays))
 ok('数据质量说明覆盖范围', rep.dataQuality.some(q => q.includes('覆盖') && q.includes('不按 0 补齐')))
 ok('完成率有分母才计算', rep.completionRate !== null)
-const idleWeek = buildWeeklyReport([s('2026-10-14', 20, 5)], [], iso(0), { profile: p({ restrictions: ['孕期或产后'] }), mode: 'public' })
+const idleWeek = buildWeeklyReport([s('2026-10-14', 20, 5)], [], iso(0), { profile: p({ restrictions: ['孕期或产后'] }) })
 ok('未安排训练的一周不计算完成率', idleWeek.completionRate === null && idleWeek.plannedSessions === 0)
-const hurt = buildWeeklyReport([s('2026-10-12', 20, 5, { discomfort: true })], [], iso(0), { profile: p({}), mode: 'public' })
+const hurt = buildWeeklyReport([s('2026-10-12', 20, 5, { discomfort: true })], [], iso(0), { profile: p({}) })
 ok('报了不适则阻止自动加量', hurt.blockedByDiscomfort === true)
 
 console.log('\n4. 饮食口径（类别推断 / 混合菜 / 免责清单）')
@@ -198,7 +196,7 @@ fastFeed(170, 2, 60)                       // 回程总时长 330ms < minRepMs
 ok('抖动行程不计入', fast.count.value === 0, String(fast.count.value))
 ok('阈值可被机位校准改写', typeof c.calibrate === 'function' && c.lowThreshold.value < 170)
 
-console.log('\n6. 计划版本与模式切换（store）')
+console.log('\n6. 计划版本与统一排课（store）')
 const mem = new Map<string, string>()
 globalThis.localStorage = {
   getItem: (k: string) => mem.get(k) ?? null,
@@ -235,34 +233,21 @@ ok('调整原因被记录', plan.reason.includes('测试批量改') && plan.reas
 const manualPlan = store.addManualItem(plan.id, { date: '2026-10-13', exerciseName: '球场往返跑', minutes: 25 })
 ok('手工录入可用且不依赖自动推荐', !!manualPlan && plan.items.some(i => i.exerciseName === '球场往返跑'))
 
-const preview = store.requestModeSwitch('athlete')
-ok('切换前先给差异与确认', !!preview && preview.toLabel === '运动员模式' && preview.differences.length > 0)
-ok('未确认时模式不变', store.currentMode === 'public')
-ok('未确认时计划未被改写', store.plans.filter(pl => pl.mode === 'public').length === 1 && store.plans.filter(pl => pl.mode === 'athlete').length === 0)
-store.cancelModeSwitch()
-ok('取消后不残留待确认态', store.pendingSwitch === null)
-store.requestModeSwitch('athlete')
-store.confirmModeSwitch()
-ok('确认后模式生效并记录切换', store.currentMode === 'athlete' && store.modeLog.length === 1)
-ok('旧模式计划仍可见', store.plans.some(pl => pl.mode === 'public'))
-const copied = store.copyPlanToMode(plan.id, 'athlete')
-ok('复制才形成新模式计划', !!copied && copied.mode === 'athlete' && copied.reason.includes('复制'))
-ok('计划按模式分别计数', store.plans.length === 2)
-ok('运动员模式周五有安排', isPlanDay(iso(4), p({}), 'athlete'))
-ok('大众模式周二是休息日', !isPlanDay(iso(1), p({}), 'public'))
+ok('计划不再带模式字段', store.plans.every(pl => !('mode' in pl)))
+ok('同一周只保留一份计划', store.plans.length === 1)
+ok('统一模板周五有安排', isPlanDay(iso(4), p({})))
+ok('周二仍是休息日', !isPlanDay(iso(1), p({})))
 ok('自动推荐年龄门槛导出', AUTO_RECOMMEND_MIN_AGE === 18)
 
 const persistedPlans = JSON.parse(mem.get('twopoles.v1.plans') || '[]')
 const persistedHistory = JSON.parse(mem.get('twopoles.v1.planHistory') || '[]')
-const persistedModeLog = JSON.parse(mem.get('twopoles.v1.modeLog') || '[]')
-ok('计划与历史一起落盘', persistedPlans.length === 2 && persistedHistory.length === 3,
+ok('计划与历史一起落盘', persistedPlans.length === 1 && persistedHistory.length === 3,
   `plans=${persistedPlans.length} history=${persistedHistory.length}`)
-ok('切换记录一起落盘（刷新后不丢）', Array.isArray(persistedModeLog) && persistedModeLog.length === 1,
-  `modeLog=${persistedModeLog.length}`)
+ok('历史版本也不带模式字段', persistedHistory.every((pl: Plan) => !('mode' in pl)))
 ok('状态按类别拆 key 而不是一个大对象', !mem.has('twopoles_state') && mem.has('twopoles.v1.sessions') && mem.has('twopoles.v1.meals'))
 
 store.clearAllData()
-ok('清除数据连带计划与切换记录', store.plans.length === 0 && store.planHistory.length === 0 && store.modeLog.length === 0 && !mem.has('twopoles.v1.plans'))
+ok('清除数据连带计划与历史', store.plans.length === 0 && store.planHistory.length === 0 && !mem.has('twopoles.v1.plans'))
 
 console.log('\n7. P1-6 记录入口与「单位↔克数」换算')
 const demoUnit = resolveUnitGrams('苹果', '个')
@@ -361,7 +346,7 @@ ok('详情不是摘要复读', wellnessCards.every(c => c.detail.join('').length
 ok('要点 2–4 条', wellnessCards.every(c => c.points.length >= 2 && c.points.length <= 4))
 ok('标签 2–4 个', wellnessCards.every(c => c.tags.length >= 2 && c.tags.length <= 4))
 ok('覆盖动作要点 / 能量系统 / 抗炎饮食', ['动作要点', '能量系统', '抗炎饮食'].every(t => wellnessCards.some(c => c.topic === t)))
-ok('运动员补充内容齐全', wellnessCards.every(c => !!c.athlete.focus.trim() && c.athlete.detail.length >= 1 && c.athlete.points.length >= 2))
+ok('进阶补充内容齐全', wellnessCards.every(c => !!c.extra.focus.trim() && c.extra.detail.length >= 1 && c.extra.points.length >= 2))
 ok('免责声明为统一文案', WELLNESS_DISCLAIMER.includes('不构成医疗建议') && WELLNESS_DISCLAIMER.includes('咨询专业人士'))
 
 const wDay = (n: number, h = 12) => {
@@ -376,7 +361,7 @@ ok('相邻两天换卡', wSeq.every((c, i) => i === 0 || c.id !== wSeq[i - 1].id
 ok('相邻两天类别交替', wSeq.every((c, i) => i === 0 || c.category !== wSeq[i - 1].category))
 ok('连续 16 天返回 16 个不同 id', new Set(wSeq.map(c => c.id)).size === 16, String(new Set(wSeq.map(c => c.id)).size))
 
-console.log('\n9. 负荷序列与强度分布（运动员模式取数）')
+console.log('\n9. 负荷序列与强度分布（负荷视图取数）')
 const sess = (date: string, minutes: number, rpe: number | null): TrainingSession => ({
   id: `s-${date}-${minutes}-${rpe}`, userId: 'demo-user', date, exerciseName: '轻松跑', type: '跑步',
   actualDuration: minutes, completionStatus: 'completed', rpe, discomfort: false,
@@ -502,7 +487,7 @@ ok('周期目标摘要', goalSummary({ goalType: 'cycle', discipline: '800m', cy
 ok('没有目标时给诚实文案', goalSummary({ goalType: 'competition' }).includes('还没填'))
 ok('日期格式化跨月正确', formatCnDate('2026-12-01') === '12 月 1 日')
 
-const oldProfile = { id: 'u1', mode: 'public', modeChangedAt: '', age: 30, goal: '减脂', experience: '偶尔运动', availableTimes: ['20 分钟'], equipment: [], restrictions: [], weight: 62 } as UserProfile
+const oldProfile = { id: 'u1', age: 30, goal: '减脂', experience: '偶尔运动', availableTimes: ['20 分钟'], equipment: [], restrictions: [], weight: 62 } as UserProfile
 const normalized = normalizeProfile(oldProfile)
 ok('旧档案补出 PB 空数组', Array.isArray(normalized?.personalBests) && normalized?.personalBests?.length === 0)
 ok('旧档案补出极限数据空数组', Array.isArray(normalized?.gymRecords))
@@ -558,16 +543,20 @@ ok('没有 days 字段 → 报错', validatePlanDraft({ reason: 'x' }, draftDate
 ok('非对象输入 → 报错', validatePlanDraft('不是对象', draftDates).draft === null)
 
 const msgs = buildPlanMessages(
-  { id: 'u', mode: 'public', modeChangedAt: '', age: 30, goal: '减脂', experience: '入门', availableTimes: ['20 分钟'], equipment: ['无器材'], restrictions: [], availableVenues: ['宿舍或家'] },
-  draftDates,
-  'public'
+  { id: 'u', age: 30, goal: '减脂', experience: '入门', availableTimes: ['20 分钟'], equipment: ['无器材'], restrictions: [], availableVenues: ['宿舍或家'] },
+  draftDates
 )
 ok('提示词要求只输出 JSON', msgs.system.includes('只输出一个 JSON'))
 ok('提示词带上了动作库', msgs.user.includes('动作库'))
 ok('提示词带上了可选日期', msgs.user.includes('2026-10-12'))
 ok('提示词包含禁项（不给医疗建议）', msgs.system.includes('不提供医疗'))
+ok('提示词不再包含模式标签', !msgs.user.includes('大众模式') && !msgs.user.includes('运动员模式'))
 
-const qMsgs = buildPlanQuestionMessages(p({}), 'public', draftDates)
+const specialtyMsgs = buildPlanMessages(p({ discipline: '800m', cyclePhase: '强度建立' }), draftDates)
+ok('专项信息填了就进入提示词', specialtyMsgs.user.includes('800m') && specialtyMsgs.user.includes('强度建立'))
+ok('专项信息没填就不出现在提示词', !buildPlanMessages(p({}), draftDates).user.includes('专项：'))
+
+const qMsgs = buildPlanQuestionMessages(p({}), draftDates)
 ok('先问再生成：提示词只让模型问问题', qMsgs.system.includes('先不要生成训练计划') && qMsgs.system.includes('"questions"'))
 ok('先问再生成：要求确认每周次数且不要默认三天', qMsgs.system.includes('每周训练次数') && qMsgs.system.includes('不要默认只排三天'))
 const qValid = validatePlanQuestions({
@@ -586,7 +575,7 @@ ok('从回答解析每周 5 次', desiredWeeklySessions(
   [{ id: 'weekly-frequency', question: '每周希望安排几次训练？', options: [] }],
   { 'weekly-frequency': '5 次' }
 ) === 5)
-const msgsWithAnswers = buildPlanMessages(p({}), draftDates, 'public', {
+const msgsWithAnswers = buildPlanMessages(p({}), draftDates, {
   questions: [{ id: 'weekly-frequency', question: '每周希望安排几次训练？', options: [] }],
   answers: { 'weekly-frequency': '5 次' }
 })
@@ -751,7 +740,7 @@ console.log('\n14. 计划调整建议（时间冲突）')
 const timeProfile = p({ availableTimes: ['20 分钟'] })
 const planWithItems = (items: PlanItem[]): Plan => ({
   id: 'plan-time', userId: 'u1', version: 1, createdAt: '2026-11-02T08:00:00.000Z',
-  mode: 'public', reason: 'test', weekStartDate: '2026-11-02', weekEndDate: '2026-11-08',
+  reason: 'test', weekStartDate: '2026-11-02', weekEndDate: '2026-11-08',
   items, locked: false
 })
 const timeItem = (id: string, duration: number, locked = false): PlanItem => ({
@@ -959,7 +948,7 @@ const reportMeals = [
 ]
 const rolling = buildRollingFourWeeksReport(
   reportSessions, reportMeals, new Date(2026, 10, 2),
-  { profile: p({ availableTimes: ['20 分钟'] }), mode: 'public' }
+  { profile: p({ availableTimes: ['20 分钟'] }) }
 )
 ok('近四周结束于今天、开始于 27 天前', rolling.start === '2026-10-06' && rolling.end === '2026-11-02')
 ok('近四周切成 4 个 7 天块', rolling.blocks.length === 4
@@ -977,25 +966,25 @@ ok('类别覆盖按条目累计', rolling.categoryCoverage['水果类'] === 2 &&
 ok('数据质量说明缺 RPE 不计入', rolling.dataQuality.some(q => q.includes('不参与负荷计算')))
 ok('数据质量说明餐食未记录口径', rolling.dataQuality.some(q => q.includes('未记录') && q.includes('不代表未摄入')))
 const emptyRolling = buildRollingFourWeeksReport(
-  [], [], new Date(2026, 10, 2), { profile: p({ availableTimes: ['20 分钟'] }), mode: 'public' }
+  [], [], new Date(2026, 10, 2), { profile: p({ availableTimes: ['20 分钟'] }) }
 )
 ok('空窗口负荷留空而不是 0', emptyRolling.totalLoad === null && emptyRolling.trainingDays === 0
   && emptyRolling.blocks.every(b => b.loadCompleteness === 'none' && b.load === null))
 ok('空窗口数据质量说明空着合法', emptyRolling.dataQuality.some(q => q.includes('还没有训练记录')))
 
 console.log('\n20. 月报')
-const feb = buildMonthlyReport([], [], new Date(2026, 1, 1), { profile: p({}), mode: 'public' }, new Date(2026, 2, 15))
+const feb = buildMonthlyReport([], [], new Date(2026, 1, 1), { profile: p({}) }, new Date(2026, 2, 15))
 ok('2 月按 4 个块切分', feb.blocks.length === 4 && feb.start === '2026-02-01' && feb.end === '2026-02-28'
   && feb.blocks[3].start === '2026-02-22' && feb.blocks[3].end === '2026-02-28')
-const oct = buildMonthlyReport([], [], new Date(2026, 9, 1), { profile: p({}), mode: 'public' }, new Date(2026, 10, 2))
+const oct = buildMonthlyReport([], [], new Date(2026, 9, 1), { profile: p({}) }, new Date(2026, 10, 2))
 ok('31 天月份按 5 个块切分', oct.blocks.length === 5 && oct.blocks[4].start === '2026-10-29'
   && oct.blocks[4].end === '2026-10-31')
-const apr = buildMonthlyReport([], [], new Date(2026, 3, 1), { profile: p({}), mode: 'public' }, new Date(2026, 4, 2))
+const apr = buildMonthlyReport([], [], new Date(2026, 3, 1), { profile: p({}) }, new Date(2026, 4, 2))
 ok('30 天月份最后一块只到月末', apr.blocks.length === 5 && apr.blocks[4].start === '2026-04-29'
   && apr.blocks[4].end === '2026-04-30')
 const currentNov = buildMonthlyReport(
   reportSessions, reportMeals, new Date(2026, 10, 1),
-  { profile: p({ availableTimes: ['20 分钟'] }), mode: 'public' }, new Date(2026, 10, 2)
+  { profile: p({ availableTimes: ['20 分钟'] }) }, new Date(2026, 10, 2)
 )
 ok('当前月只统计到今天', currentNov.start === '2026-11-01' && currentNov.end === '2026-11-02'
   && currentNov.blocks.length === 1 && currentNov.blocks[0].end === '2026-11-02')
@@ -1056,6 +1045,28 @@ localStorage.setItem = originalSetItem
 const recovered = loadStoredState()
 ok('配额恢复后完成迁移并移除旧 key', recovered.sessions?.length === 1 && !mem.has('twopoles_state') && mem.has(STORAGE_KEYS.sessions))
 ok('完整迁移后刷新可读到分类记录', loadStoredState().sessions?.length === 1)
+
+// 模式分类取消前：同一周可能同时存在两份计划，meta 记录最后使用的模式
+mem.set(STORAGE_KEYS.meta, JSON.stringify({ mode: 'athlete' }))
+mem.set(STORAGE_KEYS.profile, JSON.stringify({ ...p({}), mode: 'athlete', modeChangedAt: '2026-11-01T00:00:00.000Z' }))
+const legacyPlan = (id: string, version: number, mode: string) => ({
+  id, userId: 'u1', version, createdAt: `2026-11-0${version}T08:00:00.000Z`,
+  reason: 'legacy', weekStartDate: '2026-11-02', weekEndDate: '2026-11-08',
+  items: [], locked: false, mode
+} as Plan & { mode: string })
+mem.set(STORAGE_KEYS.plans, JSON.stringify([
+  legacyPlan('legacy-public', 1, 'public'),
+  legacyPlan('legacy-athlete', 2, 'athlete')
+]))
+mem.set('twopoles.v1.modeLog', JSON.stringify([{ from: 'public', to: 'athlete', at: '2026-11-01T00:00:00.000Z', openPlanCount: 0 }]))
+const unifiedModes = loadStoredState()
+ok('双模式计划合并为一份当前计划', unifiedModes.plans?.length === 1 && unifiedModes.plans[0].id === 'legacy-athlete',
+  JSON.stringify(unifiedModes.plans?.map(pl => pl.id)))
+ok('另一模式计划进入历史', unifiedModes.planHistory?.some(pl => pl.id === 'legacy-public'))
+const profileHasMode = unifiedModes.profile ? 'mode' in (unifiedModes.profile as Record<string, unknown>) : false
+ok('迁移后档案与计划不带模式字段', !profileHasMode
+  && [...(unifiedModes.plans ?? []), ...(unifiedModes.planHistory ?? [])].every(pl => !('mode' in pl)))
+ok('旧模式切换记录被移除', !mem.has('twopoles.v1.modeLog'))
 clearStoredState()
 
 console.log('\n24. 实时计数：帧连续性、遮挡、重置与校准')

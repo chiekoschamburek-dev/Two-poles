@@ -48,7 +48,7 @@ watch(() => route.fullPath, () => {
 
 onMounted(() => {
   store.init()
-  // 放在 store.init() 之后：弹窗里的卡片能读到持久化的模式（运动员补充）
+  // 放在 store.init() 之后：弹窗里的卡片能读到持久化的内容
   initWellnessDock()
 })
 </script>
