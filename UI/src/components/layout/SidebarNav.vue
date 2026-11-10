@@ -145,6 +145,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   CalendarDays,
   Dumbbell,
+  Pill,
   Utensils,
   CircleDot,
   ClipboardList,
@@ -162,7 +163,7 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 const route = useRoute()
 const router = useRouter()
 const movementActive = computed(() => route.path.startsWith('/plan') || route.path.startsWith('/execution') || route.path.startsWith('/analysis'))
-const nutritionActive = computed(() => route.path.startsWith('/meals'))
+const nutritionActive = computed(() => route.path.startsWith('/meals') || route.path.startsWith('/supplements'))
 
 function focusGroup(pole: 'movement' | 'nutrition') {
   emit('close')
@@ -191,7 +192,8 @@ const movementItems = [
 ]
 const nutritionItems = [
   // 分组标题已经叫"饮食"，条目用"记录"避免"饮食 / 饮食"重复
-  { to: '/meals', label: '记录', full: '饮食记录', icon: Utensils }
+  { to: '/meals', label: '记录', full: '饮食记录', icon: Utensils },
+  { to: '/supplements', label: '补剂', full: '补剂提醒', icon: Pill }
 ]
 </script>
 

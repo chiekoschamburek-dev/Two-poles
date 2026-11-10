@@ -22,7 +22,7 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect, type Component } from 'vue'
 import { useRoute } from 'vue-router'
-import { CalendarDays, Dumbbell, UserRound, Utensils, Video } from 'lucide-vue-next'
+import { CalendarDays, Dumbbell, Pill, UserRound, Utensils, Video } from 'lucide-vue-next'
 import PoleMark from '@/components/poles/PoleMark.vue'
 
 type Pole = 'movement' | 'nutrition'
@@ -43,7 +43,7 @@ const lastPole = ref<Pole>('movement')
 
 const isMovementPath = (p: string) =>
   p === '/movement' || p.startsWith('/plan') || p.startsWith('/execution') || p.startsWith('/analysis')
-const isNutritionPath = (p: string) => p === '/nutrition' || p.startsWith('/meals')
+const isNutritionPath = (p: string) => p === '/nutrition' || p.startsWith('/meals') || p.startsWith('/supplements')
 
 const context = computed<'home' | Pole>(() => {
   if (path.value === '/') return 'home'
@@ -87,6 +87,7 @@ const items = computed<NavItem[]>(() => {
   return [
     { to: '/nutrition', label: '饮食', pole: 'nutrition', tone: 'nut', active: path.value === '/nutrition' },
     { to: '/meals', label: '记录', icon: Utensils, tone: 'nut', active: path.value.startsWith('/meals') },
+    { to: '/supplements', label: '补剂', icon: Pill, tone: 'nut', active: path.value.startsWith('/supplements') },
     mine.value
   ]
 })
@@ -128,7 +129,8 @@ const items = computed<NavItem[]>(() => {
   .mobile-nav.ctx-movement::before { display: block; left: 27px; }
   .mobile-nav.ctx-nutrition::before {
     display: block;
-    left: 48px;
+    /* 饮食上下文现在是 4 格：饮食 / 记录 / 补剂 / 我的 */
+    left: 35px;
     background: var(--pole-nutrition);
   }
 

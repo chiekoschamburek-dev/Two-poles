@@ -22,6 +22,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '饮食', workspace: true, pole: 'nutrition' }
   },
   {
+    path: '/supplements',
+    name: 'supplements',
+    component: () => import('@/views/SupplementsView.vue'),
+    meta: { title: '补剂提醒' }
+  },
+  {
     path: '/onboarding',
     name: 'onboarding',
     component: () => import('@/views/OnboardingView.vue'),

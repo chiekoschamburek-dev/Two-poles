@@ -87,6 +87,15 @@
         </div>
       </div>
 
+      <RouterLink to="/supplements" class="supplement-shortcut">
+        <span class="ss-ic"><Pill :size="15" /></span>
+        <span class="ss-copy">
+          <strong>补剂提醒</strong>
+          <small>鱼油、肌酸等，按时间提醒</small>
+        </span>
+        <ArrowRight :size="13" />
+      </RouterLink>
+
       <div v-if="records.length" class="latest">
         <span class="micro">最近一条</span>
         <p>{{ latestText }}</p>
@@ -248,7 +257,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowRight, Camera, Utensils } from 'lucide-vue-next'
+import { ArrowRight, Camera, Pill, Utensils } from 'lucide-vue-next'
 import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
 import ShapeState from '@/components/common/ShapeState.vue'
@@ -820,6 +829,36 @@ function weekLabel(iso: string) {
   line-height: 1.65;
   color: var(--color-text-muted);
 }
+
+.supplement-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--pole-nutrition-line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--pole-nutrition-soft), var(--color-card) 150%);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--motion-fast);
+}
+.supplement-shortcut:hover { border-color: var(--pole-nutrition-strong); }
+.ss-ic {
+  width: 27px;
+  height: 27px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--pole-nutrition-line);
+  border-radius: var(--radius-base);
+  background: var(--color-card);
+  color: var(--pole-nutrition-strong);
+}
+.ss-copy { flex: 1; min-width: 0; }
+.ss-copy strong { display: block; font-size: 11px; font-weight: 600; }
+.ss-copy small { display: block; margin-top: 1px; font-size: 9.5px; color: var(--color-text-muted); }
+.supplement-shortcut > svg { flex: none; color: var(--pole-nutrition-strong); }
 
 .inline-actions {
   display: flex;

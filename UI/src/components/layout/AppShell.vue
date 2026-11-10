@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from './TopBar.vue'
 import SidebarNav from './SidebarNav.vue'
@@ -30,6 +30,7 @@ import PlanDraftDialog from '../common/PlanDraftDialog.vue'
 import WellnessDock from '@/components/wellness/WellnessDock.vue'
 import { useAppStore } from '@/stores/app'
 import { useWellnessDock } from '@/composables/useWellnessDock'
+import { startSupplementScheduler } from '@/composables/useSupplementReminders'
 import { resetBodyScroll } from '@/services/scrollLock'
 
 const mobileOpen = ref(false)
@@ -46,10 +47,20 @@ watch(() => route.fullPath, () => {
   if (!wellnessModalOpen.value) resetBodyScroll()
 })
 
+let stopSupplements: (() => void) | null = null
+
 onMounted(() => {
   store.init()
   // 放在 store.init() 之后：弹窗里的卡片能读到持久化的内容
   initWellnessDock()
+  stopSupplements = startSupplementScheduler(({ title, message }) => {
+    // 页面在前台时用站内 Toast；切到后台时由 Service Worker 补一条系统通知
+    store.showToast({ type: 'info', title, message, duration: 10000 })
+  })
+})
+
+onBeforeUnmount(() => {
+  stopSupplements?.()
 })
 </script>
 
