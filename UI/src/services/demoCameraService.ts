@@ -231,7 +231,7 @@ export function applyPlanOverrides(exercise: DemoExercise, override: PlanExercis
 
 /** 已有计划规格优先。资料没有可用时长时，保留原动作并由用户结束该组。 */
 export function guideExercise(base: DemoExercise | undefined, guide: TrainingGuide, item?: PlanItem): DemoExercise {
-  const name = item?.exerciseName ?? base?.name ?? demoExercises[0].name
+  const name = item?.exerciseName ?? base?.name ?? ''
   const type = item?.type ?? base?.type ?? '其他'
   const sets = readInt(item?.plannedSets, 1, 20) ?? base?.sets ?? 1
   const hold = readInt(item?.plannedHoldSeconds, 1, 3600)
@@ -254,13 +254,6 @@ export function guideExercise(base: DemoExercise | undefined, guide: TrainingGui
     targetReps: reps ?? (base?.mode === 'reps' && !distance ? base.repsPerSet : undefined),
     targetDistance: distance
   }
-}
-
-/** 动作选择 chip 的文案：计次 2×8 / 计时 2×30秒 / 计步 20分钟 */
-export function exerciseChipLabel(e: DemoExercise): string {
-  if (e.mode === 'time') return `${e.sets} 组 · ${timedSetLabel(e)}`
-  if (e.mode === 'steps') return `${e.targetMinutes}分钟`
-  return `${e.sets}×${e.repsPerSet}`
 }
 
 export function timedSetLabel(exercise: DemoExercise): string {

@@ -9,33 +9,28 @@
         <p v-if="trainingMode && trainingItems.length > 1" class="queue-progress">
           第 {{ itemIndex + 1 }} / {{ trainingItems.length }} 项<template v-if="nextItem && !finished"> · 下一项 {{ nextItem.exerciseName }}</template>
         </p>
-        <div v-if="!planDate && !trainingMode" class="exercise-switch" aria-label="选择动作">
-          <button
-            v-for="opt in demoExercises"
-            :key="opt.name"
-            class="chip"
-            :class="{ active: opt.name === exercise.name }"
-            @click="selectExercise(opt.name)"
-          >{{ opt.name }} · {{ opt.name === exercise.name ? exerciseChipLabel(exercise) : exerciseChipLabel(opt) }}</button>
-        </div>
       </div>
       <BaseButton variant="secondary" :icon="X" @click="leave">结束</BaseButton>
     </div>
 
     <BaseCard v-if="!trainingMode" class="guide-picker">
-      <template v-if="!planDate || plannedItems.length">
-        <h2>{{ planDate ? `${planDate} 的跟练` : exercise.name }}</h2>
-        <ol v-if="planDate" class="guide-queue">
-          <li v-for="item in plannedItems" :key="item.id">{{ item.exerciseName }}</li>
-        </ol>
-        <div class="guide-actions">
-          <BaseButton :icon="Camera" :disabled="!store.privacy.cameraEnabled" @click="startTraining('camera')">摄像头跟练</BaseButton>
-          <BaseButton variant="secondary" :icon="Play" @click="startTraining('timer')">计时与语音</BaseButton>
-        </div>
+      <h2>{{ planDate }} 的训练计划</h2>
+      <ol v-if="plannedItems.length" class="guide-queue">
+        <li v-for="item in plannedItems" :key="item.id">
+          <strong>{{ item.exerciseName }}</strong>
+          <span v-if="planItemSpec(item)"> · {{ planItemSpec(item) }}</span>
+          <span v-if="item.completed"> · 已完成</span>
+        </li>
+      </ol>
+      <div class="guide-actions">
+        <BaseButton :icon="Camera" :disabled="pendingItems.length > 0 && !store.privacy.cameraEnabled" @click="startTraining('camera')">摄像头跟练</BaseButton>
+        <BaseButton variant="secondary" :icon="Play" @click="startTraining('timer')">计时与语音</BaseButton>
+      </div>
+      <p v-if="!pendingItems.length" role="status">{{ emptyStartAttempted ? emptyPlanMessage : emptyPlanStatus }}</p>
+      <template v-else>
         <p>摄像头跟练支持的动作会自动计数。计时与语音会按计划时长推进，没有可用时长的动作可手动结束。</p>
         <p v-if="!store.privacy.cameraEnabled">摄像头已在「设置 → 隐私」关闭。</p>
       </template>
-      <p v-else>所选日期没有待跟练的项目。</p>
     </BaseCard>
 
     <template v-else>
@@ -302,14 +297,10 @@ import { findExercise } from '@/services/exercises'
 import type { ExercisePhase, PlanItem } from '@/types/domain'
 import { toISODate } from '@/utils/time'
 import {
-  applyPlanOverrides,
   demoExercises,
-  exerciseChipLabel,
-  getDemoExercise,
   getPhaseText,
   getConfidenceLevel,
   guideExercise,
-  readPlanOverrides,
   summarizeSession,
   timedSetLabel
 } from '@/services/demoCameraService'
@@ -319,23 +310,37 @@ const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 
-const planOverride = readPlanOverrides(route.query as Record<string, unknown>)
-const planDate = computed(() => typeof route.query.planDate === 'string' ? route.query.planDate : '')
-const plannedItems = computed(() => {
+const planDate = computed(() => {
+  const requested = route.query.planDate
+  return typeof requested === 'string' && requested ? requested : toISODate(new Date())
+})
+const dayItems = computed(() => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(planDate.value)) return []
   const date = new Date(`${planDate.value}T00:00:00`)
   if (toISODate(date) !== planDate.value) return []
   const plan = store.weekPlan(date)
-  return plan?.items.filter(item => item.date === planDate.value && !item.completed
-    && (!route.query.planItemId || item.id === route.query.planItemId)) ?? []
+  return plan?.items.filter(item => item.date === planDate.value) ?? []
 })
+const plannedItems = computed(() => {
+  const itemId = route.query.planItemId
+  return itemId ? dayItems.value.filter(item => item.id === itemId) : dayItems.value
+})
+const pendingItems = computed(() => plannedItems.value.filter(item => !item.completed))
+const emptyStartAttempted = ref(false)
+const emptyPlanStatus = computed(() => {
+  if (!dayItems.value.length) return '当天还没有计划。'
+  if (!plannedItems.value.length) return '这项训练已不在当天计划中。'
+  return route.query.planItemId ? '这项训练已完成。' : '当天的计划已全部完成。'
+})
+const emptyPlanMessage = computed(() => dayItems.value.length
+  ? emptyPlanStatus.value
+  : '当天还没有计划。可以先到计划页录入训练安排。')
 const trainingMode = ref<TrainingGuide | null>(null)
 const trainingItems = shallowRef<PlanItem[]>([])
 const itemIndex = ref(0)
 const nextItem = computed(() => trainingItems.value[itemIndex.value + 1])
-const standaloneExercise = shallowRef(applyPlanOverrides(getDemoExercise(route.query.exercise as string), planOverride))
-const activePlanItemId = ref<string | undefined>()
-const exercise = ref(standaloneExercise.value)
+const idleExercise = guideExercise(undefined, 'timer')
+const exercise = shallowRef(idleExercise)
 const setIndex = ref(1)
 const reps = ref(0)
 const displayReps = ref(0)
@@ -866,7 +871,7 @@ function record() {
   const session = store.addSession(
     summarizeSession({
       exercise: exercise.value,
-      planItemId: activePlanItemId.value,
+      planItemId: trainingItems.value[itemIndex.value]?.id,
       setsCompleted: closedSets.value,
       repsBySet: repsBySet.value,
       steps: isStepsMode.value ? stepCounter.steps.value : undefined,
@@ -924,26 +929,34 @@ function togglePause() {
   speak(paused.value ? '已暂停' : '继续训练')
 }
 
-function selectExercise(name: string) {
-  standaloneExercise.value = getDemoExercise(name)
-  exercise.value = standaloneExercise.value
-  router.replace({ path: '/execution', query: { exercise: name } })
+function planItemSpec(item: PlanItem): string {
+  const minutes = item.plannedTargetMinutes ?? item.plannedDuration
+  return [
+    item.plannedSets && `${item.plannedSets} 组`,
+    item.plannedReps && `每组 ${item.plannedReps} 次`,
+    item.plannedHoldSeconds && `每组 ${item.plannedHoldSeconds} 秒`,
+    item.plannedDistance && `${item.plannedDistance} 米`,
+    minutes && `${minutes} 分钟`
+  ].filter(Boolean).join(' · ')
 }
 
 function configureExercise() {
   const guide = trainingMode.value
-  if (!guide) return
   const item = trainingItems.value[itemIndex.value]
-  activePlanItemId.value = item?.id ?? readPlanOverrides(route.query).planItemId
-  const base = item ? demoExercises.find(candidate => candidate.name === item.exerciseName) : standaloneExercise.value
-  exercise.value = !item && guide === 'camera' && base ? base : guideExercise(base, guide, item)
+  if (!guide || !item) return
+  const base = demoExercises.find(candidate => candidate.name === item.exerciseName)
+  exercise.value = guideExercise(base, guide, item)
   holdLeft.value = exercise.value.holdSeconds ?? 0
 }
 
 function startTraining(guide: TrainingGuide) {
-  if (trainingMode.value || (planDate.value && !plannedItems.value.length)) return
+  if (trainingMode.value) return
+  if (!pendingItems.value.length) {
+    emptyStartAttempted.value = true
+    return
+  }
   if (guide === 'camera' && !store.privacy.cameraEnabled) return
-  trainingItems.value = plannedItems.value.map(item => ({ ...item }))
+  trainingItems.value = pendingItems.value.map(item => ({ ...item }))
   itemIndex.value = 0
   recordedCount.value = 0
   trainingMode.value = guide
@@ -965,7 +978,8 @@ function showModePicker() {
   stopCamera()
   stopSpeech()
   trainingMode.value = null
-  exercise.value = standaloneExercise.value
+  exercise.value = idleExercise
+  emptyStartAttempted.value = false
   finished.value = false
 }
 
@@ -1054,7 +1068,6 @@ onUnmounted(() => {
 .guide-actions{display:flex;gap:10px;flex-wrap:wrap}
 .guide-picker p,.voice-status{font-size:13px;color:var(--color-text-muted);line-height:1.6}
 .voice-status{margin:0 0 12px}
-.exercise-switch{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);transition:all var(--motion-fast)}
 .chip.active{background:var(--pole-movement);color:var(--color-on-accent)}
 .chip:hover:enabled{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
