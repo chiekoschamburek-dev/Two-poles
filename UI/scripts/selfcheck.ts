@@ -233,6 +233,10 @@ ok('调整原因被记录', plan.reason.includes('测试批量改') && plan.reas
 const manualPlan = store.addManualItem(plan.id, { date: '2026-10-13', exerciseName: '球场往返跑', minutes: 25 })
 ok('手工录入可用且不依赖自动推荐', !!manualPlan && plan.items.some(i => i.exerciseName === '球场往返跑'))
 
+store.setPlanCompletionStyle('strike')
+ok('完成样式偏好落盘', store.planCompletionStyle === 'strike'
+  && JSON.parse(mem.get(STORAGE_KEYS.meta) || '{}').planCompletionStyle === 'strike')
+
 ok('计划不再带模式字段', store.plans.every(pl => !('mode' in pl)))
 ok('同一周只保留一份计划', store.plans.length === 1)
 ok('统一模板周五有安排', isPlanDay(iso(4), p({})))

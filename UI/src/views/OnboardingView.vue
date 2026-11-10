@@ -390,9 +390,7 @@ function saveProfile() {
     gymRecords: [...gymRecords.value]
   })
   savedDraft = JSON.stringify(draft)
-  // 档案条件变了：先让模型问清关键信息，再明确重算本周计划
-  if (store.planLlmReady) void store.generatePlanQuestions()
-  if (wasEditing) store.regenerateWeekPlan(new Date())
+  // 计划生成与重算统一由计划页触发；保存档案只更新档案
   store.showToast({
     type: 'success',
     title: wasEditing ? '档案已更新' : '档案已建好',

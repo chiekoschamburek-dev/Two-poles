@@ -1,5 +1,25 @@
 <template>
   <div class="poles">
+    <template v-if="isPhone">
+      <MobilePolesHome v-if="!phonePole" @open-bridge="bridgeOpen = true" />
+      <section v-else class="phone-pole" data-pole-swipe :aria-label="phonePole === 'movement' ? '运动页' : '饮食页'">
+        <MovementPole
+          v-if="phonePole === 'movement'"
+          :nutrition="todayFacts"
+          @focus-other="goPole('nutrition')"
+          @open-bridge="bridgeOpen = true"
+        />
+        <NutritionPole
+          v-else
+          :movement="todayFacts"
+          :movement-week-days="weekFacts.sessionDays"
+          @focus-other="goPole('movement')"
+          @open-bridge="bridgeOpen = true"
+        />
+      </section>
+    </template>
+
+    <template v-else>
     <header class="poles-head">
       <div class="poles-title">
         <PoleMark pole="both" :size="30" />
@@ -81,6 +101,7 @@
       @open="bridgeOpen = true"
       @action="onSignal"
     />
+    </template>
 
     <BridgeDialog
       :open="bridgeOpen"
@@ -96,14 +117,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ArrowRight, ChevronsUpDown } from 'lucide-vue-next'
 import MovementPole from '@/components/poles/MovementPole.vue'
 import NutritionPole from '@/components/poles/NutritionPole.vue'
 import BridgeBand from '@/components/poles/BridgeBand.vue'
 import BridgeDialog from '@/components/poles/BridgeDialog.vue'
+import MobilePolesHome from '@/components/poles/MobilePolesHome.vue'
 import PoleMark from '@/components/poles/PoleMark.vue'
+import { useWellnessDock } from '@/composables/useWellnessDock'
+import { usePoleSwipe } from '@/composables/usePoleSwipe'
 import { useAppStore } from '@/stores/app'
 import {
   buildBridgeSignals,
@@ -117,6 +141,7 @@ import { shortDate, toISODate } from '@/utils/time'
 type Pole = 'movement' | 'nutrition'
 
 const store = useAppStore()
+const route = useRoute()
 const router = useRouter()
 const now = new Date()
 const today = toISODate(now)
@@ -130,11 +155,19 @@ const active = ref<Pole>('movement')
 const linked = ref<Pole | null>(null)
 const bridgeOpen = ref(false)
 
+const isPhone = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches)
 const isDeck = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches)
 const movementSheet = ref<HTMLElement | null>(null)
 const nutritionSheet = ref<HTMLElement | null>(null)
 let mediaQuery: MediaQueryList | null = null
+let phoneQuery: MediaQueryList | null = null
 let linkTimer: number | undefined
+
+const phonePole = computed<Pole | null>(() => {
+  if (!isPhone.value) return null
+  const pole = route.meta.pole
+  return pole === 'movement' || pole === 'nutrition' ? pole : null
+})
 
 const otherPole = computed<Pole>(() => (active.value === 'movement' ? 'nutrition' : 'movement'))
 const otherTitle = computed(() => (otherPole.value === 'movement' ? '运动' : '饮食'))
@@ -188,10 +221,15 @@ function toggle() {
   focusPole(otherPole.value)
 }
 
+function goPole(pole: Pole) {
+  router.push(pole === 'movement' ? '/movement' : '/nutrition')
+}
+
 function onSignal(target: BridgeTarget) {
   bridgeOpen.value = false
   if (target === 'movement' || target === 'nutrition') {
-    focusPole(target)
+    if (isPhone.value) goPole(target)
+    else focusPole(target)
     return
   }
   const path = target === 'plan'
@@ -204,18 +242,53 @@ function onSignal(target: BridgeTarget) {
   router.push(path)
 }
 
-function syncDeck() {
+const { modalOpen: wellnessModalOpen, cardOpen: wellnessCardOpen } = useWellnessDock()
+let swipeLocked = false
+
+usePoleSwipe({
+  enabled: () => isPhone.value
+    && !!phonePole.value
+    && !bridgeOpen.value
+    && !wellnessModalOpen.value
+    && !wellnessCardOpen.value,
+  onSwipe: () => {
+    if (!phonePole.value || swipeLocked) return
+    swipeLocked = true
+    goPole(phonePole.value === 'movement' ? 'nutrition' : 'movement')
+    window.setTimeout(() => { swipeLocked = false }, 360)
+  }
+})
+
+/** 桌面/平板从侧栏「运动 / 饮食」组头进入：聚焦对应一栏 */
+function handleFocusQuery() {
+  const focus = route.query.focus
+  if (focus !== 'movement' && focus !== 'nutrition') return
+  if (isPhone.value) {
+    router.replace(`/${focus}`)
+    return
+  }
+  nextTick(() => focusPole(focus))
+  router.replace({ path: '/', query: {} })
+}
+
+watch(() => route.query.focus, handleFocusQuery, { immediate: true })
+
+function syncView() {
   isDeck.value = mediaQuery?.matches ?? false
+  isPhone.value = phoneQuery?.matches ?? false
 }
 
 onMounted(() => {
   mediaQuery = window.matchMedia('(max-width: 1023px)')
-  syncDeck()
-  mediaQuery.addEventListener('change', syncDeck)
+  phoneQuery = window.matchMedia('(max-width: 767px)')
+  syncView()
+  mediaQuery.addEventListener('change', syncView)
+  phoneQuery.addEventListener('change', syncView)
 })
 
 onBeforeUnmount(() => {
-  mediaQuery?.removeEventListener('change', syncDeck)
+  mediaQuery?.removeEventListener('change', syncView)
+  phoneQuery?.removeEventListener('change', syncView)
   if (linkTimer) window.clearTimeout(linkTimer)
 })
 </script>
@@ -428,6 +501,19 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767px) {
+  .poles { gap: 0; }
+  .phone-pole {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    /* 横向手势交给 usePoleSwipe，纵向滚动仍由浏览器负责 */
+    touch-action: pan-y;
+    overscroll-behavior-x: contain;
+  }
+  .phone-pole > * {
+    flex: 1;
+    min-height: 0;
+  }
   .peek {
     border-radius: var(--radius-lg);
   }

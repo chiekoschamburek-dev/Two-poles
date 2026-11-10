@@ -464,6 +464,9 @@ export interface SpeechSettings {
 /** 三态而不是开关：调研指出"半适配深色"和"强制深色"都是高频差评，默认跟随系统 */
 export type ThemePreference = 'system' | 'light' | 'dark'
 
+/** 计划项标记完成后的整行显示方式 */
+export type PlanCompletionStyle = 'highlight' | 'strike'
+
 // === Toast Notifications ===
 
 export interface Toast {

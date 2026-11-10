@@ -176,11 +176,16 @@
           <Lock v-if="planForSelected.some(i => i.locked)" :size="17" class="lock" />
         </div>
 
-        <div v-for="item in planForSelected" :key="item.id" class="plan-item">
+        <div
+          v-for="item in planForSelected"
+          :key="item.id"
+          class="plan-item"
+          :class="item.completed ? `done done-${store.planCompletionStyle}` : ''"
+        >
           <div class="item-icon"><component :is="iconFor(item.type)" :size="17" /></div>
           <div class="item-info">
             <strong>{{ item.exerciseName }}</strong>
-            <small>{{ item.note }}<em v-if="item.locked"> · 已锁定</em><em v-if="item.completed"> · 已完成</em></small>
+            <small>{{ item.note }}<em v-if="item.locked"> · 已锁定</em><span v-if="item.completed" class="visually-hidden"> · 已完成</span></small>
           </div>
           <span class="spec">{{ planSpec(item) }}<template v-if="plan?.source !== 'image' && item.plannedDuration !== undefined"> · {{ item.plannedDuration }} min</template></span>
           <div class="item-actions">
@@ -731,8 +736,17 @@ watch(
 .detail-hero h3{font-size:14.5px;font-weight:600}.detail-hero p{font-size:11.5px;color:var(--color-text-muted);margin:3px 0 0}
 .detail-hero .lock{margin-left:auto;color:var(--color-text-muted)}
 /* 计划项：账本行，hover 只改底色，不做位移和图标旋转 */
-.plan-item{display:flex;align-items:center;gap:11px;padding:11px 20px;border-bottom:1px solid var(--hair-soft);transition:background var(--motion-fast);flex-wrap:wrap}
+.plan-item{display:flex;align-items:center;gap:11px;padding:11px 20px;border-bottom:1px solid var(--hair-soft);transition:background var(--motion-fast),box-shadow var(--motion-fast),opacity var(--motion-fast);flex-wrap:wrap}
 .plan-item:hover{background:var(--color-neutral-soft)}
+.plan-item.done-highlight{background:var(--pole-movement-soft);box-shadow:inset 3px 0 0 var(--pole-movement)}
+.plan-item.done-highlight:hover{background:var(--pole-movement-soft)}
+.plan-item.done-highlight .item-icon{background:var(--pole-movement);color:var(--color-on-accent)}
+.plan-item.done-highlight .item-info strong{color:var(--pole-movement-strong)}
+.plan-item.done-strike .item-icon{opacity:.45}
+.plan-item.done-strike .item-info strong,
+.plan-item.done-strike .item-info small,
+.plan-item.done-strike>span.spec{color:var(--color-text-muted);text-decoration:line-through;text-decoration-thickness:1px}
+.plan-item.done-strike .item-info strong{font-weight:500}
 .item-icon{width:28px;height:28px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);color:var(--color-text-secondary);display:grid;place-items:center;flex:none}
 .item-info{flex:1;min-width:150px}.item-info strong,.item-info small{display:block}
 .item-info strong{font-size:13.5px;font-weight:600;color:var(--color-ink)}.item-info small{font-size:11.5px;color:var(--color-text-muted);margin-top:2px;line-height:1.5}

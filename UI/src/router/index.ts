@@ -9,6 +9,19 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '今日两仪', workspace: true }
   },
   {
+    path: '/movement',
+    name: 'movement',
+    component: () => import('@/views/TwoPolesView.vue'),
+    // 手机单极页；桌面访问仍渲染双极同屏
+    meta: { title: '运动', workspace: true, pole: 'movement' }
+  },
+  {
+    path: '/nutrition',
+    name: 'nutrition',
+    component: () => import('@/views/TwoPolesView.vue'),
+    meta: { title: '饮食', workspace: true, pole: 'nutrition' }
+  },
+  {
     path: '/onboarding',
     name: 'onboarding',
     component: () => import('@/views/OnboardingView.vue'),

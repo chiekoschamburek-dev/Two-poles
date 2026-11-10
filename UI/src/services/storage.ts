@@ -3,6 +3,7 @@ import type {
   Meal,
   MotionAnalysis,
   Plan,
+  PlanCompletionStyle,
   PrivacySettings,
   SpeechSettings,
   ThemePreference,
@@ -18,6 +19,7 @@ export interface StoredState {
   speech?: SpeechSettings
   collapsed?: string[]
   theme?: ThemePreference
+  planCompletionStyle?: PlanCompletionStyle
   plans?: Plan[]
   planHistory?: Plan[]
   unitGrams?: Record<string, number>
@@ -189,6 +191,7 @@ export function loadStoredState(): StoredState {
   return unifyLegacyModes({
     collapsed: Array.isArray(meta.collapsed) ? meta.collapsed as string[] : [],
     theme: (meta.theme === 'light' || meta.theme === 'dark' || meta.theme === 'system') ? meta.theme : 'system',
+    planCompletionStyle: meta.planCompletionStyle === 'strike' ? 'strike' : 'highlight',
     profile,
     sessions: readJson<TrainingSession[]>(KEYS.sessions, []),
     meals: readJson<Meal[]>(KEYS.meals, []),
@@ -206,7 +209,8 @@ export function saveStoredState(state: StoredState, options: { removeLegacy?: bo
   const failed: string[] = []
   const meta = {
     collapsed: state.collapsed ?? [],
-    theme: state.theme ?? 'system'
+    theme: state.theme ?? 'system',
+    planCompletionStyle: state.planCompletionStyle === 'strike' ? 'strike' : 'highlight'
   }
   const writes: [string, unknown][] = [
     [KEYS.meta, meta],

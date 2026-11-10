@@ -1,89 +1,116 @@
 <template>
   <div class="page">
-    <header class="analysis-bar">
-      <div class="bar-copy">
-        <span class="micro">ANALYSIS</span>
-        <h1>动作分析</h1>
-        <p>上传本地视频，在端侧逐帧分析动作。视频不上传，分析完成后即丢弃。</p>
+    <header class="an-hero">
+      <div class="an-hero-top">
+        <div class="an-id">
+          <PoleMark pole="movement" :size="30" />
+          <div>
+            <span class="micro move">左极 · MOVEMENT</span>
+            <h1>动作分析</h1>
+          </div>
+        </div>
+        <span class="an-chip"><i aria-hidden="true"></i>端侧处理</span>
+        <StatusBadge v-if="step === 'result' && precheckResult" :variant="precheckResult.verdict === 'degraded' ? 'warning' : 'success'">
+          {{ precheckResult.verdict === 'degraded' ? '低置信度结果' : '分析完成' }}
+        </StatusBadge>
       </div>
-      <StatusBadge v-if="step === 'result' && precheckResult" :variant="precheckResult.verdict === 'degraded' ? 'warning' : 'success'">
-        {{ precheckResult.verdict === 'degraded' ? '低置信度结果' : '分析完成' }}
-      </StatusBadge>
+      <span class="an-kicker">ANALYSIS · 训练后复盘</span>
+      <h2 class="an-lead">逐帧看 <em>动作</em><span>，不评分</span></h2>
+      <p class="an-sub">从相册选视频，本机逐帧分析；输出问题清单与关键帧。</p>
     </header>
 
-    <BaseCard v-if="step === 'pick' || step === 'error'" class="panel">
-      <h2>选择动作与视频</h2>
-      <div class="action-row" role="radiogroup" aria-label="分析动作">
-        <button
-          v-for="item in actions"
-          :key="item.id"
-          type="button"
-          role="radio"
-          :aria-checked="action === item.id"
-          :class="{ on: action === item.id }"
-          @click="action = item.id"
-        >
-          <Video :size="16" />
-          <span>{{ item.label }}</span>
-          <small>{{ item.hint }}</small>
-        </button>
-      </div>
-
-      <div class="upload-box">
-        <Upload :size="20" />
-        <div class="upload-copy">
-          <strong>{{ fileName || '从相册选择视频' }}</strong>
-          <span>mp4 / webm / mov · 1–60 秒 · ≤ 200MB</span>
+    <template v-if="step === 'pick' || step === 'error'">
+      <section class="an-card">
+        <div class="an-card-head">
+          <h2>选择动作与视频</h2>
+          <span>本地 · 不上传</span>
         </div>
-        <BaseButton size="sm" variant="secondary" :disabled="busy" @click="pickFile">
-          {{ fileName ? '重新选择' : '选择视频' }}
-        </BaseButton>
-        <input
-          ref="fileInput"
-          class="sr-only"
-          type="file"
-          accept="video/mp4,video/webm,video/quicktime,.mov"
-          :disabled="busy"
-          @change="onFileChange"
-        />
-      </div>
+        <div class="an-actions" role="radiogroup" aria-label="分析动作">
+          <button
+            v-for="item in actions"
+            :key="item.id"
+            type="button"
+            role="radio"
+            :aria-checked="action === item.id"
+            :class="{ on: action === item.id }"
+            @click="action = item.id"
+          >
+            <Video :size="14" />
+            <span>{{ item.label }}</span>
+            <small>{{ item.hint }}</small>
+          </button>
+        </div>
 
-      <div v-if="busy" class="inline-progress" aria-live="polite">
-        <span>{{ statusText || '正在检查视频……' }}</span>
-        <div class="bar"><i :style="{ width: `${Math.round(progress * 100)}%` }"></i></div>
-      </div>
-      <p v-if="errorMessage" class="error-line" role="alert">{{ errorMessage }}</p>
-      <div v-if="selectedFile" class="actions">
-        <BaseButton v-if="errorMessage" size="sm" variant="secondary" :disabled="busy" @click="retryFile">重试当前视频</BaseButton>
-        <BaseButton v-if="errorMessage" size="sm" variant="ghost" :disabled="busy" @click="resetAll">清除</BaseButton>
-      </div>
+        <div class="an-upload">
+          <span class="an-upload-ic"><Upload :size="15" /></span>
+          <div class="an-upload-copy">
+            <strong>{{ fileName || '从相册选择视频' }}</strong>
+            <span>mp4 / webm / mov · 1–60 秒 · ≤ 200MB</span>
+          </div>
+          <button class="an-pick" type="button" :disabled="busy" @click="pickFile">
+            {{ fileName ? '重新选择' : '选择视频' }}
+          </button>
+          <input
+            ref="fileInput"
+            class="sr-only"
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime,.mov"
+            :disabled="busy"
+            @change="onFileChange"
+          />
+        </div>
 
-      <details class="guide" open>
-        <summary>拍摄要求</summary>
-        <ul>
-          <li>手机固定，与髋同高，从正侧方或正前方拍全身（头顶到脚底）。</li>
-          <li>深蹲、硬拉拍 3–5 次完整动作；跑姿至少 5 个步态周期，优先跑步机侧拍。</li>
-          <li>距离 3–5 米，光线均匀，避免逆光和大面积遮挡。</li>
-          <li>分析只在本机进行；视频不会上传，也不会保存。</li>
-        </ul>
-      </details>
+        <div v-if="busy" class="an-progress" aria-live="polite">
+          <span>{{ statusText || '正在检查视频……' }}</span>
+          <div class="bar"><i :style="{ width: `${Math.round(progress * 100)}%` }"></i></div>
+        </div>
+        <p v-if="errorMessage" class="error-line" role="alert">{{ errorMessage }}</p>
+        <div v-if="selectedFile" class="an-inline-actions">
+          <BaseButton v-if="errorMessage" size="sm" variant="secondary" :disabled="busy" @click="retryFile">重试当前视频</BaseButton>
+          <BaseButton v-if="errorMessage" size="sm" variant="ghost" :disabled="busy" @click="resetAll">清除</BaseButton>
+        </div>
 
-      <template v-if="store.analyses.length">
-        <h2 class="history-title">历史分析</h2>
-        <ul class="history">
+        <details class="an-guide">
+          <summary>
+            <span>拍摄要求</span>
+            <small>固定手机、全身入镜；深蹲 / 硬拉 3–5 次，跑姿至少 5 个步态周期。</small>
+          </summary>
+          <ul>
+            <li>手机固定，与髋同高，从正侧方或正前方拍全身（头顶到脚底）。</li>
+            <li>深蹲、硬拉拍 3–5 次完整动作；跑姿至少 5 个步态周期，优先跑步机侧拍。</li>
+            <li>距离 3–5 米，光线均匀，避免逆光和大面积遮挡。</li>
+            <li>分析只在本机进行；视频不会上传，也不会保存。</li>
+          </ul>
+        </details>
+      </section>
+
+      <section class="an-card">
+        <div class="an-card-head">
+          <h2>历史分析</h2>
+          <span>{{ store.analyses.length ? `${store.analyses.length} 条` : '暂无记录' }}</span>
+        </div>
+        <ul v-if="store.analyses.length" class="an-history">
           <li v-for="record in store.analyses" :key="record.id">
-            <RouterLink :to="`/analysis/${record.id}`" class="history-link">
-              <span class="history-main">
+            <RouterLink :to="`/analysis/${record.id}`" class="an-history-link">
+              <span class="an-h-ic"><Video :size="14" /></span>
+              <span class="an-h-main">
                 <strong>{{ record.exerciseName }} · {{ viewLabel(record.view) }}视角</strong>
-                <small>{{ record.date }} · {{ record.findings.length }} 项关注</small>
+                <small>{{ record.date.slice(5) }} · {{ record.findings.length }} 项关注</small>
               </span>
               <StatusBadge v-if="record.status === 'low-confidence'" variant="warning">低置信度</StatusBadge>
+              <ChevronRight :size="13" class="an-h-chev" />
             </RouterLink>
           </li>
         </ul>
-      </template>
-      <p v-else class="muted small history-empty">还没有分析记录。</p>
-    </BaseCard>
+        <p v-else class="an-empty">还没有分析记录。</p>
+      </section>
+
+      <section class="an-flow" aria-label="分析流程">
+        <div><span class="num">01</span><b>可分析性检查</b><small>全身入镜 / 视角 / 动作匹配</small></div>
+        <div><span class="num">02</span><b>端侧逐帧识别</b><small>视频不上传，分析后丢弃</small></div>
+        <div><span class="num">03</span><b>问题清单</b><small>关键帧 · 阈值 · 出处</small></div>
+      </section>
+    </template>
 
     <template v-else-if="step === 'prechecked' && precheckResult">
       <BaseCard class="panel">
@@ -191,10 +218,11 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
-import { Play, Upload, Video } from 'lucide-vue-next'
+import { ChevronRight, Play, Upload, Video } from 'lucide-vue-next'
 import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import PoleMark from '@/components/poles/PoleMark.vue'
 import { useAppStore } from '@/stores/app'
 import { useVideoAnalysis, VideoAnalysisError } from '@/composables/useVideoAnalysis'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
@@ -417,31 +445,116 @@ onUnmounted(revokeKeyframeUrls)
 </script>
 
 <style scoped>
-.page { max-width: var(--content-max-width); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
-.analysis-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 16px 0 12px; border-bottom: 1px solid var(--color-divider); }
-.bar-copy { min-width: 0; }
-.bar-copy h1 { margin: 5px 0 0; font-size: 24px; letter-spacing: -0.025em; }
-.bar-copy p { margin: 5px 0 0; font-size: 12px; color: var(--color-text-muted); line-height: 1.65; }
-.micro { font-family: var(--font-num); font-size: 10px; font-weight: 700; letter-spacing: 0.18em; color: var(--color-text-muted); }
-.panel { padding: 18px 20px; }
-.panel h2 { margin: 0 0 12px; font-size: 16px; }
-.muted { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.7; }
-.action-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
-.action-row button { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 8px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-card); color: var(--color-text-secondary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
-.action-row button small { font-weight: 500; color: var(--color-text-muted); }
-.action-row button.on { border-color: var(--color-accent-line); background: var(--color-accent-soft); color: var(--color-ink); }
-.upload-box { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px dashed var(--hair-strong); border-radius: var(--radius-lg); background: var(--color-neutral-soft); }
-.upload-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.upload-copy strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upload-copy span { font-size: 11px; color: var(--color-text-muted); }
+.page { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+
+/* 页头：运动极身份 + 端侧处理 */
+.an-hero { padding: 2px 2px 1px; }
+.an-hero-top { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.an-id { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
+.an-id :deep(svg) { width: 30px; height: 30px; flex: none; overflow: visible; }
+.micro { display: block; font-family: var(--font-num); font-size: 8.5px; font-weight: 600; letter-spacing: .14em; color: var(--color-text-muted); }
+.micro.move { color: var(--pole-movement-strong); }
+.an-id h1 { margin: 2px 0 0; font-size: 26px; line-height: 1.1; letter-spacing: -.03em; }
+.an-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 23px;
+  padding: 0 8px;
+  flex: none;
+  border: 1px solid var(--pole-movement-line);
+  border-radius: var(--radius-sm);
+  background: var(--pole-movement-soft);
+  font-family: var(--font-num);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--pole-movement-strong);
+  white-space: nowrap;
+}
+.an-chip i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.an-kicker { display: block; margin-top: 12px; font-family: var(--font-num); font-size: 8.5px; font-weight: 600; letter-spacing: .16em; color: var(--color-text-muted); }
+.an-lead { margin: 5px 0 0; font-size: 26px; line-height: 1.16; letter-spacing: -.035em; font-weight: 600; }
+.an-lead em { font-style: normal; color: var(--pole-movement); letter-spacing: -.04em; }
+.an-lead span { font-family: var(--font); font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--color-text-muted); }
+.an-sub { margin: 6px 0 0; font-size: 11px; line-height: 1.65; color: var(--color-text-secondary); }
+
+/* 选择动作、上传、历史 */
+.an-card {
+  padding: 13px 14px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-card);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+.an-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--color-divider); margin-bottom: 10px; }
+.an-card-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+.an-card-head > span { font-family: var(--font-num); font-size: 8.5px; letter-spacing: .04em; color: var(--color-text-muted); white-space: nowrap; }
+.an-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.an-actions button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 5px;
+  row-gap: 2px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-base);
+  background: #fbfaf7;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+.an-actions button svg { grid-row: 1; width: 14px; height: 14px; color: var(--color-text-muted); }
+.an-actions button span { grid-column: 2; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.an-actions button small { grid-column: 1 / -1; font-size: 8px; line-height: 1.35; color: var(--color-text-muted); }
+.an-actions button.on { border-color: var(--pole-movement-line); background: var(--pole-movement-soft); color: var(--pole-movement-strong); }
+.an-actions button.on svg { color: var(--pole-movement-strong); }
+.an-upload { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding: 9px 10px; border: 1px dashed var(--hair-strong); border-radius: var(--radius-lg); background: #fbfaf7; }
+.an-upload-ic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: var(--radius-base); background: var(--color-card); border: 1px solid var(--color-border); color: var(--pole-movement-strong); }
+.an-upload-copy { flex: 1; min-width: 0; }
+.an-upload-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; font-weight: 600; }
+.an-upload-copy span { display: block; margin-top: 2px; font-size: 8.5px; color: var(--color-text-muted); }
+.an-pick { flex: none; height: 29px; padding: 0 10px; border: 0; border-radius: var(--radius-base); background: var(--color-ink); color: var(--color-on-accent); font-family: inherit; font-size: 10px; font-weight: 600; cursor: pointer; }
+.an-pick:disabled { opacity: .55; cursor: default; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
-.inline-progress { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--color-text-muted); }
-.bar { height: 8px; border-radius: 999px; background: var(--color-neutral-soft); overflow: hidden; box-shadow: inset 0 0 0 1px var(--color-border); }
+.an-progress { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; font-size: 10px; color: var(--color-text-muted); }
+.bar { height: 6px; border-radius: 999px; background: var(--color-neutral-soft); overflow: hidden; box-shadow: inset 0 0 0 1px var(--color-border); }
 .bar.big { height: 10px; margin: 14px 0; }
 .bar i { display: block; height: 100%; background: var(--color-ink); transition: width var(--motion-fast); }
-.error-line { margin: 12px 0 0; color: var(--color-danger); font-size: 13px; line-height: 1.6; }
-.error-list { margin: 0 0 12px; padding-left: 18px; color: var(--color-danger); font-size: 13px; line-height: 1.8; }
-.guide { margin-top: 14px; font-size: 12.5px; color: var(--color-text-secondary); }
+.error-line { margin: 10px 0 0; color: var(--color-danger); font-size: 11px; line-height: 1.6; }
+.error-list { margin: 0 0 12px; padding-left: 18px; color: var(--color-danger); font-size: 12.5px; line-height: 1.8; }
+.an-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.an-guide { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--color-divider); font-size: 10px; color: var(--color-text-secondary); }
+.an-guide summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; cursor: pointer; list-style: none; }
+.an-guide summary::-webkit-details-marker { display: none; }
+.an-guide summary span { font-weight: 600; color: var(--color-text-secondary); }
+.an-guide summary small { font-size: 8.5px; line-height: 1.5; color: var(--color-text-muted); }
+.an-guide ul { margin: 8px 0 0; padding-left: 16px; line-height: 1.8; color: var(--color-text-muted); }
+.an-history { list-style: none; margin: 0; padding: 0; }
+.an-history li { border-top: 1px solid var(--color-divider); }
+.an-history li:first-child { border-top: 0; }
+.an-history-link { display: flex; align-items: center; gap: 9px; padding: 8px 0; color: inherit; text-decoration: none; }
+.an-history-link:hover .an-h-main strong { color: var(--pole-movement-strong); }
+.an-h-ic { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border: 1px solid var(--pole-movement-line); border-radius: var(--radius-base); background: var(--pole-movement-soft); color: var(--pole-movement-strong); }
+.an-h-main { flex: 1; min-width: 0; }
+.an-h-main strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; font-weight: 600; }
+.an-h-main small { display: block; margin-top: 1px; font-size: 8.5px; color: var(--color-text-muted); }
+.an-h-chev { flex: none; color: var(--color-text-muted); }
+.an-empty { margin: 2px 0 0; font-size: 10px; color: var(--color-text-muted); }
+.an-flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 10px 2px 2px; border-top: 1px dashed var(--color-border); }
+.an-flow > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.an-flow .num { font-family: var(--font-num); font-size: 8px; letter-spacing: .08em; color: var(--pole-movement-strong); }
+.an-flow b { font-size: 9.5px; font-weight: 600; color: var(--color-text-secondary); }
+.an-flow small { font-size: 8px; line-height: 1.5; color: var(--color-text-muted); }
+
+/* 处理中 / 结果 / 失败沿用同一张卡片语言 */
+.panel { padding: 15px 16px; border-radius: var(--radius-xl); }
+.panel h2 { margin: 0 0 12px; font-size: 16px; }
+.muted { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.7; }
+.guide { margin-top: 14px; font-size: 12px; color: var(--color-text-secondary); }
 .guide summary { cursor: pointer; font-weight: 600; }
 .guide ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.8; color: var(--color-text-muted); }
 .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin: 0 0 12px; }
@@ -451,7 +564,7 @@ onUnmounted(revokeKeyframeUrls)
 .warn-panel { border-color: var(--color-caution); background: var(--color-caution-soft); }
 .warn-list { margin: 8px 0 0; padding-left: 18px; color: var(--color-caution); font-size: 12.5px; line-height: 1.8; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-.result-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 6px 2px 0; }
+.result-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 2px 2px 0; }
 .result-head h2 { margin: 4px 0 0; font-size: 20px; }
 .result-head p { margin: 4px 0 0; font-size: 12px; color: var(--color-text-muted); }
 .finding { padding: 14px 0; border-top: 1px solid var(--color-divider); }
@@ -471,20 +584,19 @@ onUnmounted(revokeKeyframeUrls)
 .metrics small { font-size: 11px; font-weight: 500; color: var(--color-text-muted); }
 .disclaimer { margin: 2px 2px 0; font-size: 11.5px; line-height: 1.7; color: var(--color-text-muted); }
 .keyframe { display: block; width: min(100%, 360px); margin: 8px 0 10px; border-radius: var(--radius-md); border: 1px solid var(--color-border); }
-.history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.history-title { margin-top: 18px !important; }
-.history-empty { margin-top: 14px; }
-.small { font-size: 11.5px; }
-.history li { border-top: 1px solid var(--color-divider); }
-.history li:first-child { border-top: none; }
-.history-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 4px; text-decoration: none; color: inherit; }
-.history-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.history-main strong { font-size: 13.5px; }
-.history-main small { font-size: 11.5px; color: var(--color-text-muted); }
-.history-link:hover strong { color: var(--color-accent-strong); }
+
 @media (max-width: 767px) {
-  .analysis-bar { flex-direction: column; align-items: stretch; gap: 10px; padding: 13px 0 10px; }
-  .panel { padding: 16px 14px; }
-  .upload-box { flex-wrap: wrap; }
+  .page { gap: 10px; }
+  .an-hero { padding: 2px 2px 1px; }
+  .an-id h1 { font-size: 24px; }
+  .an-lead { font-size: 24px; }
+  .an-card { padding: 12px 13px 13px; }
+  .an-actions { gap: 5px; }
+  .an-actions button { padding: 7px; }
+  .an-actions button span { font-size: 10px; }
+  .an-upload { align-items: flex-start; }
+  .an-pick { align-self: center; }
+  .panel { padding: 14px; }
+  .an-flow { gap: 7px; }
 }
 </style>

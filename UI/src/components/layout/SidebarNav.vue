@@ -32,9 +32,16 @@
       <span class="nav-sep" aria-hidden="true"></span>
 
       <div class="nav-group movement" role="group" aria-labelledby="nav-group-movement">
-        <span id="nav-group-movement" class="group-head" :class="{ on: movementActive }">
+        <button
+          id="nav-group-movement"
+          type="button"
+          class="group-head"
+          :class="{ on: movementActive }"
+          title="聚焦运动栏"
+          @click="focusGroup('movement')"
+        >
           <i aria-hidden="true"></i><span>运动</span>
-        </span>
+        </button>
         <RouterLink
           v-for="item in movementItems"
           :key="item.to"
@@ -50,9 +57,16 @@
       </div>
 
       <div class="nav-group nutrition" role="group" aria-labelledby="nav-group-nutrition">
-        <span id="nav-group-nutrition" class="group-head" :class="{ on: nutritionActive }">
+        <button
+          id="nav-group-nutrition"
+          type="button"
+          class="group-head"
+          :class="{ on: nutritionActive }"
+          title="聚焦饮食栏"
+          @click="focusGroup('nutrition')"
+        >
           <i aria-hidden="true"></i><span>饮食</span>
-        </span>
+        </button>
         <RouterLink
           v-for="item in nutritionItems"
           :key="item.to"
@@ -127,7 +141,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   CalendarDays,
   Dumbbell,
@@ -146,8 +160,14 @@ defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const route = useRoute()
+const router = useRouter()
 const movementActive = computed(() => route.path.startsWith('/plan') || route.path.startsWith('/execution') || route.path.startsWith('/analysis'))
 const nutritionActive = computed(() => route.path.startsWith('/meals'))
+
+function focusGroup(pole: 'movement' | 'nutrition') {
+  emit('close')
+  router.push({ path: '/', query: { focus: pole } })
+}
 
 const {
   ready: wellnessReady,
@@ -251,18 +271,23 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
 
 .group-head {
   width: 64px;
+  min-height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   padding: 2px 0 3px;
+  border: 0;
+  background: transparent;
   font-family: var(--font-num);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.16em;
   color: var(--color-text-muted);
+  cursor: pointer;
   transition: color var(--motion-fast);
 }
+.group-head:hover { color: var(--pole-strong, var(--color-text-secondary)); }
 .group-head i {
   width: 5px;
   height: 5px;

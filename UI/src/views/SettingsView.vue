@@ -306,6 +306,21 @@
     </BaseCard>
 
     <BaseCard class="section animate-slide-in-up">
+      <h2>计划页完成样式</h2>
+      <p class="sub">在计划页点「标记完成」后，整行动作可以持续高亮，或加一条删除线。偏好只存在本机，不改写计划数据。</p>
+      <div class="chips" role="group" aria-label="计划页完成样式">
+        <button
+          v-for="s in completionStyles"
+          :key="s.id"
+          class="chip"
+          :class="{ active: store.planCompletionStyle === s.id }"
+          :aria-pressed="store.planCompletionStyle === s.id"
+          @click="store.setPlanCompletionStyle(s.id)"
+        >{{ s.label }}</button>
+      </div>
+    </BaseCard>
+
+    <BaseCard class="section animate-slide-in-up">
       <h2>我的数据</h2>
       <div class="stats">
         <div class="stat"><span>训练记录</span><b>{{ store.sessions.length }}</b></div>
@@ -368,7 +383,7 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
 import { useSpeech } from '@/composables/useSpeech'
-import type { Plan, PrivacySettings, ThemePreference } from '@/types/domain'
+import type { Plan, PlanCompletionStyle, PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { goalSummary } from '@/services/profileRules'
 import { RULE_VERSION } from '@/services/mealRules'
@@ -452,6 +467,10 @@ const themes: { id: ThemePreference; label: string }[] = [
   { id: 'system', label: '跟随系统' },
   { id: 'light', label: '浅色' },
   { id: 'dark', label: '深色' }
+]
+const completionStyles: { id: PlanCompletionStyle; label: string }[] = [
+  { id: 'highlight', label: '整行高亮' },
+  { id: 'strike', label: '整行划掉' }
 ]
 // ——— 模型接入 ———
 const llmForm = ref<LlmConfig>({ ...store.llmConfig })

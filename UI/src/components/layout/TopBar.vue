@@ -16,6 +16,7 @@
         <circle cx="10.5" cy="32" r="3.1" fill="var(--brand-pole-a)" />
         <circle cx="53.5" cy="32" r="3.1" fill="var(--brand-pole-b)" />
       </svg>
+      <span class="brand-short" aria-hidden="true">TWOPOLES</span>
       <span class="micro">TwoPoles · 运动与饮食协同</span>
     </RouterLink>
 
@@ -31,20 +32,30 @@
         <img v-if="store.userProfile?.avatarDataUrl" :src="store.userProfile.avatarDataUrl" alt="" />
         <template v-else>{{ initial }}</template>
       </button>
+      <button
+        class="gear-btn"
+        :class="{ on: route.path === '/settings' }"
+        aria-label="个人设置"
+        :aria-current="route.path === '/settings' ? 'page' : undefined"
+        @click="router.push('/settings')"
+      >
+        <Settings :size="16" />
+      </button>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Menu } from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
+import { Menu, Settings } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { shortDate } from '@/utils/time'
 
 withDefaults(defineProps<{ menuOpen?: boolean }>(), { menuOpen: false })
 defineEmits<{ (e: 'toggle-menu'): void }>()
 
+const route = useRoute()
 const router = useRouter()
 const store = useAppStore()
 const dateLabel = shortDate(new Date())
@@ -84,6 +95,15 @@ const cycleWeek = computed(() => {
 .mark { display: none; width: 20px; height: 20px; flex: none; }
 .lockup .micro { color: var(--color-text-muted); }
 .lockup:hover .micro { color: var(--color-text-secondary); }
+.brand-short {
+  display: none;
+  font-family: var(--font-num);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: .18em;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
 
 .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
@@ -130,6 +150,25 @@ const cycleWeek = computed(() => {
 
 .menu-btn { display: none; color: var(--color-ink); }
 
+.gear-btn {
+  display: none;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text-secondary);
+  flex: none;
+  transition: color var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
+}
+.gear-btn:hover { color: var(--color-ink); border-color: var(--color-ink); }
+.gear-btn.on {
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent-line);
+}
+
 @media (max-width: 1099px) {
   .topbar { margin-left: 0; padding: 0 var(--space-6); }
   /* 抽屉在 1099px 就出现了，汉堡按钮必须同一档出现，否则 768–1099 之间没有任何导航入口 */
@@ -138,9 +177,13 @@ const cycleWeek = computed(() => {
 }
 @media (max-width: 767px) {
   .topbar { padding: 0 var(--space-4); gap: 10px; }
-  .menu-btn { display: grid; place-items: center; width: 32px; height: 32px; margin-left: -6px; }
+  /* 手机只剩合并底栏，不再有抽屉入口 */
+  .menu-btn { display: none; }
   .mark { width: 18px; height: 18px; }
   .lockup .micro { display: none; }
+  .brand-short { display: inline; }
   .date { display: none; }
+  .avatar { display: none; }
+  .gear-btn { display: grid; }
 }
 </style>

@@ -98,6 +98,15 @@
         </div>
       </div>
 
+      <RouterLink to="/analysis" class="analysis-entry">
+        <span class="ae-ic"><Video :size="15" /></span>
+        <span class="ae-copy">
+          <strong>动作分析</strong>
+          <small>训练后从相册选视频，逐帧复盘</small>
+        </span>
+        <span class="ae-link">去分析 <ArrowRight :size="13" /></span>
+      </RouterLink>
+
       <BaseCard variant="flush" class="block">
         <div class="block-head">
           <span class="micro">接下来</span>
@@ -262,7 +271,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, Dumbbell, Moon, Play, Sparkles } from 'lucide-vue-next'
+import { ArrowRight, Dumbbell, Moon, Play, Sparkles, Video } from 'lucide-vue-next'
 import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
@@ -966,6 +975,49 @@ function statusLabel(status: TrainingSession['completionStatus']) {
   margin-top: 1px;
   font-size: 10.5px;
   color: var(--color-text-muted);
+}
+
+.analysis-entry {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--pole-movement-line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--pole-movement-soft), var(--color-card) 150%);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+.analysis-entry:hover {
+  border-color: var(--pole-movement-strong);
+}
+.ae-ic {
+  width: 27px;
+  height: 27px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--pole-movement-line);
+  border-radius: var(--radius-base);
+  background: var(--color-card);
+  color: var(--pole-movement-strong);
+}
+.ae-copy { flex: 1; min-width: 0; }
+.ae-copy strong { display: block; font-size: 11px; font-weight: 600; }
+.ae-copy small { display: block; margin-top: 1px; font-size: 9.5px; color: var(--color-text-muted); }
+.ae-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pole-movement-strong);
+}
+@media (max-width: 767px) {
+  .analysis-entry { display: none; }
 }
 
 .inline-actions {

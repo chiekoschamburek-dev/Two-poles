@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, MotionAnalysis, Plan, PlanChange, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
+import type { AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, MotionAnalysis, Plan, PlanChange, PlanCompletionStyle, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
@@ -78,6 +78,8 @@ export const useAppStore = defineStore('app', () => {
   /** 被用户收起的解释/洞察类卡片 id。调研结论：这类卡片必须可隐藏，不能常驻占位 */
   const collapsedCards = ref<string[]>([])
   const themePref = ref<ThemePreference>('system')
+  /** 计划页标记完成后的整行显示方式；只影响展示，不写进计划数据 */
+  const planCompletionStyle = ref<PlanCompletionStyle>('highlight')
   const darkMedia = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
   /** 每周一份当前计划（含版本）；被替换掉的旧版本进 planHistory，永不静默覆盖 */
   const plans = ref<Plan[]>([])
@@ -106,6 +108,11 @@ export const useAppStore = defineStore('app', () => {
     persistState()
   }
 
+  function setPlanCompletionStyle(style: PlanCompletionStyle) {
+    planCompletionStyle.value = style
+    persistState()
+  }
+
   /**
    * Initialize app from localStorage
    */
@@ -127,6 +134,7 @@ export const useAppStore = defineStore('app', () => {
     }
     if (Array.isArray(data.collapsed)) collapsedCards.value = data.collapsed
     if (data.theme === 'light' || data.theme === 'dark' || data.theme === 'system') themePref.value = data.theme
+    planCompletionStyle.value = data.planCompletionStyle === 'strike' ? 'strike' : 'highlight'
     applyTheme()
     if (Array.isArray(data.plans)) plans.value = data.plans
     if (Array.isArray(data.planHistory)) planHistory.value = data.planHistory
@@ -161,6 +169,7 @@ export const useAppStore = defineStore('app', () => {
       speech: speech.value,
       collapsed: collapsedCards.value,
       theme: themePref.value,
+      planCompletionStyle: planCompletionStyle.value,
       plans: plans.value,
       planHistory: planHistory.value,
       unitGrams: unitGrams.value,
@@ -1437,6 +1446,7 @@ export const useAppStore = defineStore('app', () => {
     speech.value = { enabled: false, voiceURI: '' }
     collapsedCards.value = []
     themePref.value = 'system'
+    planCompletionStyle.value = 'highlight'
     unitGrams.value = {}
     adjustmentResolutions.value = {}
     planFeedbackText.value = ''
@@ -1470,6 +1480,7 @@ export const useAppStore = defineStore('app', () => {
     initialized,
     collapsedCards,
     themePref,
+    planCompletionStyle,
     plans,
     planHistory,
     unitGrams,
@@ -1509,6 +1520,7 @@ export const useAppStore = defineStore('app', () => {
     linkAnalysisToSession,
     queueAnalysisSync,
     setTheme,
+    setPlanCompletionStyle,
     applyTheme,
     ensureWeekPlan,
     weekPlan,

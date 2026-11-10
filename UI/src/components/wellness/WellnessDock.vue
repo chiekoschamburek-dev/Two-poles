@@ -155,11 +155,14 @@ watch(cardOpen, async (open) => {
     floatPanel.value?.focus()
   } else {
     cleanupFloat()
-    // 回到触发它的地方：桌面是图标脊上的小卡片，手机是能重新打开抽屉的菜单按钮
+    // 回到触发它的地方：桌面是图标脊小卡片；手机是首页 Tips 条（若不在首页则退回菜单按钮）
     const wide = window.matchMedia('(min-width: 1100px)').matches
+    const phone = window.matchMedia('(max-width: 767px)').matches
     const target = wide
       ? document.getElementById('wellness-rail-trigger')
-      : document.querySelector<HTMLElement>('.menu-btn')
+      : phone
+        ? (document.getElementById('home-tips-trigger') ?? document.querySelector<HTMLElement>('.menu-btn'))
+        : document.querySelector<HTMLElement>('.menu-btn')
     target?.focus?.()
   }
 })
