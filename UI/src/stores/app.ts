@@ -6,7 +6,9 @@ import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
 import type { EnergyEstimate } from '@/services/foodComposition'
 import { clearMealPhotos, deleteMealPhoto } from '@/services/mealPhotos'
-import { buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
+import { AUTO_RECOMMEND_MIN_AGE, buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
+import { findExercise, gateReason } from '@/services/exercises'
+import { buildPlanFeedbackMessages, validatePlanFeedback } from '@/services/planFeedback'
 import { normalizeProfile } from '@/services/profileRules'
 import {
   NO_LLM_DEFAULT,
@@ -662,6 +664,7 @@ export const useAppStore = defineStore('app', () => {
   const llmConfig = ref<LlmConfig>({ baseUrl: '', apiKey: '', model: '' })
   /** 服务端默认模型（保底）：只有状态，没有密钥 */
   const llmDefault = ref<LlmDefaultStatus>({ ...NO_LLM_DEFAULT })
+  const planFeedbackText = ref('')
   const planDraftState = ref<PlanDraftState>({
     status: 'idle',
     loadingStage: null,
@@ -674,7 +677,7 @@ export const useAppStore = defineStore('app', () => {
   /** 关闭弹窗/重新提问后，旧请求的晚到结果不再把弹窗重新打开 */
   let planRequestId = 0
   // 只为当前草稿保留生成资料，供重试或重新生成使用。
-  let lastDraftRequest: { reference: Date; source?: PlanSourceInput } | undefined
+  let lastDraftRequest: { reference: Date; source?: PlanSourceInput; feedback?: string } | undefined
 
   /** 切换用哪个模型；只改偏好，已填的 base_url / key / 模型名原样保留 */
   function setLlmPreference(preference: 'custom' | 'default') {
@@ -883,8 +886,77 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  const staleFeedbackError = '现有计划已经更新。请重新生成调整建议，再确认新版计划。'
+
+  async function generatePlanFeedback(reference: Date, feedback: string) {
+    const requestId = ++planRequestId
+    const text = feedback.trim().slice(0, 1000)
+    lastDraftRequest = { reference, feedback: text }
+    const dates = planWeekDates(reference)
+    const context = { questions: [], answers: {}, weekDates: dates, draft: null, warnings: [] }
+    const fail = (error: string) => {
+      planDraftState.value = { ...context, status: 'error', loadingStage: 'feedback', error }
+    }
+    const plan = weekPlan(reference)
+    const profile = userProfile.value
+    const guard = !text ? '请先填写训练反馈。' : planModelError(false)
+    if (guard) return fail(guard)
+    if (!plan) return fail('请先为所选周创建计划，再提交反馈。')
+    if (plan.locked) return fail('这份周计划已锁定。')
+    if (profile && profile.age < AUTO_RECOMMEND_MIN_AGE) return fail('当前档案年龄未达到自动推荐条件，可在计划页手工录入。')
+    const restriction = gateReason(profile)
+    if (restriction) return fail(restriction)
+
+    const { id, version } = plan
+    planDraftState.value = { ...context, status: 'loading', loadingStage: 'feedback', error: '' }
+    const result = await callPlanProxy(llmConfig.value, buildPlanFeedbackMessages(plan, dates, text, profile))
+    if (requestId !== planRequestId) return
+    if (result.error) return fail(result.error)
+    const latest = weekPlan(reference)
+    if (!latest || latest.id !== id || latest.version !== version || latest.locked) return fail(staleFeedbackError)
+    const adjustment = validatePlanFeedback(extractJson(result.text), latest, dates)
+    if (!adjustment) return fail('模型返回了无效的调整，可能涉及受保护项目或范围外的日期。请重试。')
+    planDraftState.value = { ...context, status: 'ready', loadingStage: null, adjustment, error: '' }
+  }
+
   function retryPlanDraft() {
-    return generatePlanDraft(lastDraftRequest?.reference, planDraftState.value.answers, lastDraftRequest?.source)
+    const request = lastDraftRequest
+    if (request?.feedback !== undefined) return generatePlanFeedback(request.reference, request.feedback)
+    return generatePlanDraft(request?.reference, planDraftState.value.answers, request?.source)
+  }
+
+  function acceptPlanFeedback(): Plan | null {
+    const { adjustment, status, weekDates } = planDraftState.value
+    if (status !== 'ready' || !adjustment?.changes.length || !weekDates?.[0]) return null
+    const plan = weekPlan(new Date(`${weekDates[0]}T00:00:00`))
+    const changesById = new Map(adjustment.changes.flatMap(change => change.before ? [[change.before.id, change] as const] : []))
+    const adjustable = new Set(plan?.items.filter(item => !item.locked && !item.completed).map(item => item.id))
+    if (!plan || plan.id !== adjustment.planId || plan.version !== adjustment.baseVersion || plan.locked
+      || [...changesById.keys()].some(id => !adjustable.has(id))) {
+      planDraftState.value = { ...planDraftState.value, status: 'error', loadingStage: 'feedback', adjustment: undefined, error: staleFeedbackError }
+      return null
+    }
+    const items = plan.items.flatMap(item => {
+      const change = changesById.get(item.id)
+      if (!change) return [item]
+      if (!change.after) return []
+      const updated = { ...item, ...change.after }
+      if (updated.exerciseName !== item.exerciseName) {
+        updated.exerciseId = findExercise(updated.exerciseName)?.id
+        updated.alternatives = []
+      }
+      return [updated]
+    })
+    for (const { before, after } of adjustment.changes) {
+      if (!before && after) {
+        items.push({ ...after, id: newId(), planId: plan.id, exerciseId: findExercise(after.exerciseName)?.id, locked: false, completed: false })
+      }
+    }
+    const updated = bumpVersion(plan, items, `根据反馈调整 · ${adjustment.reason}（${PLAN_RULES_VERSION}）`)
+    if (planFeedbackText.value.trim() === lastDraftRequest?.feedback) planFeedbackText.value = ''
+    resetPlanDraft()
+    showToast({ type: 'success', title: '已启用调整后的计划', message: `v${updated.version} · 原计划已保留在版本历史中`, duration: 3500 })
+    return updated
   }
 
   /** 用户确认：单日追加项目，整周启用新安排。 */
@@ -1115,7 +1187,7 @@ export const useAppStore = defineStore('app', () => {
     showToast({
       type: 'success',
       title: '训练已记录',
-      message: `${session.exerciseName} · ${session.actualReps ?? 0} 次 · ${session.completionStatus === 'completed' ? '全部完成' : '部分完成'}`,
+      message: `${session.exerciseName} · ${session.actualReps === undefined ? `${session.actualDuration} 分钟` : `${session.actualReps} 次`} · ${session.completionStatus === 'completed' ? '全部完成' : '部分完成'}`,
       duration: 4000
     })
     return session
@@ -1398,6 +1470,7 @@ export const useAppStore = defineStore('app', () => {
     themePref.value = 'system'
     unitGrams.value = {}
     adjustmentResolutions.value = {}
+    planFeedbackText.value = ''
     applyTheme()
     clearStoredState()
     clearSyncMeta()
@@ -1435,6 +1508,7 @@ export const useAppStore = defineStore('app', () => {
     adjustmentResolutions,
     llmConfig,
     llmDefault,
+    planFeedbackText,
     planDraftState,
     planLlmReady,
 
@@ -1482,8 +1556,10 @@ export const useAppStore = defineStore('app', () => {
     refreshLlmStatus,
     generatePlanQuestions,
     generatePlanDraft,
+    generatePlanFeedback,
     retryPlanDraft,
     acceptPlanDraft,
+    acceptPlanFeedback,
     resetPlanDraft,
     acceptAdjustment,
     adoptRemotePlan,

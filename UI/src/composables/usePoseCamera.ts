@@ -266,6 +266,14 @@ export function usePoseCamera() {
         return
       }
       stream = media
+      for (const track of media.getVideoTracks()) {
+        track.addEventListener('ended', () => {
+          if (seq !== startSeq) return
+          status.value = 'error'
+          errorMessage.value = '摄像头已断开。可重试连接或改用计时。'
+          stop()
+        }, { once: true })
+      }
       video = videoEl
       canvas = canvasEl
       videoEl.srcObject = media
@@ -289,7 +297,6 @@ export function usePoseCamera() {
       const created = await createPoseEngine(MODEL_PATHS)
       if (seq !== startSeq) {
         created.close()
-        stopStream()
         return
       }
       engine = created

@@ -41,25 +41,26 @@ export function useSpeech() {
   hookVoices()
   // 组件挂载后立刻查一次；有些浏览器不触发 voiceschanged，只能轮询兜底一帧
   refreshVoices()
+  let pending = 0
 
   /**
    * 播一句节奏提示。开关关闭、接口缺失或没有中文音色时什么都不做；
    * 设备静音浏览器层就听不见，同样不报错（文档 §7 降级口径）。
    */
-  function speak(text: string) {
+  function speak(text: string, enabledForSession = false) {
     const store = useAppStore()
-    if (!store.speech.enabled || !supported) return
+    if ((!store.speech.enabled && !enabledForSession) || !supported) return
     const voice = findVoice(store.speech.voiceURI)
     if (!voice) return
     // 上一句没播完就来了下一句（比如最后一次数完紧跟"本组完成"）时，取消旧的再播新的
-    window.speechSynthesis.cancel()
+    stop()
     const u = new SpeechSynthesisUtterance(text)
     u.lang = voice.lang
     u.voice = voice
     // 数字报数要跟上动作节奏，语速略快于默认
     u.rate = /^\d+$/.test(text) ? 1.2 : 1
     // Chrome 的 cancel() 后紧接 speak() 偶发不发声，推迟一帧绕开
-    window.setTimeout(() => window.speechSynthesis.speak(u), 40)
+    pending = window.setTimeout(() => window.speechSynthesis.speak(u), 40)
   }
 
   /** 只把当前这句排进队列，不清掉之前的（试听用） */
@@ -75,7 +76,9 @@ export function useSpeech() {
   }
 
   function stop() {
-    if (supported) window.speechSynthesis.cancel()
+    if (!supported) return
+    window.clearTimeout(pending)
+    window.speechSynthesis.cancel()
   }
 
   // 跟练页卸载时把没播完的截掉，避免离开页面后还在报数

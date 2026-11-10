@@ -2,6 +2,7 @@
 // 只负责"把档案变成一份可审核的计划草稿"，不负责落库——落库由 store 在用户确认后做。
 import type { TrainingType, UserProfile } from '@/types/domain'
 import { activeExercises } from '@/services/exercises'
+import type { FeedbackPlanDraft } from '@/services/planFeedback'
 
 /** 用哪个模型：custom = 自己的接口，default = 服务端内置（只是偏好，不删除已填的配置） */
 export type LlmPreference = 'custom' | 'default'
@@ -204,7 +205,7 @@ export const DEFAULT_FREQUENCY_QUESTION: PlanQuestion = {
 export interface PlanDraftState {
   status: 'idle' | 'loading' | 'questions' | 'ready' | 'error'
   /** loading 时区分是在准备问题还是在生成计划 */
-  loadingStage: 'questions' | 'image' | 'plan' | null
+  loadingStage: 'questions' | 'image' | 'plan' | 'feedback' | null
   questions: PlanQuestion[]
   answers: Record<string, string>
   draft: PlanDraft | null
@@ -213,6 +214,7 @@ export interface PlanDraftState {
   weekDates?: string[]
   fromMaterials?: boolean
   imageTranscript?: string
+  adjustment?: FeedbackPlanDraft
 }
 
 export interface PlanMessages {

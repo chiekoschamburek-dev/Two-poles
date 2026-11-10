@@ -14,6 +14,7 @@
         <div v-if="state.status === 'loading'" class="state">
           <span class="spin" aria-hidden="true"></span>
           <p v-if="state.loadingStage === 'image'">正在读取图片中的训练内容…</p>
+          <p v-else-if="state.loadingStage === 'feedback'">正在结合反馈和现有计划生成调整建议…</p>
           <p v-else>{{ state.loadingStage === 'questions' ? '模型正在看档案，准备几个问题…' : state.fromMaterials ? '正在根据提供的资料生成计划…' : '正在结合档案与你的回答生成计划…' }}</p>
           <small>通常 10–60 秒；模型慢的时候会更久，关闭窗口会放弃本次结果。</small>
         </div>
@@ -28,7 +29,8 @@
             <summary>查看图片识别结果</summary>
             <p>{{ state.imageTranscript }}</p>
           </details>
-          <small v-if="state.fromMaterials">可关闭窗口修改资料后重试。</small>
+          <small v-if="state.loadingStage === 'feedback'">可重新生成，或关闭窗口修改反馈。</small>
+          <small v-else-if="state.fromMaterials">可关闭窗口修改资料后重试。</small>
           <small v-else>可以在设置页检查 base_url / 模型名 / 密钥，或者换成手工计划。</small>
         </div>
 
@@ -65,6 +67,25 @@
             </section>
           </div>
           <p class="fine">回答完所有问题后才能生成计划；也可以跳过，模型会按档案里的默认频次安排（大众模式 4–5 天）。</p>
+        </template>
+
+        <template v-else-if="state.adjustment">
+          <p class="reason">{{ state.adjustment.reason }}</p>
+          <p class="fine">目标周 {{ weekIsoDates[0] }} 至 {{ weekIsoDates[6] }} · 当前版本 v{{ state.adjustment.baseVersion }}</p>
+          <div v-if="state.adjustment.changes.length" class="days">
+            <section v-for="(change, index) in state.adjustment.changes" :key="index" class="feedback-change">
+              <b>{{ !change.before ? '新增项目' : !change.after ? '移除项目' : '修改项目' }}</b>
+              <div class="feedback-pair">
+                <div v-for="(item, side) in [change.before, change.after]" :key="side">
+                  <span>{{ side === 0 ? '当前安排' : '调整后' }}</span>
+                  <strong>{{ item ? `${item.date} · ${item.exerciseName}` : '—' }}</strong>
+                  <small v-if="item">{{ feedbackSpec(item) }}</small>
+                  <small v-if="item?.note">{{ item.note }}</small>
+                </div>
+              </div>
+            </section>
+          </div>
+          <p v-if="state.adjustment.changes.length" class="fine">同意后才会启用新版本。已锁定、已完成及未列出的项目会保留，原计划可在版本历史中查看。</p>
         </template>
 
         <!-- 可审核、可修改的草稿 -->
@@ -171,6 +192,14 @@
               根据回答生成计划
             </button>
           </template>
+          <template v-else-if="state.adjustment">
+            <button class="btn ghost" type="button" @click="regen">重新生成</button>
+            <span class="spacer"></span>
+            <button class="btn ghost" type="button" @click="close">暂不调整</button>
+            <button v-if="state.adjustment.changes.length" class="btn primary" type="button" @click="store.acceptPlanFeedback()">
+              同意并启用新计划
+            </button>
+          </template>
           <template v-else-if="state.status === 'ready'">
             <button class="btn ghost" type="button" @click="regen">{{ imageImport ? '重新识别' : '重新生成' }}</button>
             <button v-if="!state.fromMaterials" class="btn ghost" type="button" @click="reask">重新提问</button>
@@ -200,6 +229,7 @@ import { computed, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { TRAINING_TYPES, usingDefault } from '@/services/llm'
 import type { PlanDraft, PlanDraftDay, PlanDraftItem } from '@/services/llm'
+import type { FeedbackFields } from '@/services/planFeedback'
 import { activeExercises, findExercise } from '@/services/exercises'
 import { weekDates, weekStart } from '@/services/weekRules'
 import { toISODate } from '@/utils/time'
@@ -252,10 +282,12 @@ const modelLabel = computed(() => {
 const title = computed(() => {
   if (state.value.status === 'loading') {
     if (state.value.loadingStage === 'image') return '正在识别图片…'
+    if (state.value.loadingStage === 'feedback') return '正在生成调整建议…'
     return state.value.loadingStage === 'questions' ? '正在准备问题…' : '正在生成计划…'
   }
   if (state.value.status === 'error') return '这次没生成成功'
   if (state.value.status === 'questions') return '先确认几件事'
+  if (state.value.adjustment) return state.value.adjustment.changes.length ? '审核计划调整' : '当前计划无需调整'
   return '这份计划要录入吗？'
 })
 
@@ -275,6 +307,18 @@ function weekday(iso: string): string {
 }
 function minutesOf(day: PlanDraftDay): number {
   return day.items.reduce((n, i) => n + (Number(i.plannedDuration) || 0), 0)
+}
+
+function feedbackSpec(item: FeedbackFields): string {
+  return [
+    item.type,
+    item.plannedDuration && `${item.plannedDuration} 分钟`,
+    item.plannedSets && `${item.plannedSets} 组`,
+    item.plannedReps && `每组 ${item.plannedReps} 次`,
+    item.plannedHoldSeconds && `每组 ${item.plannedHoldSeconds} 秒`,
+    item.plannedDistance && `${item.plannedDistance} 米`,
+    item.plannedTargetMinutes && item.plannedTargetMinutes !== item.plannedDuration && `目标 ${item.plannedTargetMinutes} 分钟`
+  ].filter(Boolean).join(' · ')
 }
 
 function blankItem(): PlanDraftItem {
@@ -435,6 +479,10 @@ function confirm() {
 .days { overflow-y: auto; padding: 8px 22px 4px; flex: 1; min-height: 0; }
 .day { padding: 12px 0; border-top: 1px solid var(--color-divider); }
 .day:first-child { border-top: 0; }
+.feedback-change { padding: 12px 0; border-top: 1px solid var(--color-divider); font-size: 13px; }
+.feedback-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.feedback-pair > div { display: grid; align-content: start; gap: 4px; background: var(--color-neutral-soft); border-radius: 8px; padding: 8px; overflow-wrap: anywhere; }
+.feedback-pair span, .feedback-pair small { font-size: 11.5px; color: var(--color-text-secondary); }
 .day-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .date { font-family: var(--font-num); font-size: 13px; font-weight: 600; color: var(--color-ink); letter-spacing: 0.01em; }
 .date i { font-style: normal; font-size: 11px; color: var(--color-text-muted); margin-left: 6px; }

@@ -8,7 +8,7 @@ import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, infer
 import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
 import { validateRecognitionObject, validateRecognitionText } from '@/services/foodRecognition'
 import { activeExercises, exercises, gateReason } from '@/services/exercises'
-import { applyPlanOverrides, getDemoExercise, readPlanOverrides, summarizeSession } from '@/services/demoCameraService'
+import { applyPlanOverrides, getDemoExercise, guideExercise, readPlanOverrides, summarizeSession } from '@/services/demoCameraService'
 import { useRepCounter } from '@/composables/useRepCounter'
 import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { useAppStore } from '@/stores/app'
@@ -718,6 +718,29 @@ const customSession = summarizeSession({
 ok('训练记录写回 planItemId 与覆盖后的次数', customSession.planItemId === 'item-1'
   && customSession.actualSets === 1 && customSession.actualReps === 5
   && customSession.completionStatus === 'completed')
+const intervalItem = {
+  id: 'interval', planId: 'follow', date: '2026-11-10', exerciseName: '坐站训练', type: '坐站训练' as const,
+  plannedSets: 2, plannedReps: 5, plannedDuration: 2, locked: false, completed: false
+}
+const timedGuide = guideExercise(sitDemo, 'timer', intervalItem)
+const cameraGuide = guideExercise(sitDemo, 'camera', intervalItem)
+ok('同一计次计划可按时长跟练或保留摄像头计数规格', timedGuide.mode === 'time'
+  && timedGuide.setDuration === 60_000 && timedGuide.sets === 2 && timedGuide.targetReps === 5
+  && cameraGuide.mode === 'reps' && cameraGuide.sets === 2 && cameraGuide.repsPerSet === 5)
+const customGuide = guideExercise(undefined, 'timer', {
+  ...intervalItem, exerciseName: '上坡跑', type: '跑步', plannedDistance: 100, plannedDuration: undefined, plannedReps: undefined
+})
+ok('未收录的距离动作保留名称与米数，按完成确认推进', customGuide.name === '上坡跑' && customGuide.targetDistance === 100
+  && customGuide.mode === 'time' && customGuide.holdSeconds === undefined && customGuide.sets === 2)
+const quickGuide = guideExercise(undefined, 'camera', { ...intervalItem, exerciseName: '闭眼单腿站立', plannedHoldSeconds: 3 })
+ok('图片里的单组秒数优先于分钟，短时长也可以跟练', quickGuide.name === '闭眼单腿站立' && quickGuide.setDuration === 3000)
+const timedGuideRecord = summarizeSession({
+  exercise: timedGuide, planItemId: intervalItem.id, setsCompleted: 2, repsBySet: [],
+  elapsedMs: 120_000, averageConfidence: 0, manualCorrections: 0
+})
+ok('计时记录保留完成组数和时长，目标次数不写成实际次数', timedGuideRecord.actualReps === undefined
+  && timedGuideRecord.countedReps === undefined && timedGuideRecord.cameraUsed === false
+  && timedGuideRecord.actualSets === 2 && timedGuideRecord.actualDuration === 2 && timedGuideRecord.completionStatus === 'completed')
 
 console.log('\n14. 计划调整建议（时间冲突）')
 const timeProfile = p({ availableTimes: ['20 分钟'] })
@@ -1112,6 +1135,8 @@ ok('模型次数与修正后的实际次数分别保存', modelSummary.cameraUse
 console.log('\n25. 图片导入：保留动作和规格，日期有据可查')
 const fetchBeforeImageCheck = globalThis.fetch
 const modelBeforeImageCheck = store.llmDefault
+const profileBeforeFeedbackCheck = store.userProfile
+const textBeforeFeedbackCheck = store.planFeedbackText
 const imageRequests: unknown[] = []
 const imageItems = [
   { exerciseName: '平板支撑', plannedHoldSeconds: 30 },
@@ -1212,9 +1237,85 @@ try {
   ok('按周选择周内一天时，模型与草稿使用完整的跨年周',
     typeof weekText === 'string' && weekText.includes('2026-12-28') && weekText.includes('2027-01-03')
     && !!weekDraft && !weekDraft.dayDate && weekDraft.days.length === 2)
+
+  console.log('\n27. AI 反馈调整：草稿审核、版本保护、保留原项目')
+  store.userProfile = null
+  const feedbackDate = new Date(2027, 0, 6)
+  const existing = store.acceptPlanDraft({
+    source: 'image', reason: '反馈调整的原计划', model: 'mock-vision',
+    days: [{ date: '2027-01-06', items: [
+      { exerciseName: '轻松跑', type: '跑步', plannedDuration: 30 },
+      { exerciseName: '上坡跑', type: '跑步', plannedDistance: 100, plannedSets: 4 },
+      { exerciseName: '提踵', type: '其他', plannedSets: 3 },
+      { exerciseName: '平板支撑', type: '其他', plannedHoldSeconds: 30 },
+      { exerciseName: '龙旗', type: '其他', plannedReps: 5 }
+    ] }]
+  }, feedbackDate)!
+  const [run, hill, calf, plank, dragon] = existing.items
+  store.acceptAdjustment(existing.id, [{ itemId: run.id, type: 'changed', newValue: { plannedTargetMinutes: 30 } }], '设置跟练目标')
+  store.toggleItemLock(existing.id, plank.id)
+  store.markItemCompleted(existing.id, dragon.id, true)
+  const feedback = '周三没空，轻松跑移到周五，缩短为 20 分钟；上坡跑换为肩环绕，移除提踵，加一项放松。'
+  store.planFeedbackText = ` ${feedback} `
+  const unchangedVersion = existing.version
+  reply = { changes: [{ op: 'remove', itemId: plank.id }] }
+  await store.generatePlanFeedback(feedbackDate, feedback)
+  ok('模型不能移除锁定动作', store.planDraftState.status === 'error' && existing.version === unchangedVersion)
+  reply = { changes: [{ op: 'update', itemId: dragon.id, item: { plannedReps: 10 } }] }
+  await store.retryPlanDraft()
+  ok('模型不能修改已完成动作', store.planDraftState.status === 'error' && !store.planDraftState.adjustment)
+  reply = { changes: [{ op: 'update', itemId: run.id, item: { date: '2027-01-11' } }] }
+  await store.retryPlanDraft()
+  ok('拒绝超出所选周的调整', store.planDraftState.status === 'error' && !store.planDraftState.adjustment)
+
+  reply = { reason: '按反馈减少训练量并调整日期', changes: [
+    { op: 'update', itemId: run.id, item: { date: '2027-01-08', plannedDuration: 20 } },
+    { op: 'update', itemId: hill.id, item: { exerciseName: '肩环绕', plannedReps: 10 } },
+    { op: 'remove', itemId: calf.id },
+    { op: 'add', item: { date: '2027-01-08', exerciseName: '腹式呼吸放松', plannedHoldSeconds: 60 } }
+  ] }
+  const historyCount = store.planHistory.length
+  await store.retryPlanDraft()
+  const request = imageRequests.at(-1)
+  ok('反馈请求包含输入反馈和当前项目，草稿包含修改、替换、移除及新增', typeof request === 'string'
+    && request.includes(feedback) && request.includes(run.id) && store.planDraftState.adjustment?.changes.length === 4)
+  ok('生成草稿时计划、版本和历史都没有更新', existing.version === unchangedVersion
+    && existing.items.find(item => item.id === run.id)?.plannedDuration === 30 && store.planHistory.length === historyCount)
+  store.resetPlanDraft()
+  ok('拒绝后不能再保存该草稿', store.acceptPlanFeedback() === null && existing.version === unchangedVersion)
+  ok('生成和取消后保留原输入', store.planFeedbackText === ` ${feedback} `)
+
+  await store.generatePlanFeedback(feedbackDate, feedback)
+  const originalName = existing.items.find(item => item.id === hill.id)?.exerciseName
+  store.addManualItem(existing.id, { date: '2027-01-07', exerciseName: '并发新增', minutes: 5 })
+  const changedVersion = existing.version
+  ok('确认时发现计划已更新会要求重新生成', store.acceptPlanFeedback() === null && existing.version === changedVersion
+    && store.planDraftState.error.includes('已经更新'))
+  ok('版本冲突时保留反馈', store.planFeedbackText === ` ${feedback} `)
+  await store.retryPlanDraft()
+  const adjusted = store.acceptPlanFeedback()
+  ok('启用新版本后清空已提交的反馈', !!adjusted && store.planFeedbackText === '')
+  ok('确认后只更新目标周并创建一个版本，保留原计划历史', adjusted?.id === existing.id
+    && adjusted.version === changedVersion + 1 && adjusted.source === 'image'
+    && store.planHistory.at(-1)?.version === changedVersion
+    && store.planHistory.at(-1)?.items.some(item => item.id === hill.id && item.exerciseName === originalName))
+  ok('应用已审核的变更，保留锁定项、已完成项和本次未修改的项目', !!adjusted
+    && adjusted.items.some(item => item.id === run.id && item.plannedDuration === 20 && item.plannedTargetMinutes === 20 && item.date === '2027-01-08')
+    && adjusted.items.some(item => item.id === hill.id && item.exerciseName === '肩环绕' && item.plannedDistance === undefined && item.plannedReps === 10)
+    && !adjusted.items.some(item => item.id === calf.id)
+    && adjusted.items.some(item => item.exerciseName === '腹式呼吸放松' && item.plannedHoldSeconds === 60 && item.planId === existing.id)
+    && adjusted.items.some(item => item.id === plank.id && item.locked && item.plannedHoldSeconds === 30)
+    && adjusted.items.some(item => item.id === dragon.id && item.completed && item.plannedReps === 5)
+    && adjusted.items.some(item => item.exerciseName === '并发新增'))
+  reply = { reason: '当前安排已满足反馈', changes: [{ op: 'update', itemId: run.id, item: { plannedDuration: 20 } }] }
+  await store.generatePlanFeedback(feedbackDate, feedback)
+  ok('无实际改动时不会产生新版本', store.planDraftState.adjustment?.changes.length === 0
+    && store.acceptPlanFeedback() === null && existing.version === changedVersion + 1)
 } finally {
   store.resetPlanDraft()
   store.llmDefault = modelBeforeImageCheck
+  store.userProfile = profileBeforeFeedbackCheck
+  store.planFeedbackText = textBeforeFeedbackCheck
   globalThis.fetch = fetchBeforeImageCheck
 }
 

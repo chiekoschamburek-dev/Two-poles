@@ -1,10 +1,11 @@
 // ===== Demo Camera Service =====
 // Pre-scripted counting events for demonstration (one timeline per set)
 
-import type { DemoEvent, ExercisePhase, TrainingType, TrainingSession } from '@/types/domain'
+import type { DemoEvent, ExercisePhase, PlanItem, TrainingType, TrainingSession } from '@/types/domain'
 
 /** 课次类型（F18）：reps 计次 / time 计时保持 / steps 计步（DeviceMotion，降级手动计时） */
 export type FollowMode = 'reps' | 'time' | 'steps'
+export type TrainingGuide = 'camera' | 'timer'
 
 export interface DemoExercise {
   name: string
@@ -17,6 +18,9 @@ export interface DemoExercise {
   repsPerSet: number
   /** time 模式每组保持秒数 */
   holdSeconds?: number
+  /** 计时组只提示目标，不把次数或距离当作实测结果。 */
+  targetReps?: number
+  targetDistance?: number
   /** steps 模式目标时长（分钟） */
   targetMinutes?: number
   /** 单次行程的演示时长，ms；快动作（高抬腿）要短一些 */
@@ -91,7 +95,7 @@ function makeExercise(
 }
 
 /** 计时保持型（F18）：每组按 holdSeconds 倒计时，没有次数 */
-function makeHold(name: string, type: TrainingType, sets: number, holdSeconds: number): DemoExercise {
+function makeHold(name: string, type: TrainingType, sets: number, holdSeconds?: number): DemoExercise {
   return {
     name,
     type,
@@ -101,7 +105,7 @@ function makeHold(name: string, type: TrainingType, sets: number, holdSeconds: n
     repsPerSet: 0,
     holdSeconds,
     repMs: 0,
-    setDuration: holdSeconds * 1000,
+    setDuration: (holdSeconds ?? 0) * 1000,
     restDuration: 6000,
     setEvents: []
   }
@@ -225,11 +229,46 @@ export function applyPlanOverrides(exercise: DemoExercise, override: PlanExercis
   return next
 }
 
+/** 已有计划规格优先。资料没有可用时长时，保留原动作并由用户结束该组。 */
+export function guideExercise(base: DemoExercise | undefined, guide: TrainingGuide, item?: PlanItem): DemoExercise {
+  const name = item?.exerciseName ?? base?.name ?? demoExercises[0].name
+  const type = item?.type ?? base?.type ?? '其他'
+  const sets = readInt(item?.plannedSets, 1, 20) ?? base?.sets ?? 1
+  const hold = readInt(item?.plannedHoldSeconds, 1, 3600)
+  const reps = readInt(item?.plannedReps, 1, 200)
+  const distance = readInt(item?.plannedDistance, 1, Number.MAX_SAFE_INTEGER)
+  const minutes = readInt(item?.plannedTargetMinutes ?? item?.plannedDuration, 1, 240)
+  if (guide === 'camera' && base && !hold && !distance) {
+    if (base.mode === 'reps') return applyPlanOverrides(base, { sets, reps })
+    if (base.mode === 'steps') return applyPlanOverrides(base, { minutes })
+    return applyPlanOverrides(base, { sets })
+  }
+  let seconds = hold ?? (minutes ? Math.max(1, Math.round(minutes * 60 / sets)) : undefined)
+  if (seconds === undefined && !distance && base) {
+    if (base.mode === 'reps') seconds = Math.ceil(base.repMs * (reps ?? base.repsPerSet) / 1000)
+    else if (base.mode === 'steps') seconds = base.setDuration / 1000
+    else seconds = base.holdSeconds
+  }
+  return {
+    ...makeHold(name, type, sets, seconds),
+    targetReps: reps ?? (base?.mode === 'reps' && !distance ? base.repsPerSet : undefined),
+    targetDistance: distance
+  }
+}
+
 /** 动作选择 chip 的文案：计次 2×8 / 计时 2×30秒 / 计步 20分钟 */
 export function exerciseChipLabel(e: DemoExercise): string {
-  if (e.mode === 'time') return `${e.sets}×${e.holdSeconds}秒`
+  if (e.mode === 'time') return `${e.sets} 组 · ${timedSetLabel(e)}`
   if (e.mode === 'steps') return `${e.targetMinutes}分钟`
   return `${e.sets}×${e.repsPerSet}`
+}
+
+export function timedSetLabel(exercise: DemoExercise): string {
+  return [
+    exercise.holdSeconds && `${exercise.holdSeconds} 秒`,
+    exercise.targetReps && `目标 ${exercise.targetReps} 次`,
+    exercise.targetDistance && `目标 ${exercise.targetDistance} 米`
+  ].filter(Boolean).join(' · ') || '自由计时'
 }
 
 /** 阶段文案按姿态类别区分：同一个 'down'，蹲类是"下蹲"，弯举类是"弯起" */
@@ -315,8 +354,7 @@ export function summarizeSession(input: SessionInput): Omit<TrainingSession, 'id
     return {
       ...base,
       actualReps: undefined,
-      completionStatus: setsCompleted >= exercise.sets ? 'completed' : 'partial',
-      confidence: Math.round(input.averageConfidence * 100) / 100
+      completionStatus: setsCompleted >= exercise.sets ? 'completed' : 'partial'
     }
   }
 

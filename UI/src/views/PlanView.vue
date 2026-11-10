@@ -116,29 +116,49 @@
     </section>
 
     <div v-if="view === 'week'" class="layout">
-      <BaseCard class="calendar animate-slide-in-up">
-        <div class="month">
-          <button aria-label="上一月" @click="shiftMonth(-1)"><ChevronLeft :size="18" /></button>
-          <strong>{{ monthLabel }}</strong>
-          <button aria-label="下一月" :disabled="!canForward" @click="shiftMonth(1)"><ChevronRight :size="18" /></button>
-        </div>
-        <div class="weekdays"><span v-for="d in weekdays" :key="d">{{ d }}</span></div>
-        <div class="calendar-grid">
-          <template v-for="(day, i) in cells" :key="i">
-            <span v-if="day === null" class="blank"></span>
-            <button
-              v-else
-              :class="{ today: isToday(day), selected: isSelected(day), rest: !hasPlan(day) }"
-              @click="select(day)"
-            ><span>{{ day }}</span><i v-if="hasPlan(day)"></i></button>
-          </template>
-        </div>
-        <div class="legend">
-          <span><i class="dot plan"></i>计划训练</span>
-          <span><i class="dot locked"></i>锁定项目</span>
-          <span><i class="dot rest-dot"></i>休息日</span>
-        </div>
-      </BaseCard>
+      <div class="plan-sidebar">
+        <BaseCard class="calendar animate-slide-in-up">
+          <div class="month">
+            <button aria-label="上一月" @click="shiftMonth(-1)"><ChevronLeft :size="18" /></button>
+            <strong>{{ monthLabel }}</strong>
+            <button aria-label="下一月" :disabled="!canForward" @click="shiftMonth(1)"><ChevronRight :size="18" /></button>
+          </div>
+          <div class="weekdays"><span v-for="d in weekdays" :key="d">{{ d }}</span></div>
+          <div class="calendar-grid">
+            <template v-for="(day, i) in cells" :key="i">
+              <span v-if="day === null" class="blank"></span>
+              <button
+                v-else
+                :class="{ today: isToday(day), selected: isSelected(day), rest: !hasPlan(day) }"
+                @click="select(day)"
+              ><span>{{ day }}</span><i v-if="hasPlan(day)"></i></button>
+            </template>
+          </div>
+          <div class="legend">
+            <span><i class="dot plan"></i>计划训练</span>
+            <span><i class="dot locked"></i>锁定项目</span>
+            <span><i class="dot rest-dot"></i>休息日</span>
+          </div>
+        </BaseCard>
+
+        <BaseCard class="plan-feedback">
+          <h2 id="plan-feedback-title">训练反馈</h2>
+          <form aria-labelledby="plan-feedback-title" @submit.prevent="submitPlanFeedback">
+            <p v-if="plan">调整 {{ plan.weekStartDate }} 至 {{ plan.weekEndDate }} 的计划 · v{{ plan.version }}</p>
+            <p v-else>所选周需要先有一份计划。</p>
+            <label>
+              <span>想调整什么？</span>
+              <textarea v-model="store.planFeedbackText" rows="3" maxlength="1000" placeholder="例如：周四没时间，把轻松跑移到周五，时长缩短到 20 分钟。" required />
+            </label>
+            <p>反馈、所选周计划和相关档案条件会发送给当前模型。确认草稿后才会更新计划。</p>
+            <p v-if="plan?.locked">当前计划已锁定。</p>
+            <p v-if="!store.planLlmReady">请先在 <RouterLink to="/settings">设置</RouterLink> 中启用可用模型。</p>
+            <BaseButton type="submit" size="sm" :disabled="!plan || plan.locked || !store.planLlmReady || !store.planFeedbackText.trim()">
+              根据反馈调整计划
+            </BaseButton>
+          </form>
+        </BaseCard>
+      </div>
 
       <BaseCard :key="selected" class="detail animate-slide-in-up">
         <div class="detail-head">
@@ -165,10 +185,10 @@
             <button
               class="mini follow"
               type="button"
-              :disabled="!isFollowable(item) || item.completed"
+              :disabled="item.completed"
               :title="item.completed
                 ? '这一项已完成；如需重练请到跟练页选择动作'
-                : isFollowable(item) ? '按这条计划启动跟练' : '该动作暂无跟练页；可以到跟练页自己挑一个'"
+                : '只跟练这一个动作'"
               @click="startItem(item)"
             >跟练</button>
             <button class="mini" :aria-pressed="item.completed" :disabled="!plan" @click="toggleComplete(item)">{{ item.completed ? '撤销完成' : '标记完成' }}</button>
@@ -190,8 +210,8 @@
         <div class="detail-actions">
           <BaseButton
             :icon="Play"
-            :disabled="!firstExercise"
-            :title="firstExercise ? '到跟练页跟练这一项' : '今天的项目里没有可跟练的动作；可以去跟练页自己挑一个'"
+            :disabled="!hasPendingItems"
+            :title="hasPendingItems ? '按顺序跟练所选日期的未完成项目' : '所选日期没有待跟练的项目'"
             @click="start"
           >开始跟练</BaseButton>
           <BaseButton variant="secondary" :icon="RefreshCw" :disabled="!replaceTargets.length" @click="showReplaceHelp">替换说明</BaseButton>
@@ -222,7 +242,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Plus, History, ChevronLeft, ChevronRight, Dumbbell, Lock, Play, RefreshCw,
@@ -239,7 +259,7 @@ import { buildDayPlan, alternativesFor } from '@/services/planRules'
 import { buildAdjustmentSuggestions } from '@/services/adjustmentRules'
 import type { AdjustmentSuggestion } from '@/services/adjustmentRules'
 import { findExercise } from '@/services/exercises'
-import { demoExercises, getDemoExercise } from '@/services/demoCameraService'
+import { demoExercises } from '@/services/demoCameraService'
 import { weekDates, weekStart, buildWeeklyReport } from '@/services/weekRules'
 
 const router = useRouter()
@@ -342,18 +362,7 @@ const selectedDateLabel = computed(() =>
 const eyebrow = computed(() => eyebrowDate(selectedDate.value).toUpperCase())
 const isPast = computed(() => selected.value < toISODate(now))
 const planTitle = computed(() => (planForSelected.value.some(i => i.type === '坐站训练') ? '无器械基础体能' : '今日安排'))
-/** 可跟练 = 跟练页有演示时间线的动作（与 demoExercises 同一份名单，新增动作自动跟宽） */
-const FOLLOWABLE_NAMES = new Set(demoExercises.map(d => d.name))
-const firstFollowable = computed(() =>
-  planForSelected.value.find(i => !i.completed && FOLLOWABLE_NAMES.has(i.exerciseName))
-  ?? planForSelected.value.find(i => FOLLOWABLE_NAMES.has(i.exerciseName))
-  ?? null
-)
-const firstExercise = computed(() => firstFollowable.value?.exerciseName ?? '')
-
-function isFollowable(item: PlanItem): boolean {
-  return FOLLOWABLE_NAMES.has(item.exerciseName)
-}
+const hasPendingItems = computed(() => planForSelected.value.some(item => !item.completed))
 
 /** 计划条目的组数/次数/保持/目标分钟；旧计划缺字段时回退动作库与 demo 默认 */
 function planSpec(item: PlanItem): string {
@@ -441,20 +450,8 @@ function select(day: number) {
 }
 
 function startItem(item?: PlanItem) {
-  const target = item ?? firstFollowable.value
-  if (!target || !isFollowable(target) || (item?.completed === true)) return
-  const demo = getDemoExercise(target.exerciseName)
-  const query: Record<string, string> = {
-    exercise: target.exerciseName,
-    planItemId: target.id,
-    sets: String(target.plannedSets ?? demo.sets)
-  }
-  if (demo.mode === 'time') query.hold = String(target.plannedHoldSeconds ?? demo.holdSeconds ?? 30)
-  else if (demo.mode === 'steps') {
-    const importedMinutes = plan.value?.source === 'image' ? target.plannedDuration : undefined
-    query.minutes = String(target.plannedTargetMinutes ?? importedMinutes ?? demo.targetMinutes ?? 20)
-  }
-  else query.reps = String(target.plannedReps ?? demo.repsPerSet)
+  if (item ? item.completed : !hasPendingItems.value) return
+  const query = { planDate: selected.value, planItemId: item?.id }
   router.push({ path: '/execution', query })
 }
 
@@ -630,6 +627,13 @@ function openModelPlan() {
   void store.generatePlanQuestions()
 }
 
+function submitPlanFeedback() {
+  if (!plan.value || plan.value.locked || !store.planLlmReady || !store.planFeedbackText.trim()) return
+  void store.generatePlanFeedback(selectedDate.value, store.planFeedbackText)
+}
+
+onUnmounted(() => { store.planFeedbackText = '' })
+
 function regenerate() {
   store.regenerateWeekPlan(selectedDate.value)
 }
@@ -682,6 +686,13 @@ watch(
 .manual-actions{display:flex;gap:8px;flex-wrap:wrap}
 .manual-error{font-size:12.5px;color:var(--color-danger);background:var(--color-danger-soft);border-radius:var(--radius-sm);padding:9px 12px;margin:0}
 .layout{display:grid;grid-template-columns:1.05fr 1fr;gap:14px;align-items:start}
+.plan-sidebar{display:grid;gap:14px;min-width:0}
+.plan-feedback h2{font-size:16px;margin:0 0 9px}
+.plan-feedback form{display:grid;gap:10px}
+.plan-feedback p,.plan-feedback label{font-size:12px;line-height:1.6;color:var(--color-text-secondary);margin:0}
+.plan-feedback label{display:grid;gap:5px}
+.plan-feedback textarea{width:100%;resize:vertical;padding:9px 11px;border:1px solid var(--color-border);border-radius:var(--radius-sm);font:inherit;color:var(--color-ink);background:var(--surface-field)}
+.plan-feedback form :deep(button){justify-self:start}
 /* 日历：月份头、7 列网格、图例三段；格子只在选中/今天才上色，其余留白 */
 .calendar{--card-pad:0 0 14px}
 .month{display:flex;align-items:center;justify-content:space-between;padding:12px 18px 10px;border-bottom:1px solid var(--hair-soft);margin-bottom:12px}
