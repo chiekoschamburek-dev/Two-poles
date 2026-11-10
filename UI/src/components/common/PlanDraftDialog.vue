@@ -13,7 +13,8 @@
         <!-- 生成中 -->
         <div v-if="state.status === 'loading'" class="state">
           <span class="spin" aria-hidden="true"></span>
-          <p>{{ state.loadingStage === 'questions' ? '模型正在看档案，准备几个问题…' : '正在结合档案与你的回答生成计划…' }}</p>
+          <p v-if="state.loadingStage === 'image'">正在读取图片中的训练内容…</p>
+          <p v-else>{{ state.loadingStage === 'questions' ? '模型正在看档案，准备几个问题…' : state.fromMaterials ? '正在根据提供的资料生成计划…' : '正在结合档案与你的回答生成计划…' }}</p>
           <small>通常 10–60 秒；模型慢的时候会更久，关闭窗口会放弃本次结果。</small>
         </div>
 
@@ -23,7 +24,12 @@
           <ul v-if="state.warnings.length" class="warns">
             <li v-for="w in state.warnings" :key="w">{{ w }}</li>
           </ul>
-          <small>可以在设置页检查 base_url / 模型名 / 密钥，或者换成手工计划。</small>
+          <details v-if="state.imageTranscript" class="fine image-reading">
+            <summary>查看图片识别结果</summary>
+            <p>{{ state.imageTranscript }}</p>
+          </details>
+          <small v-if="state.fromMaterials">可关闭窗口修改资料后重试。</small>
+          <small v-else>可以在设置页检查 base_url / 模型名 / 密钥，或者换成手工计划。</small>
         </div>
 
         <!-- 先问再生成 -->
@@ -70,6 +76,10 @@
             </button>
           </div>
           <p class="reason">{{ local.reason }}</p>
+          <details v-if="state.imageTranscript" class="fine image-reading">
+            <summary>查看图片识别结果</summary>
+            <p>{{ state.imageTranscript }}</p>
+          </details>
           <ul v-if="answerSummary.length" class="answers-summary">
             <li v-for="a in answerSummary" :key="a">{{ a }}</li>
           </ul>
@@ -81,8 +91,8 @@
             <section v-for="day in local.days" :key="day.date" class="day">
               <div class="day-head">
                 <span class="date">{{ day.date }}<i>{{ weekday(day.date) }}</i></span>
-                <span class="sum">{{ minutesOf(day) }} 分钟 · {{ day.items.length }} 项</span>
-                <button v-if="editing" class="rm" type="button" @click="removeDay(day)">移除这天</button>
+                <span class="sum"><template v-if="!imageImport || minutesOf(day)">{{ imageImport ? '已注明 ' : '' }}{{ minutesOf(day) }} 分钟 · </template>{{ day.items.length }} 项</span>
+                <button v-if="editing && !local.dayDate" class="rm" type="button" @click="removeDay(day)">移除这天</button>
               </div>
               <div class="item-head">
                 <span>动作</span><span>类型</span><span>时长</span><span>组</span><span>次</span><span></span>
@@ -101,10 +111,15 @@
                   <select v-model="it.type" class="type-input" aria-label="动作类型">
                     <option v-for="t in TRAINING_TYPES" :key="t" :value="t">{{ t }}</option>
                   </select>
-                  <input v-model.number="it.plannedDuration" class="n" type="number" min="1" max="180" aria-label="时长（分钟）" />
-                  <input v-model.number="it.plannedSets" class="n" type="number" min="1" max="20" aria-label="组数" />
-                  <input v-model.number="it.plannedReps" class="n" type="number" min="0" max="200" aria-label="次数" />
+                  <input v-model.number="it.plannedDuration" class="n" type="number" min="1" :max="imageImport ? undefined : 180" aria-label="时长（分钟）" />
+                  <input v-model.number="it.plannedSets" class="n" type="number" min="1" :max="imageImport ? undefined : 20" aria-label="组数" />
+                  <input v-model.number="it.plannedReps" class="n" type="number" :min="imageImport ? 1 : 0" :max="imageImport ? undefined : 200" aria-label="次数" />
                   <button class="rm" type="button" @click="removeItem(day, i)">删</button>
+                  <div v-if="imageImport" class="image-specs">
+                    <label>秒 <input v-model.number="it.plannedHoldSeconds" class="n" type="number" min="1" aria-label="单组秒数" /></label>
+                    <label>米 <input v-model.number="it.plannedDistance" class="n" type="number" min="1" aria-label="距离（米）" /></label>
+                    <input v-model="it.note" class="name-input" type="text" placeholder="原文备注" aria-label="原文备注" />
+                  </div>
                 </template>
                 <template v-else>
                   <span class="name">
@@ -112,10 +127,15 @@
                     <i v-if="it.notInLibrary" class="flag">动作库未收录</i>
                   </span>
                   <span class="type-cell">{{ it.type }}</span>
-                  <span class="num-cell">{{ it.plannedDuration }} min</span>
-                  <span class="num-cell">{{ it.plannedSets ?? '—' }} 组</span>
-                  <span class="num-cell">{{ it.plannedReps ?? '—' }} 次</span>
+                  <span class="num-cell">{{ it.plannedDuration ? `${it.plannedDuration} 分钟` : '—' }}</span>
+                  <span class="num-cell">{{ it.plannedSets !== undefined ? `${it.plannedSets} 组` : '—' }}</span>
+                  <span class="num-cell">{{ it.plannedReps !== undefined ? `${it.plannedReps} 次` : '—' }}</span>
                   <span></span>
+                  <small v-if="imageImport && (it.plannedHoldSeconds || it.plannedDistance || it.note)" class="image-specs">
+                    <span v-if="it.plannedHoldSeconds">{{ it.plannedHoldSeconds }} 秒</span>
+                    <span v-if="it.plannedDistance">{{ it.plannedDistance }} 米</span>
+                    <span v-if="it.note">{{ it.note }}</span>
+                  </small>
                 </template>
               </div>
               <button v-if="editing" class="add-item" type="button" @click="addItem(day)">+ 加一项</button>
@@ -132,8 +152,10 @@
           </div>
 
           <p class="fine">
-            模型只负责排课，不构成医疗或训练处方；录用前可以「修改计划」改动作、类型、时长、组次，也可以增删训练日。
-            录入后旧计划会存进版本历史，不会被覆盖。
+            <template v-if="imageImport">请对照图片核对动作、数量和日期。可通过「修改计划」修正识别结果。</template>
+            <template v-else>模型只负责排课，不构成医疗或训练处方。可通过「修改计划」调整项目。</template>
+            <template v-if="local.dayDate">确认后会把这些项目追加到 {{ local.dayDate }}，保留已有安排。</template>
+            <template v-else>确认后会用这份草稿更新 {{ weekIsoDates[0] }} 至 {{ weekIsoDates[6] }} 的整周安排，原计划保留在版本历史中。</template>
           </p>
           <datalist id="plan-exercise-names">
             <option v-for="n in exerciseNames" :key="n" :value="n" />
@@ -150,8 +172,8 @@
             </button>
           </template>
           <template v-else-if="state.status === 'ready'">
-            <button class="btn ghost" type="button" @click="regen">重新生成</button>
-            <button class="btn ghost" type="button" @click="reask">重新提问</button>
+            <button class="btn ghost" type="button" @click="regen">{{ imageImport ? '重新识别' : '重新生成' }}</button>
+            <button v-if="!state.fromMaterials" class="btn ghost" type="button" @click="reask">重新提问</button>
             <span class="spacer"></span>
             <button class="btn ghost" type="button" @click="close">先不录入</button>
             <button class="btn primary" type="button" :disabled="!totalItems" @click="confirm">
@@ -188,13 +210,14 @@ const open = computed(() => state.value.status !== 'idle')
 
 /** 本地副本：用户改完再确认，取消不污染 store */
 const local = ref<PlanDraft | null>(null)
+const imageImport = computed(() => local.value?.source === 'image')
 const editing = ref(false)
 const answers = ref<Record<string, string>>({})
 
 const exerciseNames = activeExercises().map(e => e.name)
-const weekIsoDates = weekDates(weekStart(new Date())).map(toISODate)
+const weekIsoDates = computed(() => state.value.weekDates ?? weekDates(weekStart(new Date())).map(toISODate))
 const addDate = ref('')
-const addableDates = computed(() => weekIsoDates.filter(d => !local.value?.days.some(x => x.date === d)))
+const addableDates = computed(() => local.value?.dayDate ? [] : weekIsoDates.value.filter(d => !local.value?.days.some(x => x.date === d)))
 watch(addableDates, dates => {
   if (!dates.includes(addDate.value)) addDate.value = dates[0] ?? ''
 }, { immediate: true })
@@ -228,6 +251,7 @@ const modelLabel = computed(() => {
 
 const title = computed(() => {
   if (state.value.status === 'loading') {
+    if (state.value.loadingStage === 'image') return '正在识别图片…'
     return state.value.loadingStage === 'questions' ? '正在准备问题…' : '正在生成计划…'
   }
   if (state.value.status === 'error') return '这次没生成成功'
@@ -236,7 +260,7 @@ const title = computed(() => {
 })
 
 const totalItems = computed(() => local.value?.days.reduce((n, d) => n
-  + d.items.filter(i => i.exerciseName.trim() && Number(i.plannedDuration) > 0).length, 0) ?? 0)
+  + d.items.filter(i => i.exerciseName.trim() && (imageImport.value || Number(i.plannedDuration) > 0)).length, 0) ?? 0)
 const allAnswered = computed(() => state.value.questions.length > 0
   && state.value.questions.every(q => (answers.value[q.id] ?? '').trim().length > 0))
 const answerSummary = computed(() => state.value.questions
@@ -254,6 +278,7 @@ function minutesOf(day: PlanDraftDay): number {
 }
 
 function blankItem(): PlanDraftItem {
+  if (imageImport.value) return { exerciseName: '', type: '其他', notInLibrary: true }
   return {
     exerciseName: '',
     type: '其他',
@@ -306,12 +331,12 @@ function reask() {
 }
 
 function regen() {
-  void store.generatePlanDraft()
+  void store.retryPlanDraft()
 }
 
 function retry() {
   if (state.value.loadingStage === 'questions') void store.generatePlanQuestions()
-  else void store.generatePlanDraft()
+  else void store.retryPlanDraft()
 }
 
 function close() {
@@ -320,8 +345,22 @@ function close() {
 
 function cleanItem(item: PlanDraftItem): PlanDraftItem | null {
   const exerciseName = item.exerciseName.trim()
+  if (!exerciseName) return null
+  if (imageImport.value) {
+    const positive = (value: number | undefined) => value && Number.isSafeInteger(value) && value > 0 ? value : undefined
+    return {
+      ...item,
+      exerciseName,
+      plannedDuration: positive(item.plannedDuration),
+      plannedSets: positive(item.plannedSets),
+      plannedReps: positive(item.plannedReps),
+      plannedHoldSeconds: positive(item.plannedHoldSeconds),
+      plannedDistance: positive(item.plannedDistance),
+      note: item.note?.trim() || undefined
+    }
+  }
   const duration = Number(item.plannedDuration)
-  if (!exerciseName || !Number.isFinite(duration) || duration <= 0) return null
+  if (!Number.isFinite(duration) || duration <= 0) return null
   const sets = item.plannedSets === undefined ? undefined : Number(item.plannedSets)
   const reps = item.plannedReps === undefined ? undefined : Number(item.plannedReps)
   return {
@@ -344,7 +383,7 @@ function confirm() {
       }))
       .filter(d => d.items.length)
   }
-  store.acceptPlanDraft(cleaned)
+  store.acceptPlanDraft(cleaned, new Date(`${weekIsoDates.value[0]}T00:00:00`))
 }
 </script>
 
@@ -411,6 +450,10 @@ function confirm() {
 .name .flag { font-style: normal; font-size: 10px; color: var(--color-caution); background: var(--color-caution-soft); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
 .type-cell { font-size: 11.5px; color: var(--color-text-secondary); white-space: nowrap; }
 .num-cell { font-family: var(--font-num); font-size: 11.5px; color: var(--color-text-secondary); white-space: nowrap; text-align: center; font-variant-numeric: tabular-nums; }
+.image-specs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--color-text-secondary); font-size: 11.5px; }
+.image-specs label { display: flex; align-items: center; gap: 4px; }
+.image-specs .n { width: 66px; }
+.image-specs .name-input { flex: 1 1 160px; }
 .n {
   width: 100%; padding: 6px 4px; border: 1px solid var(--color-border); border-radius: 8px; text-align: center;
   font-size: 12.5px; font-family: var(--font-num); color: var(--color-ink); background: var(--surface-field);
@@ -429,6 +472,8 @@ function confirm() {
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline-color: var(--pole-movement); }
 .day-empty { font-size: 12px; color: var(--color-text-muted); margin: 2px 0 6px; }
 .fine { font-size: 11.5px; color: var(--color-text-muted); line-height: 1.7; margin: 10px 22px 14px; }
+.image-reading summary { cursor: pointer; color: var(--color-text-secondary); }
+.image-reading p { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; margin: 6px 0 0; }
 
 .dlg-foot { display: flex; align-items: center; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--color-divider); background: var(--color-neutral-soft); flex-wrap: wrap; }
 .spacer { flex: 1; }
@@ -450,6 +495,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline-colo
   .days { padding: 6px 16px 4px; }
   .item-head { display: none; }
   .item { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
+  .image-specs { flex: 1 1 100%; }
   .name-input, .name { flex: 1 1 100%; }
   .type-input, .type-cell { flex: 1 1 110px; }
   .n { width: 64px; flex: none; }

@@ -1030,5 +1030,193 @@ ok('配额恢复后完成迁移并移除旧 key', recovered.sessions?.length ===
 ok('完整迁移后刷新可读到分类记录', loadStoredState().sessions?.length === 1)
 clearStoredState()
 
+console.log('\n24. 实时计数：帧连续性、遮挡、重置与校准')
+ok('浮点媒体时间统一为整数毫秒避免推理图时间戳冲突', nextTimestamp(1000.99999999, 999) === 1000)
+ok('同一毫秒内的伪新帧不会再次送入 MediaPipe', nextTimestamp(1000.00000001, 1000) === null)
+const counterRule = { neutral: 170, bottom: 55, hysteresis: 8, minStageMs: 100, minRepMs: 700, maxStageMs: 6000, minVisibility: 0.5 }
+function counterFixture(rule = counterRule) {
+  const counter = useRepCounter(rule)
+  let timestamp = 0
+  return { counter,
+    stage(angle: number | null, frames = 8, visibility = 0.95) {
+      for (let i = 0; i < frames; i++) { timestamp += 90; counter.feed(angle, visibility, timestamp) }
+    },
+    jump(ms: number) { timestamp += ms },
+    timestamp: () => timestamp
+  }
+}
+const missingFrame = counterFixture()
+missingFrame.stage(170); missingFrame.stage(50); missingFrame.stage(null, 1); missingFrame.stage(170)
+ok('关键点丢失后不能把残留半次记为一次', missingFrame.counter.count.value === 0)
+missingFrame.stage(50); missingFrame.stage(170)
+ok('关键点恢复并重新起始后可正常计数', missingFrame.counter.count.value === 1)
+const resetCounter = counterFixture()
+resetCounter.stage(170); resetCounter.stage(50); resetCounter.stage(170)
+resetCounter.counter.reset()
+resetCounter.stage(50); resetCounter.stage(170)
+ok('换组重置后必须重新确认起始位', resetCounter.counter.count.value === 0)
+resetCounter.stage(50); resetCounter.stage(170)
+ok('新组确认起始位后从 1 重新计数', resetCounter.counter.count.value === 1)
+const pauseCounter = counterFixture()
+pauseCounter.stage(170); pauseCounter.stage(50); pauseCounter.stage(170)
+pauseCounter.stage(50); pauseCounter.counter.interrupt(); pauseCounter.stage(170)
+ok('暂停保留已完成次数并丢弃未完成半次', pauseCounter.counter.count.value === 1)
+pauseCounter.stage(50); pauseCounter.stage(170)
+ok('暂停后可继续累计次数', pauseCounter.counter.count.value === 2)
+const gapCounter = counterFixture()
+gapCounter.stage(170); gapCounter.stage(50); gapCounter.jump(2000); gapCounter.stage(170)
+ok('摄像头断帧不能跨越缺失画面补计次数', gapCounter.counter.count.value === 0)
+const invalidCounter = counterFixture()
+invalidCounter.stage(170); invalidCounter.stage(50); invalidCounter.stage(NaN, 1); invalidCounter.stage(170)
+ok('非有限角度中断行程且不污染平滑窗口', invalidCounter.counter.count.value === 0)
+invalidCounter.stage(50); invalidCounter.stage(170)
+ok('无效角度恢复后仍可计数', invalidCounter.counter.count.value === 1)
+const repeated = counterFixture()
+repeated.stage(170)
+const sameTimestamp = repeated.timestamp()
+for (let i = 0; i < 100; i++) repeated.counter.feed(50, 0.95, sameTimestamp)
+repeated.stage(170)
+ok('同一个推理帧不能反复参与平滑或计数', repeated.counter.count.value === 0)
+repeated.counter.feed(null, 0, sameTimestamp - 10)
+ok('倒退帧不会覆盖当前有效阶段', repeated.counter.phase.value === 'ready')
+const opposite = counterFixture({ ...counterRule, neutral: 20, bottom: 155 })
+opposite.stage(20); opposite.stage(160); opposite.stage(20)
+ok('角度递增方向也按完整往返计一次', opposite.counter.count.value === 1)
+const calibratedCount = pauseCounter.counter.count.value
+const briefReturn = counterFixture({ ...counterRule, minStageMs: 220 })
+briefReturn.stage(170); briefReturn.stage(50); briefReturn.stage(170, 3)
+ok('自然回程短暂停留也能确认一次，不要求末端停住很久', briefReturn.counter.count.value === 1)
+const slowMovement = counterFixture()
+slowMovement.stage(170); slowMovement.stage(112, 45); slowMovement.stage(50, 20); slowMovement.stage(112, 5); slowMovement.stage(170)
+ok('单阶段未超时的缓慢完整行程不因总时长超过六秒漏计', slowMovement.counter.count.value === 1)
+const calibrated = await pauseCounter.counter.calibrate(() => ({ angle: 165, visibility: 0.95 }), 300)
+ok('机位校准保留已计次数', calibrated && pauseCounter.counter.count.value === calibratedCount)
+const stalledCalibration = await pauseCounter.counter.calibrate(() => ({ angle: 165, visibility: 0.95, timestamp: 10 }), 300)
+ok('冻结画面不能靠重复采样通过机位校准', !stalledCalibration)
+const failedStart = await pauseCounter.counter.calibrate(() => ({ angle: 55, visibility: 0.95 }), 300)
+ok('在动作末端校准不会生成失效阈值', !failedStart && pauseCounter.counter.calibratedNeutral.value === 165)
+const visibleRight = body({
+  11: { x: 0.4, y: 0.2, visibility: 0.2 }, 13: { x: 0.4, y: 0.4, visibility: 0.2 }, 15: { x: 0.6, y: 0.4, visibility: 0.2 },
+  12: { x: 0.6, y: 0.2 }, 14: { x: 0.6, y: 0.4 }, 16: { x: 0.8, y: 0.4 }
+})
+const rightMetrics = computeMetrics(visibleRight)
+ok('左臂遮挡时选择可见的右臂关节计数', rightMetrics.elbowSide === 'right' && rightMetrics.elbowAngle === 90 && rightMetrics.elbowVisibility === 0.9)
+const hiddenWrist = body({ 11: { x: 0.4, y: 0.2 }, 13: { x: 0.4, y: 0.4 }, 15: { x: 0.6, y: 0.4, visibility: 0.1 } })
+ok('单个关键关节遮挡不能被全身平均可见度掩盖', computeMetrics(hiddenWrist).elbowVisibility === 0.1)
+ok('非有限关键点坐标不产生角度', angleAt({ x: NaN, y: 0 } as Lm, { x: 0, y: 0 } as Lm, { x: 1, y: 1 } as Lm) === null)
+const manualSummary = summarizeSession({ exercise: sitOverride, setsCompleted: 1, repsBySet: [5], averageConfidence: 0, manualCorrections: 0, elapsedMs: 30_000 })
+ok('手动与演示记录不会伪装成使用了摄像头', manualSummary.cameraUsed === false && manualSummary.countedReps === undefined)
+const modelSummary = summarizeSession({ exercise: sitOverride, setsCompleted: 1, repsBySet: [5], cameraUsed: true, countedReps: 4, averageConfidence: 0.9, manualCorrections: 1, elapsedMs: 30_000 })
+ok('模型次数与修正后的实际次数分别保存', modelSummary.cameraUsed && modelSummary.countedReps === 4 && modelSummary.actualReps === 5)
+
+console.log('\n25. 图片导入：保留动作和规格，日期有据可查')
+const fetchBeforeImageCheck = globalThis.fetch
+const modelBeforeImageCheck = store.llmDefault
+const imageRequests: unknown[] = []
+const imageItems = [
+  { exerciseName: '平板支撑', plannedHoldSeconds: 30 },
+  { exerciseName: '死虫式', plannedReps: 20 },
+  { exerciseName: '龙旗', plannedReps: 5 },
+  { exerciseName: '跳绳', plannedHoldSeconds: 30 },
+  { exerciseName: '站立抬腿', plannedReps: 10, note: '1-2组' },
+  { exerciseName: '上坡立定跳', plannedSets: 4, plannedReps: 5, note: '间歇2分钟' },
+  { exerciseName: '上坡跑', plannedSets: 4, plannedDistance: 100 }
+]
+const recognizedSchedule = '平板支撑30秒+死虫式20个+龙旗5次+跳绳30秒\n站立抬腿10次×1-2组\n上坡立定跳5次×4组 间歇2分钟\n上坡跑100米4组'
+const reference = new Date(2026, 10, 10)
+const imageDataUrl = 'data:image/jpeg;base64,dGVzdA=='
+let reply: unknown = { reason: '安排轻松跑', days: [{ date: '2026-11-09', items: [{ exerciseName: '轻松跑', plannedDuration: 23 }] }] }
+try {
+  store.llmDefault = { available: true, model: 'mock-vision', route: 'ok' }
+  globalThis.fetch = async (_url, init) => {
+    const content: unknown = JSON.parse(String(init?.body)).messages[1].content
+    imageRequests.push(content)
+    return Response.json({ model: 'mock-vision', text: JSON.stringify(reply) })
+  }
+  await store.generatePlanDraft(reference, {}, { text: '', imageDataUrl })
+  ok('模型未返回图片转录时停止导入', store.planDraftState.status === 'error'
+    && !store.planDraftState.draft && imageRequests.length === 1)
+  reply = { readable: true, transcript: recognizedSchedule, days: [{ date: null, items: [{ exerciseName: '肩环绕' }] }] }
+  await store.retryPlanDraft()
+  ok('重试仍使用原图片', JSON.stringify(imageRequests[1]) === JSON.stringify(imageRequests[0]))
+  ok('拒绝转录中不存在的动作并展示转录', store.planDraftState.status === 'error'
+    && store.planDraftState.imageTranscript === recognizedSchedule && !store.planDraftState.draft)
+  reply = { readable: true, transcript: recognizedSchedule, days: [{ date: '周三', items: imageItems }] }
+  await store.retryPlanDraft()
+  ok('没有来源的日期不会写入草稿', store.planDraftState.status === 'error'
+    && store.planDraftState.error.includes('日期') && !store.planDraftState.draft)
+  reply = { readable: true, transcript: recognizedSchedule, days: [{ date: null, items: imageItems }] }
+  const requestsBefore = imageRequests.length
+  await store.retryPlanDraft()
+  const draft = store.planDraftState.draft
+  const importedItems = draft?.days[0]?.items ?? []
+  ok('图片成功后直接进入草稿，无二次排课请求', store.planDraftState.status === 'ready'
+    && store.planDraftState.imageTranscript === recognizedSchedule
+    && imageRequests.length === requestsBefore + 1 && Array.isArray(imageRequests[requestsBefore]))
+  ok('未注明日期时使用日历所选日期并提示', draft?.days[0].date === '2026-11-10'
+    && store.planDraftState.warnings.some(w => w.includes('2026-11-10')))
+  ok('原动作名和顺序全部保留，包括动作库未收录的项目', importedItems.map(i => i.exerciseName).join('|')
+    === imageItems.map(i => i.exerciseName).join('|') && importedItems.some(i => i.notInLibrary))
+  ok('缺失的数值留空，秒数、距离、次数、组数和间歇保持原规格',
+    importedItems.every(i => i.plannedDuration === undefined)
+    && importedItems[0]?.plannedHoldSeconds === 30 && importedItems[0]?.plannedSets === undefined
+    && importedItems[1]?.plannedReps === 20
+    && importedItems[4]?.plannedSets === undefined && importedItems[4]?.note === '1-2组'
+    && importedItems[5]?.plannedSets === 4 && importedItems[5]?.plannedReps === 5 && importedItems[5]?.note === '间歇2分钟'
+    && importedItems[6]?.plannedDistance === 100 && importedItems[6]?.plannedSets === 4)
+  const saved = draft && store.acceptPlanDraft(draft, reference)
+  ok('保存后原动作、单位和组数范围仍可用', saved?.source === 'image'
+    && saved.items.length === imageItems.length && saved.items[0]?.plannedHoldSeconds === 30
+    && saved.items[4]?.note === '1-2组' && saved.items[6]?.plannedDistance === 100)
+  reply = { readable: true, transcript: recognizedSchedule, days: [{ date: '周三', items: imageItems }] }
+  await store.generatePlanDraft(reference, {}, { text: '这组是星期三的训练', imageDataUrl })
+  ok('用户补充的星期可映射到计划周', store.planDraftState.draft?.days[0].date === '2026-11-11')
+
+  console.log('\n26. 手工录入范围：按天追加，按周使用完整周')
+  const newYearDay = new Date(2027, 0, 1)
+  const previous = store.ensureWeekPlan(newYearDay)
+  const onOtherDay = store.addManualItem(previous.id, { date: '2026-12-31', exerciseName: '周四的已有训练', minutes: 15 })
+  const onTargetDay = store.addManualItem(previous.id, { date: '2027-01-01', exerciseName: '周五的已有训练', minutes: 10 })
+  if (onTargetDay) store.markItemCompleted(previous.id, onTargetDay.id, true)
+  const daySource = { scope: 'day' as const, text: '第一段是周四', imageDataUrl }
+  reply = { readable: true, transcript: recognizedSchedule, days: [{ date: '周四', items: imageItems }] }
+  await store.generatePlanDraft(newYearDay, {}, daySource)
+  ok('按天导入时，图片中另一天的日期会明确报错', store.planDraftState.status === 'error'
+    && store.planDraftState.error.includes('所选训练日期不符'))
+  reply = { readable: true, transcript: recognizedSchedule, days: [{ date: null, items: imageItems }] }
+  await store.generatePlanDraft(newYearDay, {}, { ...daySource, text: '' })
+  const dayDraft = store.planDraftState.draft
+  ok('按天草稿只使用所选日期，并保留该日期所属周的范围', dayDraft?.dayDate === '2027-01-01'
+    && dayDraft.days.length === 1 && dayDraft.days[0].date === '2027-01-01'
+    && store.planDraftState.weekDates?.[0] === '2026-12-28' && store.planDraftState.weekDates?.[6] === '2027-01-03')
+  if (dayDraft) {
+    const wrongDate = { ...dayDraft, days: dayDraft.days.map(day => ({ ...day, date: '2026-12-31' })) }
+    ok('确认时再次拦截超出所选日期的草稿', store.acceptPlanDraft(wrongDate, newYearDay) === null)
+  }
+  const updated = dayDraft && store.acceptPlanDraft(dayDraft, newYearDay)
+  ok('按天保存追加到原计划，保留同日、其他日期及完成状态', !!updated
+    && updated.version === previous.version + 1 && updated.items.length === previous.items.length + imageItems.length
+    && updated.items.some(item => item.id === onOtherDay?.id && item.planId === updated.id)
+    && updated.items.some(item => item.id === onTargetDay?.id && item.completed))
+
+  const textItems = [{ exerciseName: '轻松跑', plannedDuration: 20 }]
+  reply = { days: [{ date: '2026-12-31', items: textItems }, { date: '2027-01-01', items: textItems }] }
+  await store.generatePlanDraft(newYearDay, {}, { scope: 'day', text: '轻松跑 20 分钟' })
+  const dayText = imageRequests.at(-1)
+  ok('按天生成文本只发所选日期，草稿过滤其他日期',
+    typeof dayText === 'string' && dayText.includes('2027-01-01') && !dayText.includes('2026-12-31')
+    && store.planDraftState.draft?.days.length === 1 && store.planDraftState.draft.days[0].date === '2027-01-01')
+  await store.generatePlanDraft(newYearDay, {}, { scope: 'week', text: '周四和周五各轻松跑 20 分钟' })
+  const weekText = imageRequests.at(-1)
+  const weekDraft = store.planDraftState.draft
+  ok('按周选择周内一天时，模型与草稿使用完整的跨年周',
+    typeof weekText === 'string' && weekText.includes('2026-12-28') && weekText.includes('2027-01-03')
+    && !!weekDraft && !weekDraft.dayDate && weekDraft.days.length === 2)
+} finally {
+  store.resetPlanDraft()
+  store.llmDefault = modelBeforeImageCheck
+  globalThis.fetch = fetchBeforeImageCheck
+}
+
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

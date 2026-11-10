@@ -1,9 +1,9 @@
-import { ref, onUnmounted } from 'vue'
+import { ref, shallowRef, onUnmounted } from 'vue'
 import { DrawingUtils, PoseLandmarker } from '@mediapipe/tasks-vision'
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision'
 import { createPoseEngine, createMainThreadPoseEngine } from './poseEngine'
 import type { PoseEngine } from './poseEngine'
-import { nextTimestamp } from './poseMath'
+import { EMPTY_POSE_METRICS, nextTimestamp } from './poseMath'
 import type { PoseMetrics } from './poseMath'
 
 export type PoseCameraStatus = 'idle' | 'starting' | 'live' | 'unsupported' | 'denied' | 'error'
@@ -12,7 +12,7 @@ const WASM_PATH = '/mediapipe/wasm'
 const MODEL_PATH = '/mediapipe/models/pose_landmarker_lite.task'
 const MODEL_PATHS = { wasmPath: WASM_PATH, modelPath: MODEL_PATH }
 
-const EMPTY_METRICS: PoseMetrics = { kneeAngle: null, hipAngle: null, elbowAngle: null, visibility: 0 }
+export type PoseSample = PoseMetrics & { timestamp: number }
 
 /**
  * 只负责"看见"：拉摄像头、跑端侧姿态推理、输出关键点与关节角。
@@ -27,6 +27,8 @@ export function usePoseCamera() {
   const hipAngle = ref<number | null>(null)
   const elbowAngle = ref<number | null>(null)
   const visibility = ref(0)
+  /** 一个原子采样值对应一个新推理帧，计数端不得按屏幕刷新率重复消费。 */
+  const sample = shallowRef<PoseSample | null>(null)
   /** 实际生效的后端与推理落点，供界面如实显示，不猜 */
   const delegate = ref<'GPU' | 'CPU' | null>(null)
   const runsIn = ref<'worker' | 'main' | null>(null)
@@ -99,13 +101,22 @@ export function usePoseCamera() {
     const ts = nextTimestamp(mediaTimeSeconds(metadata) * 1000, lastTs)
     if (ts === null) return
     lastTs = ts
+    const seq = startSeq
+    const currentEngine = engine
     busy = true
     try {
-      const { landmarks, metrics } = await engine.detect(await createImageBitmap(video), ts)
+      const bitmap = await createImageBitmap(video)
+      if (seq !== startSeq || currentEngine !== engine) {
+        bitmap.close()
+        return
+      }
+      const { landmarks, metrics } = await currentEngine.detect(bitmap, ts)
+      if (seq !== startSeq || currentEngine !== engine) return
       applyMetrics(metrics)
+      sample.value = { ...metrics, timestamp: ts }
       draw(landmarks)
-      delegate.value = engine.state.delegate
-      runsIn.value = engine.state.runsIn
+      delegate.value = currentEngine.state.delegate
+      runsIn.value = currentEngine.state.runsIn
       frames++
       if (now - fpsClock >= 1000) {
         fps.value = frames
@@ -113,9 +124,9 @@ export function usePoseCamera() {
         fpsClock = now
       }
     } catch (err) {
-      await recover((err as Error)?.message || '未知错误')
+      if (seq === startSeq && currentEngine === engine) await recover((err as Error)?.message || '未知错误')
     } finally {
-      busy = false
+      if (seq === startSeq) busy = false
     }
   }
 
@@ -141,7 +152,7 @@ export function usePoseCamera() {
       }
     }
     if (seq !== startSeq) return
-    errorMessage.value = `端侧推理失败：${reason}，已退回演示模式`
+    errorMessage.value = `端侧推理失败：${reason}。自动计数已暂停，可重试或手动计数`
     stop()
     status.value = 'error'
   }
@@ -163,7 +174,8 @@ export function usePoseCamera() {
     engine?.close()
     engine = null
     stopStream()
-    applyMetrics(EMPTY_METRICS)
+    applyMetrics(EMPTY_POSE_METRICS)
+    sample.value = null
     fps.value = 0
     delegate.value = null
     runsIn.value = null
@@ -310,6 +322,7 @@ export function usePoseCamera() {
     hipAngle,
     elbowAngle,
     visibility,
+    sample,
     delegate,
     runsIn,
     startingStage,

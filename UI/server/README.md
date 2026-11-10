@@ -67,7 +67,7 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 
 ```bash
 npm run typecheck
-npm run selfcheck   # 358 项：领域逻辑、outbox、迁移配额恢复
+npm run selfcheck   # 382 项：领域逻辑、存储、迁移、跟练计数
 npm run test:sync   # 5 项：MSW、401、重试、并发编辑、离线恢复、计划 v1→v5
 npm run test:api    # 18 项：认证、幂等、If-Match、并发409、隔离、周报、导出、清除
 npm run build

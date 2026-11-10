@@ -18,12 +18,13 @@ import {
   extractJson,
   fetchLlmStatus,
   loadLlmConfig,
+  readPlanImage,
   saveLlmConfig,
   validatePlanDraft,
   validatePlanQuestions
 } from '@/services/llm'
-import type { LlmConfig, LlmDefaultStatus, PlanDraft, PlanDraftState } from '@/services/llm'
-import { weekStart } from '@/services/weekRules'
+import type { LlmConfig, LlmDefaultStatus, PlanDraft, PlanDraftState, PlanSourceInput } from '@/services/llm'
+import { weekDates, weekStart } from '@/services/weekRules'
 import { WELLNESS_DISMISS_KEY } from '@/services/wellnessCards'
 import { toISODate } from '@/utils/time'
 import { clearStoredState, loadStoredState, saveStoredState, clearSyncMeta } from '@/services/storage'
@@ -632,7 +633,7 @@ export const useAppStore = defineStore('app', () => {
       conflicts: generated.conflicts,
       auto: generated.auto,
       gateNote: generated.gateNote,
-      stale: !!p && p.source !== 'llm' && !p.reason.includes(PLAN_RULES_VERSION)
+      stale: !!p && p.source !== 'llm' && p.source !== 'image' && !p.reason.includes(PLAN_RULES_VERSION)
     }
   }
 
@@ -672,6 +673,8 @@ export const useAppStore = defineStore('app', () => {
   })
   /** 关闭弹窗/重新提问后，旧请求的晚到结果不再把弹窗重新打开 */
   let planRequestId = 0
+  // 只为当前草稿保留生成资料，供重试或重新生成使用。
+  let lastDraftRequest: { reference: Date; source?: PlanSourceInput } | undefined
 
   /** 切换用哪个模型；只改偏好，已填的 base_url / key / 模型名原样保留 */
   function setLlmPreference(preference: 'custom' | 'default') {
@@ -691,6 +694,7 @@ export const useAppStore = defineStore('app', () => {
 
   function resetPlanDraft() {
     planRequestId++
+    lastDraftRequest = undefined
     planDraftState.value = {
       status: 'idle',
       loadingStage: null,
@@ -703,24 +707,19 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function planWeekDates(reference: Date): string[] {
-    const start = weekStart(reference)
-    const dates: string[] = []
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(start)
-      d.setDate(start.getDate() + i)
-      dates.push(toISODate(d))
-    }
-    return dates
+    return weekDates(weekStart(reference)).map(toISODate)
   }
 
-  function planModelError(): string {
-    if (!userProfile.value) return '还没有建档，先填档案再生成。'
+  function planModelError(requireProfile = true): string {
+    if (requireProfile && !userProfile.value) return '还没有建档，先填档案再生成。'
     if (!planLlmReady.value) return '既没有配置自己的模型，服务端也没有配默认模型。可以到设置页填写，或继续使用内置规则计划。'
     return ''
   }
 
   /** 第一阶段：先让模型看档案，问 1–3 个会改变排课的问题 */
   async function generatePlanQuestions(reference: Date = new Date()) {
+    const requestId = ++planRequestId
+    lastDraftRequest = undefined
     const guard = planModelError()
     if (guard) {
       planDraftState.value = {
@@ -734,7 +733,6 @@ export const useAppStore = defineStore('app', () => {
       }
       return
     }
-    const requestId = ++planRequestId
     planDraftState.value = {
       status: 'loading',
       loadingStage: 'questions',
@@ -784,63 +782,90 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  /** 第二阶段：用户回答后生成草稿；只写进 planDraftState，不碰 plans */
-  async function generatePlanDraft(reference: Date = new Date(), answers: Record<string, string> = planDraftState.value.answers) {
-    const guard = planModelError()
+  /** 用户回答或提供资料后生成可编辑草稿。 */
+  async function generatePlanDraft(
+    reference: Date = new Date(),
+    answers: Record<string, string> = planDraftState.value.answers,
+    source?: PlanSourceInput
+  ) {
+    const requestId = ++planRequestId
+    lastDraftRequest = { reference, source }
+    const weekDates = planWeekDates(reference)
+    const dayDate = source?.scope === 'day' ? toISODate(reference) : undefined
+    const dates = dayDate ? [dayDate] : weekDates
+    const context = {
+      questions: source ? [] : planDraftState.value.questions,
+      answers: source ? {} : answers,
+      weekDates,
+      fromMaterials: !!source
+    }
+    const guard = source && !source.text.trim() && !source.imageDataUrl
+      ? '请填写训练安排或添加一张图片。' : planModelError(!source)
     if (guard) {
       planDraftState.value = {
         status: 'error',
         loadingStage: 'plan',
-        questions: planDraftState.value.questions,
-        answers,
+        ...context,
         draft: null,
         error: guard,
         warnings: []
       }
       return
     }
-    const questions = planDraftState.value.questions
-    const requestId = ++planRequestId
     planDraftState.value = {
       status: 'loading',
-      loadingStage: 'plan',
-      questions,
-      answers,
+      loadingStage: source?.imageDataUrl ? 'image' : 'plan',
+      ...context,
       draft: null,
       error: '',
       warnings: []
     }
-    const dates = planWeekDates(reference)
-    const messages = buildPlanMessages(userProfile.value!, dates, currentMode.value, { questions, answers })
-    const res = await callPlanProxy(llmConfig.value, messages)
+    const config = llmConfig.value
+    if (source?.imageDataUrl) {
+      const reading = await readPlanImage(config, source.imageDataUrl, dates, toISODate(reference), source.text)
+      if (requestId !== planRequestId) return
+      planDraftState.value = {
+        ...context,
+        status: reading.draft ? 'ready' : 'error',
+        loadingStage: reading.draft ? null : 'image',
+        draft: reading.draft ? { ...reading.draft, dayDate } : null,
+        imageTranscript: reading.transcript,
+        error: reading.error,
+        warnings: reading.warnings
+      }
+      return
+    }
+    const messages = buildPlanMessages(userProfile.value, dates, currentMode.value, context, source)
+    const res = await callPlanProxy(config, messages)
     if (requestId !== planRequestId) return
     if (res.error) {
       planDraftState.value = {
         status: 'error',
         loadingStage: 'plan',
-        questions,
-        answers,
+        ...context,
         draft: null,
         error: res.error,
         warnings: []
       }
       return
     }
-    const check = validatePlanDraft(extractJson(res.text), dates, llmConfig.value.model)
+    const raw = extractJson(res.text) as { days?: unknown; reason?: unknown } | null
+    const check = validatePlanDraft(raw, dates, res.model || config.model)
     if (!check.draft) {
+      const sourceError = source && Array.isArray(raw?.days) && !raw.days.length && typeof raw.reason === 'string'
+        ? raw.reason.trim().slice(0, 200) : ''
       planDraftState.value = {
         status: 'error',
         loadingStage: 'plan',
-        questions,
-        answers,
+        ...context,
         draft: null,
-        error: check.error,
+        error: sourceError || check.error,
         warnings: check.warnings
       }
       return
     }
     const warnings = [...check.warnings]
-    const requested = desiredWeeklySessions(questions, answers)
+    const requested = desiredWeeklySessions(context.questions, context.answers)
     if (requested !== null) {
       if (check.draft.days.length < requested) {
         warnings.push(`你希望每周 ${requested} 次，这份草稿目前只有 ${check.draft.days.length} 个训练日。可以点「修改计划」补足，或重新生成。`)
@@ -851,24 +876,23 @@ export const useAppStore = defineStore('app', () => {
     planDraftState.value = {
       status: 'ready',
       loadingStage: null,
-      questions,
-      answers,
-      draft: check.draft,
+      ...context,
+      draft: { ...check.draft, dayDate },
       error: '',
       warnings
     }
   }
 
-  /** 用户确认：草稿成为本周计划；旧版本进历史，不就地覆盖 */
+  function retryPlanDraft() {
+    return generatePlanDraft(lastDraftRequest?.reference, planDraftState.value.answers, lastDraftRequest?.source)
+  }
+
+  /** 用户确认：单日追加项目，整周启用新安排。 */
   function acceptPlanDraft(draft: PlanDraft, reference: Date = new Date()): Plan | null {
-    const start = weekStart(reference)
-    const end = new Date(start)
-    end.setDate(start.getDate() + 6)
+    const dates = planWeekDates(reference)
+    const allowed = draft.dayDate ? dates.filter(date => date === draft.dayDate) : dates
+    if (draft.days.some(day => !allowed.includes(day.date))) return null
     const old = weekPlan(reference)
-    if (old) {
-      planHistory.value.push({ ...old, items: old.items.map(i => ({ ...i })) })
-      plans.value = plans.value.filter(p => p.id !== old.id)
-    }
     const id = newId()
     const items: PlanItem[] = []
     for (const day of draft.days) {
@@ -880,6 +904,8 @@ export const useAppStore = defineStore('app', () => {
           exerciseName: it.exerciseName,
           type: it.type,
           plannedDuration: it.plannedDuration,
+          plannedHoldSeconds: it.plannedHoldSeconds,
+          plannedDistance: it.plannedDistance,
           plannedSets: it.plannedSets,
           plannedReps: it.plannedReps,
           note: it.note,
@@ -889,6 +915,11 @@ export const useAppStore = defineStore('app', () => {
       }
     }
     if (!items.length) return null
+    const carried = draft.dayDate && old ? old.items.map(item => ({ ...item, planId: id })) : []
+    if (old) {
+      planHistory.value.push({ ...old, items: old.items.map(i => ({ ...i })) })
+      plans.value = plans.value.filter(p => p.id !== old.id)
+    }
     const plan: Plan = {
       id,
       userId: userProfile.value?.id || 'demo-user',
@@ -896,11 +927,11 @@ export const useAppStore = defineStore('app', () => {
       createdAt: new Date().toISOString(),
       mode: currentMode.value,
       reason: `${draft.reason}（模型：${draft.model || '未命名'}，已由你确认 · ${PLAN_RULES_VERSION}）`,
-      weekStartDate: toISODate(start),
-      weekEndDate: toISODate(end),
-      items,
-      locked: false,
-      source: 'llm'
+      weekStartDate: dates[0],
+      weekEndDate: dates[6],
+      items: [...carried, ...items],
+      locked: draft.dayDate ? (old?.locked ?? false) : false,
+      source: draft.source === 'image' || (draft.dayDate && old?.source === 'image') ? 'image' : 'llm'
     }
     plans.value.push(plan)
     persistState()
@@ -909,7 +940,9 @@ export const useAppStore = defineStore('app', () => {
     showToast({
       type: 'success',
       title: '计划已录入',
-      message: `v${plan.version} · ${draft.days.length} 个训练日，可在计划页继续调整`,
+      message: draft.dayDate
+        ? `${draft.dayDate} · 已追加 ${items.length} 项，计划更新为 v${plan.version}`
+        : `${plan.weekStartDate} 至 ${plan.weekEndDate} · v${plan.version} · ${draft.days.length} 个训练日`,
       duration: 3500
     })
     return plan
@@ -1449,6 +1482,7 @@ export const useAppStore = defineStore('app', () => {
     refreshLlmStatus,
     generatePlanQuestions,
     generatePlanDraft,
+    retryPlanDraft,
     acceptPlanDraft,
     resetPlanDraft,
     acceptAdjustment,

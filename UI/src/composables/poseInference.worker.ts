@@ -1,7 +1,7 @@
 // 端侧姿态推理的工作线程：模型与推理都不占主线程，画面仍只在本机处理。
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision'
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision'
-import { computeMetrics } from './poseMath'
+import { computeMetrics, EMPTY_POSE_METRICS } from './poseMath'
 import type { PoseMetrics } from './poseMath'
 import { createPoseLandmarker } from './poseLandmarkerFactory'
 import type { PoseDelegate, PoseModelPaths, VisionFileset } from './poseLandmarkerFactory'
@@ -21,7 +21,7 @@ const emit = (message: WorkerResponse) => {
   ;(globalThis as unknown as { postMessage: (m: WorkerResponse) => void }).postMessage(message)
 }
 
-const EMPTY_METRICS: PoseMetrics = { kneeAngle: null, hipAngle: null, elbowAngle: null, visibility: 0 }
+const EMPTY_METRICS: PoseMetrics = EMPTY_POSE_METRICS
 
 let vision: VisionFileset | null = null
 let landmarker: PoseLandmarker | null = null

@@ -281,6 +281,9 @@ export interface SessionInput {
   repsBySet: number[]
   /** steps 模式：DeviceMotion 计到的步数（0 = 未计步，落库时不写 actualReps） */
   steps?: number
+  cameraUsed?: boolean
+  countedReps?: number
+  notes?: string
   averageConfidence: number
   manualCorrections: number
   elapsedMs: number
@@ -303,8 +306,9 @@ export function summarizeSession(input: SessionInput): Omit<TrainingSession, 'id
     actualSets: setsCompleted,
     rpe: null,
     discomfort: false,
-    cameraUsed: false,
-    manualCorrections: input.manualCorrections
+    cameraUsed: input.cameraUsed ?? false,
+    manualCorrections: input.manualCorrections,
+    notes: input.notes
   }
 
   if (exercise.mode === 'time') {
@@ -332,7 +336,7 @@ export function summarizeSession(input: SessionInput): Omit<TrainingSession, 'id
   const allSetsDone = setsCompleted >= exercise.sets && repsBySet.length === exercise.sets
   return {
     ...base,
-    cameraUsed: true,
+    countedReps: input.cameraUsed ? input.countedReps ?? 0 : undefined,
     actualReps,
     completionStatus: allSetsDone && actualReps >= plannedReps ? 'completed' : 'partial',
     confidence: Math.round(input.averageConfidence * 100) / 100

@@ -29,8 +29,8 @@
       <div class="strip-cell primary">
         <!-- 中间格按课次类型自适应：计次 / 计时保持 / 计步（F18） -->
         <template v-if="isRepsMode">
-          <span class="strip-label">本组完成次数</span>
-          <div class="strip-num">{{ displayReps }}<i>/{{ exercise.repsPerSet }}</i></div>
+          <span class="strip-label">{{ countMode === 'demo' ? '本组演示次数' : '本组完成次数' }}</span>
+          <div class="strip-num" data-testid="rep-count" aria-live="polite">{{ displayReps }}<i>/{{ exercise.repsPerSet }}</i></div>
           <div class="strip-dots" :style="{ gridTemplateColumns: 'repeat(' + Math.min(exercise.repsPerSet, 10) + ', 1fr)' }">
             <span v-for="n in exercise.repsPerSet" :key="n" :class="{ done: n <= displayReps }"></span>
           </div>
@@ -53,34 +53,61 @@
       </div>
     </div>
 
+    <div v-if="isRepsMode" class="counting-controls" aria-label="计数方式">
+      <div class="counting-sources">
+        <button type="button" class="chip" :class="{ active: countMode === 'camera' }" :aria-pressed="countMode === 'camera'"
+          :disabled="!cameraRule || !store.privacy.cameraEnabled || finished || calibrating" @click="startCamera">摄像头计数</button>
+        <button type="button" class="chip" :class="{ active: countMode === 'manual' }" :aria-pressed="countMode === 'manual'"
+          :disabled="finished || calibrating" @click="useManualCounting">手动计数</button>
+        <button type="button" class="chip" :class="{ active: countMode === 'demo' }" :aria-pressed="countMode === 'demo'"
+          :disabled="finished || calibrating" @click="useDemoCounting">节奏演示</button>
+      </div>
+      <div class="manual-count-buttons">
+        <button type="button" aria-label="减少一次" :disabled="!canCount || reps === 0" @click="changeManualCount(-1)">−1</button>
+        <button type="button" aria-label="完成一次" :disabled="!canCount" @click="changeManualCount(1)">+1 完成一次</button>
+      </div>
+      <p role="status">{{ countingHint }}</p>
+    </div>
+
     <div class="stage-grid">
-      <!-- 左：演示动作（始终播放；摄像头开启时剪影同步被识别到的阶段） -->
+      <!-- 左：本地真人动作演示。视频独立循环，训练计数仍由原有时间线或摄像头负责。 -->
       <BaseCard class="pane pane-demo glass animate-slide-in-up">
         <div class="pane-head">
           <span class="pane-title">演示动作</span>
-          <span class="pane-note">跟随示意节奏</span>
+          <span class="pane-note">真人动作示范</span>
         </div>
         <div class="pane-body">
           <div class="demo-frame">
-            <template v-if="isRepsMode">
-            <div class="skeleton-overlay">
-              <TrainingFigure :kind="figureKind" :phase="stageClass" />
-            </div>
+            <template v-if="demoVideo && !demoVideoFailed">
+              <video ref="demoVideoRef" :key="demoVideo.file" class="demo-video" :src="`/demo-videos/${demoVideo.file}`"
+                autoplay loop muted playsinline preload="metadata" :aria-label="`${exercise.name}真人动作演示`"
+                @error="demoVideoFailed = true"></video>
+              <div class="demo-video-caption">
+                <span>{{ demoVideo.note }}</span>
+                <a :href="demoVideo.source" target="_blank" rel="noopener noreferrer">素材来源</a>
+              </div>
+              <div v-if="isTimeMode" class="demo-video-count">保持 {{ holdLeft }} 秒</div>
+              <div v-else-if="isStepsMode" class="demo-video-count">
+                已计 {{ stepCounter.steps.value }} 步
+                <button v-if="stepCounter.status.value === 'idle'" type="button" class="cam-main-btn" @click="startSteps">开启计步</button>
+              </div>
             </template>
-            <!-- F18 计时保持型：保持倒计时 + 动作要领，地板动作不假装能画站立剪影 -->
             <div v-else-if="isTimeMode" class="hold-panel">
               <span class="hold-kick">保持</span>
               <div class="hold-count" aria-hidden="true">{{ holdLeft }}<small>秒</small></div>
               <p class="hold-howto">{{ exerciseHowto }}</p>
-              <small class="hold-note">倒计时结束自动进入下一组；姿势自查可开右侧摄像头</small>
+              <small class="hold-note">{{ demoVideoFailed ? '视频加载失败' : '该动作暂无准确的真人演示' }}；按动作要领保持姿势</small>
             </div>
-            <!-- F18 计步型：步数 / 步频 + 传感器状态；不可用时如实降级为手动计时 -->
-            <div v-else class="steps-panel">
+            <div v-else-if="isStepsMode" class="steps-panel">
               <span class="hold-kick">计步</span>
               <div class="hold-count" aria-hidden="true">{{ stepCounter.steps.value }}<small>步</small></div>
               <p class="steps-meta">{{ stepsMeta }}</p>
               <button v-if="stepCounter.status.value === 'idle'" type="button" class="cam-main-btn" @click="startSteps">开启计步</button>
               <small class="steps-note">{{ stepsNote }}</small>
+            </div>
+            <div v-else class="hold-panel">
+              <span class="hold-kick">{{ demoVideoFailed ? '演示视频加载失败' : '真人演示待补充' }}</span>
+              <p class="hold-howto">{{ exerciseHowto }}</p>
             </div>
             <div class="stage-overlay">
               <div class="badge-group">
@@ -128,7 +155,7 @@
             <div v-if="!camRequested" class="cam-idle">
               <Camera :size="26" aria-hidden="true" />
               <p>画面只在本机做姿态推理，不上传、不落盘</p>
-              <button v-if="store.privacy.cameraEnabled" type="button" class="cam-main-btn" @click="startCamera">开启摄像头</button>
+              <button v-if="store.privacy.cameraEnabled" type="button" class="cam-main-btn" @click="startCamera">{{ isRepsMode && cameraRule ? '开启摄像头计数' : '开启摄像头' }}</button>
               <small v-else>摄像头已在设置中关闭；到「设置 → 隐私」可重新打开</small>
             </div>
             <div v-else-if="cameraConnecting" class="cam-idle">
@@ -141,10 +168,10 @@
               <button type="button" class="cam-main-btn ghost" @click="stopCamera">关闭</button>
             </div>
             <template v-else-if="live">
-              <div class="cam-angles" aria-hidden="true">膝 {{ pose.kneeAngle ?? '—' }}° · 髋 {{ pose.hipAngle ?? '—' }}° · 肘 {{ pose.elbowAngle ?? '—' }}°</div>
+              <div class="cam-angles" aria-hidden="true">膝 {{ pose.kneeAngle.value ?? '—' }}° · 髋 {{ pose.hipAngle.value ?? '—' }}° · 肘 {{ pose.elbowAngle.value ?? '—' }}°</div>
               <button
                 class="cam-calib"
-                :disabled="calibrating || !counter"
+                :disabled="calibrating || !counter || finished || status !== 'playing'"
                 @click="runCalibrate"
               >{{ calibrating ? '校准中…' : counter ? '校准机位' : '该动作无计数规则' }}</button>
             </template>
@@ -188,7 +215,9 @@
           <li v-if="isRepsMode"><span>总次数</span><b>{{ totalReps }} / {{ exercise.sets * exercise.repsPerSet }}</b></li>
           <li v-else-if="isTimeMode"><span>类型</span><b>计时保持 · 每组 {{ exercise.holdSeconds }} 秒</b></li>
           <li v-else><span>总步数</span><b>{{ stepCounter.steps.value > 0 ? stepCounter.steps.value : '未计步（手动计时）' }}</b></li>
-          <li v-if="isRepsMode"><span>平均置信度</span><b>{{ Math.round(averageConfidence * 100) }}%</b></li>
+          <li v-if="isRepsMode"><span>计数来源</span><b>{{ countingSourceLabel }}</b></li>
+          <li v-if="isRepsMode && cameraUsed"><span>模型识别次数</span><b>{{ modelReps }} 次</b></li>
+          <li v-if="isRepsMode && cameraUsed"><span>关键点可见度均值</span><b>{{ Math.round(averageConfidence * 100) }}%</b></li>
           <li><span>手动修正</span><b>{{ manualCorrections }} 次</b></li>
           <li><span>状态</span><b>{{ completionLabel }}</b></li>
           <li><span>RPE</span><b>{{ feedbackSaved ? (rpe === null ? '未记录' : rpe) : '待反馈' }}</b></li>
@@ -235,12 +264,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
-import TrainingFigure from '@/components/training/TrainingFigure.vue'
+import { demoVideos } from '@/services/demoVideos'
 import { useAppStore } from '@/stores/app'
 import { usePoseCamera } from '@/composables/usePoseCamera'
 import { useRepCounter } from '@/composables/useRepCounter'
@@ -295,19 +324,28 @@ const stepCounter = useStepCounter()
 /** 双栏同屏：演示一直播放；摄像头是独立开关，开启后由端侧关键点接管计数 */
 const camRequested = ref(false)
 const videoRef = ref<HTMLVideoElement | null>(null)
+const demoVideoRef = ref<HTMLVideoElement | null>(null)
+const demoVideoFailed = ref(false)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
 /** F05：实时摄像头分支用关键点角度驱动状态机计数；演示回放仍走预设时间线 */
-const counter = ref<ReturnType<typeof useRepCounter> | null>(null)
+const counter = shallowRef<ReturnType<typeof useRepCounter> | null>(null)
 const camJoint = ref<'knee' | 'elbow'>('knee')
 const calibrating = ref(false)
 /** session-RPE 量表含 0 档：0 表示几乎不费力 */
 const RPE_SCALE = Array.from({ length: 11 }, (_, i) => i)
-/** 用户手工修正过（或摄像头中途计过）本组次数后，时间线不再回写 reps */
-let corrected = false
+const cameraRule = computed(() => exercise.value.mode === 'reps' ? findExercise(exercise.value.name)?.camera : undefined)
+const countMode = ref<'manual' | 'camera' | 'demo'>('manual')
+const modelReps = ref(0)
+const cameraUsed = ref(false)
+const demoUsed = ref(false)
+let cameraCountOffset = 0
+let countingSide: 'left' | 'right' | null = null
+let recordedCountingNote = ''
 
 function buildCounter() {
-  const cam = findExercise(exercise.value.name)?.camera
+  counter.value?.interrupt()
+  const cam = cameraRule.value
   if (!cam) {
     counter.value = null
     return null
@@ -323,6 +361,8 @@ function buildCounter() {
     minVisibility: 0.5
   })
   counter.value = c
+  cameraCountOffset = reps.value
+  countingSide = null
   c.reset('已就绪：先校准机位，或直接在起始姿势下开始')
   return c
 }
@@ -340,14 +380,17 @@ async function calibratePose() {
   const c = counter.value
   if (!c || !live.value) return
   const ok = await c.calibrate(() => {
-    const angle = camJoint.value === 'knee' ? pose.kneeAngle.value : pose.elbowAngle.value
-    return angle === null ? null : { angle, visibility: pose.visibility.value }
+    const sample = pose.sample.value
+    if (!sample) return null
+    const angle = camJoint.value === 'knee' ? sample.kneeAngle : sample.elbowAngle
+    return angle === null ? null : { angle, visibility: camJoint.value === 'knee' ? sample.kneeVisibility : sample.elbowVisibility, timestamp: sample.timestamp }
   })
+  if (c !== counter.value) return
   store.showToast({
     type: ok ? 'success' : 'warning',
     title: ok ? '机位已校准' : '校准未完成',
     message: ok
-      ? `阈值按你的起始姿势（${c.calibratedNeutral}°）设定，不是通用标准姿势判定`
+      ? `阈值按你的起始姿势（${c.calibratedNeutral.value}°）设定，不是通用标准姿势判定`
       : '请让侧面全身完整入镜、光线稳定后重试',
     duration: 3500
   })
@@ -369,7 +412,18 @@ const cameraConnecting = computed(() => camRequested.value && pose.status.value 
 const camErrored = computed(() => camRequested.value && ['denied', 'error', 'unsupported'].includes(pose.status.value))
 
 async function startCamera() {
-  if (!store.privacy.cameraEnabled || camRequested.value) return
+  if (!store.privacy.cameraEnabled || finished.value) return
+  if (isRepsMode.value && cameraRule.value) {
+    if (countMode.value === 'demo') reps.value = 0
+    countMode.value = 'camera'
+  }
+  if (live.value) {
+    if (!counter.value) buildCounter()
+    cameraCountOffset = reps.value - (counter.value?.count.value ?? 0)
+    counter.value?.interrupt()
+    return
+  }
+  if (cameraConnecting.value) return
   camRequested.value = true
   await nextTick()
   if (!videoRef.value || !canvasRef.value) {
@@ -383,13 +437,11 @@ async function startCamera() {
 }
 
 function onCameraLive() {
+  cameraUsed.value = true
   buildCounter()
-  // 中途接入：已完成的组与已用时长保留，当前组交给端侧计数，从 0 重新计
   if (!finished.value && status.value === 'playing') {
-    reps.value = 0
-    corrected = false
     counter.value?.reset('摄像头已接入：请回到起始姿势开始计数')
-    store.showToast({ type: 'success', title: '摄像头已接入', message: '本组改由端侧关键点计数，从 0 开始', duration: 3000 })
+    store.showToast({ type: 'success', title: '摄像头已接入', message: cameraRule.value ? '请先保持起始姿势；完成一个往返后计为一次' : '该动作使用手动计数，画面供姿势自查', duration: 3000 })
   }
 }
 
@@ -398,16 +450,11 @@ function stopCamera() {
   camRequested.value = false
   pose.stop()
   pose.errorMessage.value = ''
+  counter.value?.interrupt()
   counter.value = null
-  if (!finished.value && status.value === 'playing') {
-    if (reps.value > 0) {
-      // 摄像头计到的次数保留：时间线不再回写次数，本组仍按演示节奏走到完成
-      corrected = true
-    } else {
-      // 一次都没计到：演示时间线回到本组开头重放
-      eventIndex = 0
-      setElapsed = 0
-    }
+  if (countMode.value === 'camera') {
+    countMode.value = 'manual'
+    message.value = '摄像头已关闭，已有次数保留，可继续手动计数'
   }
 }
 
@@ -467,8 +514,8 @@ const startPoseHint = computed(() => {
     : isStepsMode.value
       ? '计步课次：步数由设备运动传感器负责；开启摄像头仅供自查姿态'
       : lib?.camera
-        ? `左侧面向镜头、全身完整入镜，${lib.camera.joint === 'knee' ? '左膝' : '左肘'}保持清晰`
-        : '该动作没有摄像头计数规则，开启摄像头可跟随节奏，次数可用手工修正'
+        ? `侧面面向镜头，${lib.camera.joint === 'knee' ? '髋、膝、踝' : '肩、肘、手腕'}保持清晰`
+        : '该动作暂无摄像头计数规则，请使用手动计数，画面仅供姿势自查'
   return [lib?.howto, station].filter(Boolean).join('；')
 })
 
@@ -513,7 +560,8 @@ const displaySet = computed(() => Math.min(setIndex.value, exercise.value.sets))
 /** 直接把"已完成几组"说清楚，不让人从"当前组数 1/2"里猜 */
 const setsDoneLine = computed(() => `已完成 ${closedSets.value} / ${exercise.value.sets} 组`)
 const setProgress = computed(() => {
-  const within = Math.min(reps.value / exercise.value.repsPerSet, 1)
+  const within = isTimeMode.value ? holdProgress.value / 100 : isStepsMode.value
+    ? Math.min(elapsedMs.value / targetMs.value, 1) : Math.min(reps.value / exercise.value.repsPerSet, 1)
   return ((displaySet.value - 1 + within) / exercise.value.sets) * 100
 })
 const phaseLabel = computed(() => {
@@ -524,11 +572,15 @@ const phaseLabel = computed(() => {
   if (isStepsMode.value) return stepCounter.status.value === 'active' ? '计步中' : '计时中'
   return getPhaseText(phase.value, exercise.value.kind)
 })
-const stageClass = computed(() =>
-  paused.value || status.value === 'resting' ? 'held' : phase.value
-)
-/** 演示剪影姿态类别：弯举看肘、坐站/台阶/热身看膝、肩环绕看肩、提踵看踵 */
-const figureKind = computed(() => exercise.value.kind)
+const demoVideo = computed(() => demoVideos[exercise.value.name])
+watch(() => exercise.value.name, () => { demoVideoFailed.value = false })
+watch([paused, status, finished, () => exercise.value.name], async () => {
+  await nextTick()
+  const video = demoVideoRef.value
+  if (!video) return
+  if (paused.value || status.value !== 'playing' || finished.value) video.pause()
+  else video.play().catch(() => { demoVideoFailed.value = true })
+}, { immediate: true })
 const totalReps = computed(() => repsBySet.value.reduce((sum, n) => sum + n, 0))
 const averageConfidence = computed(() => (confidenceCount ? confidenceSum / confidenceCount : 0))
 const completionLabel = computed(() => {
@@ -547,14 +599,12 @@ const stageMessage = computed(() => message.value)
 const shownConfidence = computed(() => (live.value ? pose.visibility.value : confidence.value))
 const confidenceLevel = computed(() => getConfidenceLevel(shownConfidence.value))
 const confidenceClass = computed(() => confidenceLevel.value.level)
-const confidenceText = computed(() => confidenceLevel.value.text)
+const confidenceText = computed(() => countMode.value === 'demo' ? '节奏演示 · 非实测'
+  : countMode.value === 'manual' ? '手动录入次数' : live.value ? confidenceLevel.value.text : '等待摄像头')
 
 const demoHint = computed(() => {
-  if (isTimeMode.value) return '计时保持课次：按要领保持姿势，倒计时结束自动进入下一组'
-  if (isStepsMode.value) return '计步课次：步数来自设备运动传感器，不可用时如实退回手动计时'
-  return live.value
-    ? '摄像头开启中：剪影跟随端侧识别到的动作阶段'
-    : '按预设时间线回放，不需要摄像头；骨架为关键点示意图'
+  if (!demoVideo.value || demoVideoFailed.value) return '请参照动作要领练习；当前没有可用的准确真人演示视频'
+  return '真人视频循环播放供动作参考；完成次数由摄像头或手动录入，节奏演示需主动选择'
 })
 
 const camNote = computed(() => {
@@ -577,10 +627,88 @@ const camHint = computed(() => {
     if (isTimeMode.value) return '识别：端侧关键点 · 计时课次不需要摄像头计数，画面仅供自查姿势'
     if (isStepsMode.value) return '识别：端侧关键点 · 计步由设备运动传感器负责，画面仅供自查姿势'
     const c = counter.value
-    if (!c) return '识别：端侧关键点 · 该动作暂无计数规则，本组按演示节奏计次，可用手工修正'
-    return `识别：端侧关键点实时驱动计数（${jointLabel.value}）· 阈值 ${Math.round(c.lowThreshold)}° · ${c.calibratedNeutral !== null ? '已按你的机位校准' : '未校准，用规则默认阈值'}`
+    if (!c) return '该动作暂无自动计数规则，请使用上方手动计数；摄像头画面仅供姿势自查'
+    return `端侧关键点计数（${jointLabel.value}）· 阈值 ${Math.round(c.lowThreshold.value)}° · ${c.calibratedNeutral.value !== null ? '已校准' : '未校准'} · 完成一个往返记一次`
   }
   return '开启后画面只在本机做姿态推理，不上传、不落盘'
+})
+
+const canCount = computed(() => status.value === 'playing' && !paused.value && !finished.value && !calibrating.value)
+const countingSourceLabel = computed(() => demoUsed.value ? '含节奏演示（非实测）'
+  : cameraUsed.value ? (manualCorrections.value ? '摄像头识别 + 手动修正' : '摄像头识别 / 手动录入') : '手动计数')
+const countingHint = computed(() => {
+  if (finished.value) return '本次计数已保存，可以查看下方记录或再练一遍。'
+  if (paused.value) return '计数已暂停，继续后请先回到起始姿势。'
+  if (status.value === 'resting') return '组间休息，计数暂停；下一组从 0 开始。'
+  if (countMode.value === 'demo') return '节奏演示：次数由预设时间线推进，不代表你实际完成的次数。'
+  if (countMode.value === 'manual') return cameraRule.value
+    ? '当前为手动计数，每完成一次点 +1；也可以开启摄像头，自动识别一个完整往返。'
+    : '该动作暂无摄像头自动计数规则，请每完成一次点 +1。'
+  if (camErrored.value) return '摄像头不可用，次数不会自动增加；请重试或切换手动计数。'
+  if (!live.value) return '正在等待摄像头与姿态模型，准备好前不会自动增加次数。'
+  if (calibrating.value) return '机位校准中，已有次数保留，计数暂停。'
+  return counter.value?.gate.value ?? '摄像头计数中：起始姿势 → 动作末端 → 返回起始姿势，记为一次。'
+})
+
+function useManualCounting() {
+  if (countMode.value === 'demo') reps.value = 0
+  countMode.value = 'manual'
+  counter.value?.interrupt()
+  message.value = '每完成一次动作，点 +1 记一次'
+}
+
+function useDemoCounting() {
+  if (reps.value > 0 && countMode.value !== 'demo') {
+    store.showToast({ type: 'info', title: '请先保留当前记录', message: '本组已有完成次数，结束并记录后可重新开始节奏演示', duration: 3000 })
+    return
+  }
+  countMode.value = 'demo'
+  demoUsed.value = true
+  counter.value?.interrupt()
+  setElapsed = 0
+  eventIndex = 0
+  reps.value = 0
+  message.value = '节奏演示：次数为预设回放，非实测'
+}
+
+function changeManualCount(delta: number) {
+  if (!canCount.value) return
+  if (countMode.value === 'demo') useManualCounting()
+  const next = Math.max(0, Math.min(exercise.value.repsPerSet, reps.value + delta))
+  if (next === reps.value) return
+  if (countMode.value === 'camera') manualCorrections.value++
+  reps.value = next
+  cameraCountOffset = next - (counter.value?.count.value ?? 0)
+  message.value = `已记 ${next} 次`
+  speak(String(next))
+  if (next >= exercise.value.repsPerSet) finishSet()
+}
+
+watch(pose.sample, sample => {
+  if (!sample || countMode.value !== 'camera' || !isRepsMode.value || !live.value || !canCount.value) return
+  const c = counter.value
+  if (!c) return
+  const side = camJoint.value === 'knee' ? sample.kneeSide : sample.elbowSide
+  if (countingSide && side && countingSide !== side) c.interrupt('识别侧发生变化，请回到起始姿势')
+  if (side) countingSide = side
+  const angle = camJoint.value === 'knee' ? sample.kneeAngle : sample.elbowAngle
+  const visibility = camJoint.value === 'knee' ? sample.kneeVisibility : sample.elbowVisibility
+  const result = c.feed(angle, visibility, sample.timestamp)
+  confidence.value = visibility
+  confidenceSum += visibility
+  confidenceCount++
+  phase.value = result.phase
+  message.value = result.gate ?? (result.counted ? '已完成一次往返' : getPhaseText(result.phase, exercise.value.kind))
+  if (result.counted) {
+    modelReps.value++
+    reps.value = Math.max(0, Math.min(c.count.value + cameraCountOffset, exercise.value.repsPerSet))
+    speak(String(reps.value))
+    if (reps.value >= exercise.value.repsPerSet) finishSet()
+  }
+}, { flush: 'sync' })
+
+watch(live, (now, before) => {
+  if (before && !now) counter.value?.interrupt('画面中断，恢复后请回到起始姿势')
 })
 
 function tick(ts: number) {
@@ -591,30 +719,10 @@ function tick(ts: number) {
 
   if (!paused.value && status.value === 'playing') {
     elapsedMs.value += dt
-    if (isRepsMode.value && live.value && counter.value) {
-      // 摄像头计数接管：演示时间线时钟冻结在原地，关掉摄像头后从原点继续
-      const c = counter.value
-      const angle = camJoint.value === 'knee' ? pose.kneeAngle.value : pose.elbowAngle.value
-      const res = c.feed(angle, pose.visibility.value, ts)
-      if (res.counted) {
-        store.showToast({ type: 'success', title: `第 ${c.count} 次`, message: '关键点回到起始位，计为一次', duration: 1200 })
-        speak(String(c.count))
-      }
-      confidence.value = pose.visibility.value
-      confidenceSum += pose.visibility.value
-      confidenceCount++
-      phase.value = res.phase
-      if (res.gate) message.value = res.gate
-      if (!corrected) reps.value = Math.min(c.count, exercise.value.repsPerSet)
-      if (c.count >= exercise.value.repsPerSet && !corrected) {
-        message.value = '本组次数已达标'
-        finishSet()
-      }
-    } else if (isRepsMode.value) {
-      // 演示时间线推进计数；无计数规则的动作在摄像头开启时也走这里
+    if (isRepsMode.value && countMode.value === 'demo') {
       setElapsed += dt
       const events = exercise.value.setEvents
-      while (eventIndex < events.length && events[eventIndex].time <= setElapsed) {
+      while (status.value === 'playing' && eventIndex < events.length && events[eventIndex].time <= setElapsed) {
         applyEvent(events[eventIndex])
         eventIndex++
       }
@@ -629,7 +737,7 @@ function tick(ts: number) {
         speak('还剩 5 秒')
       }
       if (remainMs <= 0) finishSet()
-    } else {
+    } else if (isStepsMode.value) {
       // F18 计步：计步交给传感器（或手动计时），到目标时长自动完成
       const minutes = Math.floor(elapsedMs.value / 60_000)
       if (minutes >= minuteMark + 5) {
@@ -660,14 +768,8 @@ function tick(ts: number) {
 
 function applyEvent(event: DemoEvent) {
   if (event.count !== undefined) {
-    // 摄像头中途计过（corrected）或用户手工修正过时，时间线只负责节奏与完成事件
-    if (!corrected) reps.value = event.count
-    if (event.state !== 'complete' && !corrected) speak(String(event.count))
-  }
-  if (event.confidence > 0) {
-    confidenceSum += event.confidence
-    confidenceCount++
-    confidence.value = event.confidence
+    reps.value = event.count
+    if (event.state !== 'complete') speak(String(event.count))
   }
   phase.value = event.state
   if (event.message) message.value = event.message
@@ -702,7 +804,8 @@ function startNextSet() {
   reps.value = 0
   eventIndex = 0
   setElapsed = 0
-  corrected = false
+  cameraCountOffset = 0
+  countingSide = null
   holdFiveSaid = false
   holdLeft.value = exercise.value.holdSeconds ?? 0
   counter.value?.reset('新一组开始：请回到起始姿势')
@@ -732,6 +835,7 @@ function complete() {
   status.value = 'idle'
   phase.value = 'complete'
   message.value = '训练完成'
+  counter.value?.interrupt()
   disarmSkip()
   if (isStepsMode.value) {
     // 停监听但保留已计步数，摘要要用
@@ -746,6 +850,7 @@ function complete() {
 function record() {
   if (recorded || (!repsBySet.value.length && !closedSets.value)) return
   recorded = true
+  recordedCountingNote = demoUsed.value ? '含节奏演示：部分次数来自预设回放，非实测。' : ''
   const session = store.addSession(
     summarizeSession({
       exercise: exercise.value,
@@ -753,6 +858,9 @@ function record() {
       setsCompleted: closedSets.value,
       repsBySet: repsBySet.value,
       steps: isStepsMode.value ? stepCounter.steps.value : undefined,
+      cameraUsed: cameraUsed.value,
+      countedReps: modelReps.value,
+      notes: recordedCountingNote || undefined,
       averageConfidence: averageConfidence.value,
       manualCorrections: manualCorrections.value,
       elapsedMs: elapsedMs.value
@@ -774,7 +882,7 @@ function saveFeedback() {
     rpe: rpe.value,
     discomfort: discomfort.value,
     reason: completionLabel.value === '部分完成' ? reasonText.value.trim() || undefined : undefined,
-    notes: notesText.value.trim() || undefined
+    notes: [recordedCountingNote, notesText.value.trim()].filter(Boolean).join('\n') || undefined
   })
   feedbackSaved.value = true
 }
@@ -785,17 +893,21 @@ function toggleEdit() {
 }
 
 function applyCorrection() {
-  const next = Math.max(0, Math.min(editValue.value, exercise.value.repsPerSet))
+  if (!Number.isFinite(editValue.value) || finished.value || status.value !== 'playing') return
+  const next = Math.round(Math.max(0, Math.min(editValue.value, exercise.value.repsPerSet)))
   if (next !== reps.value) manualCorrections.value++
   reps.value = next
-  corrected = true
+  if (countMode.value === 'demo') countMode.value = 'manual'
+  cameraCountOffset = next - (counter.value?.count.value ?? 0)
   editOpen.value = false
   store.showToast({ type: 'info', title: `本组次数已修正为 ${next}`, message: '计数与修正值分别保留，不覆盖模型计数', duration: 2200 })
+  if (next >= exercise.value.repsPerSet) finishSet()
 }
 
 function togglePause() {
   if (finished.value) return
   paused.value = !paused.value
+  counter.value?.interrupt(paused.value ? '已暂停计数' : '请回到起始姿势后继续')
   if (paused.value) lastTs = 0
   message.value = paused.value ? '已暂停' : '继续训练'
   speak(paused.value ? '已暂停' : '继续训练')
@@ -838,7 +950,14 @@ function restart() {
   confidenceSum = 0
   confidenceCount = 0
   recorded = false
-  corrected = false
+  cameraCountOffset = 0
+  countingSide = null
+  modelReps.value = 0
+  cameraUsed.value = live.value
+  demoUsed.value = false
+  recordedCountingNote = ''
+  countMode.value = live.value && cameraRule.value ? 'camera' : 'manual'
+  calibrating.value = false
   restLeft.value = Math.ceil(exercise.value.restDuration / 1000)
   restFiveSaid = false
   holdFiveSaid = false
@@ -850,6 +969,7 @@ function restart() {
   disarmSkip()
   // 摄像头是独立开关：切动作/重开不关摄像头，只按新动作重建计数规则
   if (live.value) buildCounter()
+  else { counter.value?.interrupt(); counter.value = null }
   rafId = requestAnimationFrame(tick)
   // 课次开始也是节奏的一部分；浏览器在没有用户激活时会把这句静默拒掉，不报错
   if (isTimeMode.value) speak(`第 1 组开始，保持 ${holdLeft.value} 秒`)
@@ -863,6 +983,7 @@ function leave() {
 
 onMounted(() => restart())
 onUnmounted(() => {
+  counter.value?.interrupt()
   cancelAnimationFrame(rafId)
   cancelAnimationFrame(tweenRaf)
   disarmSkip()
@@ -894,6 +1015,12 @@ onUnmounted(() => {
 .strip-dots span{height:4px;border-radius:2px;background:var(--color-divider)}
 .strip-dots span.done{background:var(--pole-movement);animation:scaleIn var(--motion-base) var(--easing-spring) both}
 .strip-sub{margin:9px 0 0;font-size:12px;color:var(--color-text-secondary)}
+.counting-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;margin-bottom:16px;border:1px solid var(--color-divider);border-radius:var(--radius-md);background:var(--color-card)}
+.counting-sources,.manual-count-buttons{display:flex;flex-wrap:wrap;gap:8px}
+.counting-controls p{flex-basis:100%;margin:0;font-size:12px;line-height:1.6;color:var(--color-text-secondary)}
+.counting-controls button{min-height:44px}
+.manual-count-buttons button{padding:8px 18px;border-radius:var(--radius-sm);background:var(--pole-movement-soft);color:var(--pole-movement-strong);font-weight:700}
+.manual-count-buttons button:disabled{opacity:.45;cursor:not-allowed}
 
 /* 双栏：左演示，右摄像头，同屏 */
 .stage-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:6px}
@@ -907,8 +1034,10 @@ onUnmounted(() => {
 /* 取景框：镜头画面本来就是暗的，用深底比浅灰底更像"正在看摄像头"；
    高度跟视口走，别让 4:5 把整页拉到两千像素高 */
 .demo-frame{height:min(58vh,540px);background:radial-gradient(120% 100% at 50% 0%,#263038 0%,#14191d 55%,#0c1013 100%);border-radius:var(--radius-md);position:relative;overflow:hidden;display:grid;place-items:center;width:100%}
-/* 人物的关节坐标与动作插值由 TrainingFigure 统一计算。 */
-.skeleton-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:14px 0 74px}
+.demo-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#0d1418}
+.demo-video-caption{position:absolute;left:16px;right:16px;bottom:76px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 12px;border-radius:9px;background:rgba(9,17,20,.78);color:#f2f5f5;font-size:12px;line-height:1.4}
+.demo-video-caption a{flex:none;color:#b9dfd8;text-decoration:underline}
+.demo-video-count{position:absolute;top:72px;left:16px;display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:9px;background:rgba(9,17,20,.78);color:#f2f5f5;font-size:14px;font-weight:700}
 .frame-sheen{position:absolute;inset:0;border-radius:16px;opacity:.45;pointer-events:none}
 .stage-overlay{position:absolute;top:16px;left:16px;right:16px;display:flex;justify-content:space-between;gap:10px}
 .badge-group{display:flex;gap:8px;flex-wrap:wrap}

@@ -137,12 +137,15 @@ test('sessions are idempotent and feedback accepts null RPE', async () => {
     rpe: 7,
     discomfort: false,
     cameraUsed: true,
-    manualCorrections: 0
+    countedReps: 15,
+    manualCorrections: 1
   }
   const first = await request('/sessions', { method: 'POST', body: session, idempotencyKey: 'idem-session-1' })
   assert.equal(first.status, 201)
   sessionId = first.body.session.id
   assert.equal(first.body.session.clientId, 'local-session-1')
+  assert.equal(first.body.session.countedReps, 15)
+  assert.equal(first.body.session.actualReps, 16)
   const replay = await request('/sessions', { method: 'POST', body: session, idempotencyKey: 'idem-session-1' })
   assert.equal(replay.status, 201)
   assert.equal(replay.body.session.id, sessionId)

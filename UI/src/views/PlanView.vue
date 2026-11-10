@@ -2,7 +2,7 @@
   <div class="page-wrap">
     <div class="page-head animate-slide-in-up">
       <div><span class="eyebrow">TRAINING PLAN</span><h1>训练计划</h1><p>把每一次完成，变成下一次更好的安排。</p></div>
-      <BaseButton :icon="Plus" @click="manualOpen = !manualOpen">{{ manualOpen ? '收起手工录入' : '手工录入一项' }}</BaseButton>
+      <BaseButton :icon="Plus" @click="manualOpen = !manualOpen">{{ manualOpen ? '收起手工录入' : '手工录入' }}</BaseButton>
     </div>
 
     <div class="toolbar animate-slide-in-up">
@@ -61,17 +61,59 @@
       </ul>
     </BaseCard>
 
-    <form v-if="manualOpen" class="manual animate-scale-in" @submit.prevent="saveManual">
-      <label><span>日期</span><input v-model="manual.date" type="date" required /></label>
-      <label><span>名称</span><input v-model="manual.name" type="text" maxlength="30" placeholder="例如：球场往返跑" required /></label>
-      <label><span>时长（分钟）</span><input v-model.number="manual.minutes" type="number" min="1" max="240" required /></label>
-      <span class="manual-tip">手工录入的项目标注为"不参与自动推荐"，保存会生成新版本。</span>
-      <div class="manual-actions">
-        <BaseButton size="sm" :icon="Plus" type="submit">保存为新版本</BaseButton>
-        <BaseButton variant="ghost" size="sm" @click="manualOpen = false">取消</BaseButton>
+    <section v-if="manualOpen" class="manual animate-scale-in" aria-label="手工录入计划">
+      <div class="tabs manual-mode" role="group" aria-label="录入方式">
+        <button type="button" :class="{ active: manualMode === 'single' }" :aria-pressed="manualMode === 'single'" @click="manualMode = 'single'">逐项填写</button>
+        <button type="button" :class="{ active: manualMode === 'materials' }" :aria-pressed="manualMode === 'materials'" @click="manualMode = 'materials'">文本或图片</button>
       </div>
-      <p v-if="manualError" class="manual-error" role="alert">{{ manualError }}</p>
-    </form>
+      <form v-if="manualMode === 'single'" class="manual-form" @submit.prevent="saveManual">
+        <label><span>日期</span><input v-model="manual.date" type="date" required /></label>
+        <label><span>名称</span><input v-model="manual.name" type="text" maxlength="30" placeholder="例如：球场往返跑" required /></label>
+        <label><span>时长（分钟）</span><input v-model.number="manual.minutes" type="number" min="1" max="240" required /></label>
+        <span class="manual-tip">手工录入的项目标注为“不参与自动推荐”，保存会生成新版本。</span>
+        <div class="manual-actions">
+          <BaseButton size="sm" :icon="Plus" type="submit">保存为新版本</BaseButton>
+          <BaseButton variant="ghost" size="sm" type="button" @click="manualOpen = false">取消</BaseButton>
+        </div>
+        <p v-if="manualError" class="manual-error" role="alert">{{ manualError }}</p>
+      </form>
+      <form v-else class="manual-form" @submit.prevent="generateFromMaterials" @paste="pastePlanImage">
+        <div class="manual-target">
+          <div class="tabs" role="group" aria-label="录入范围">
+            <button type="button" :class="{ active: materialScope === 'day' }" :aria-pressed="materialScope === 'day'" @click="materialScope = 'day'">按天</button>
+            <button type="button" :class="{ active: materialScope === 'week' }" :aria-pressed="materialScope === 'week'" @click="materialScope = 'week'">按周</button>
+          </div>
+          <label>
+            <span>{{ materialScope === 'day' ? '训练日期' : '目标周（选择周内任一天）' }}</span>
+            <input v-model="materialDate" type="date" required />
+          </label>
+          <p v-if="materialTarget" class="manual-tip" role="status">
+            {{ materialScope === 'day' ? `追加到 ${materialDate}。` : `目标周为 ${materialWeek[0]} 至 ${materialWeek[6]}（周一至周日）。` }}
+          </p>
+        </div>
+        <label>
+          <span>{{ planImage ? '补充训练日期（可选）' : '训练安排或要求' }}</span>
+          <textarea v-model="materialText" rows="4" maxlength="2000" :placeholder="materialPlaceholder" />
+        </label>
+        <label>
+          <span>训练表截图或照片（可选，也可粘贴）</span>
+          <input type="file" accept="image/*" @change="choosePlanImage" />
+        </label>
+        <p v-if="imageLoading" class="manual-tip" role="status">正在读取图片…</p>
+        <div v-if="planImage || imageLoading || imageError" class="manual-preview">
+          <img v-if="planImage" :src="planImage" alt="待用于生成计划的图片" />
+          <BaseButton variant="secondary" size="sm" type="button" @click="clearPlanImage">移除图片</BaseButton>
+        </div>
+        <p v-if="imageError" class="manual-error" role="alert">{{ imageError }}</p>
+        <p v-if="planImage" class="manual-tip">图片按原文导入。未标日期的项目会放在 {{ materialTarget ? materialDate : '所选日期' }}。提交时会发送图片和日期补充给当前模型。</p>
+        <p v-else class="manual-tip">点击生成会把填写的文本及已有档案发送给当前模型。导入图片需要模型支持图片输入。</p>
+        <p v-if="!store.planLlmReady" class="manual-tip">请先在 <RouterLink to="/settings">设置</RouterLink> 中启用可用模型。</p>
+        <div class="manual-actions">
+          <BaseButton size="sm" type="submit" :disabled="!materialTarget || !store.planLlmReady || imageLoading || !!imageError || (!materialText.trim() && !planImage)">{{ planImage ? '识别并导入草稿' : '生成计划草稿' }}</BaseButton>
+          <BaseButton variant="ghost" size="sm" type="button" @click="manualOpen = false">取消</BaseButton>
+        </div>
+      </form>
+    </section>
 
     <div v-if="view === 'week'" class="layout">
       <BaseCard class="calendar animate-slide-in-up">
@@ -118,7 +160,7 @@
             <strong>{{ item.exerciseName }}</strong>
             <small>{{ item.note }}<em v-if="item.locked"> · 已锁定</em><em v-if="item.completed"> · 已完成</em></small>
           </div>
-          <span class="spec">{{ planSpec(item) }} · {{ item.plannedDuration }} min</span>
+          <span class="spec">{{ planSpec(item) }}<template v-if="plan?.source !== 'image' && item.plannedDuration !== undefined"> · {{ item.plannedDuration }} min</template></span>
           <div class="item-actions">
             <button
               class="mini follow"
@@ -192,6 +234,7 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
 import type { AlternativeExercise, PlanItem, TrainingType } from '@/types/domain'
 import { eyebrowDate, monthCells, shortDate, toISODate } from '@/utils/time'
+import { prepareModelImage } from '@/utils/modelImage'
 import { buildDayPlan, alternativesFor } from '@/services/planRules'
 import { buildAdjustmentSuggestions } from '@/services/adjustmentRules'
 import type { AdjustmentSuggestion } from '@/services/adjustmentRules'
@@ -210,6 +253,14 @@ const selected = ref(toISODate(now))
 const manualOpen = ref(false)
 const manual = ref({ date: toISODate(now), name: '', minutes: 20 })
 const manualError = ref('')
+const manualMode = ref<'single' | 'materials'>('single')
+const materialScope = ref<'day' | 'week'>('week')
+const materialDate = ref(selected.value)
+const materialText = ref('')
+const planImage = ref('')
+const imageLoading = ref(false)
+const imageError = ref('')
+let imageReadId = 0
 
 const icons: Partial<Record<TrainingType, typeof Wind>> = {
   动态热身: Wind,
@@ -222,6 +273,15 @@ const icons: Partial<Record<TrainingType, typeof Wind>> = {
 
 const currentLabel = computed(() => (store.isAthleteMode ? '运动员模式' : '大众模式'))
 const selectedDate = computed(() => new Date(`${selected.value}T00:00:00`))
+const materialTarget = computed(() => {
+  const date = new Date(`${materialDate.value}T00:00:00`)
+  return /^\d{4}-\d{2}-\d{2}$/.test(materialDate.value) && toISODate(date) === materialDate.value ? date : null
+})
+const materialWeek = computed(() => materialTarget.value ? weekDates(weekStart(materialTarget.value)).map(toISODate) : [])
+const materialPlaceholder = computed(() => {
+  if (planImage.value) return materialScope.value === 'day' ? '例如：图片标注的是周三。' : '例如：第一段是周三，第二段是周五。'
+  return materialScope.value === 'day' ? '例如：轻松跑 20 分钟，再做 3 组弹力带弯举。' : '例如：周一跑步 20 分钟，周三练弹力带弯举 3 组，每组 12 次。'
+})
 const plan = computed(() => store.weekPlan(selectedDate.value))
 const nextPlan = computed(() => {
   const d = new Date(`${selected.value}T00:00:00`)
@@ -297,6 +357,15 @@ function isFollowable(item: PlanItem): boolean {
 
 /** 计划条目的组数/次数/保持/目标分钟；旧计划缺字段时回退动作库与 demo 默认 */
 function planSpec(item: PlanItem): string {
+  if (plan.value?.source === 'image') {
+    return [
+      item.plannedSets && `${item.plannedSets} 组`,
+      item.plannedReps && `${item.plannedReps} 次`,
+      item.plannedHoldSeconds && `${item.plannedHoldSeconds} 秒`,
+      item.plannedDistance && `${item.plannedDistance} 米`,
+      item.plannedDuration && `${item.plannedDuration} 分钟`
+    ].filter(Boolean).join(' · ')
+  }
   const ex = findExercise(item.exerciseName)
   const demo = demoExercises.find(d => d.name === item.exerciseName)
   if (item.plannedHoldSeconds !== undefined || demo?.mode === 'time' || ex?.holdSeconds !== undefined) {
@@ -381,7 +450,10 @@ function startItem(item?: PlanItem) {
     sets: String(target.plannedSets ?? demo.sets)
   }
   if (demo.mode === 'time') query.hold = String(target.plannedHoldSeconds ?? demo.holdSeconds ?? 30)
-  else if (demo.mode === 'steps') query.minutes = String(target.plannedTargetMinutes ?? demo.targetMinutes ?? 20)
+  else if (demo.mode === 'steps') {
+    const importedMinutes = plan.value?.source === 'image' ? target.plannedDuration : undefined
+    query.minutes = String(target.plannedTargetMinutes ?? importedMinutes ?? demo.targetMinutes ?? 20)
+  }
   else query.reps = String(target.plannedReps ?? demo.repsPerSet)
   router.push({ path: '/execution', query })
 }
@@ -498,6 +570,62 @@ function saveManual() {
   manualOpen.value = false
 }
 
+function clearPlanImage() {
+  imageReadId++
+  planImage.value = ''
+  imageLoading.value = false
+  imageError.value = ''
+}
+
+watch(manualOpen, open => {
+  if (open) {
+    materialDate.value = selected.value
+    manual.value.date = selected.value
+    return
+  }
+  clearPlanImage()
+  materialText.value = ''
+})
+
+async function readPlanImage(file: File) {
+  clearPlanImage()
+  const requestId = imageReadId
+  imageLoading.value = true
+  try {
+    const image = await prepareModelImage(file, 1600)
+    if (requestId === imageReadId) planImage.value = image
+  } catch (error) {
+    if (requestId === imageReadId) imageError.value = error instanceof Error ? error.message : '无法读取图片。'
+  } finally {
+    if (requestId === imageReadId) imageLoading.value = false
+  }
+}
+
+function choosePlanImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) void readPlanImage(file)
+  input.value = ''
+}
+
+function pastePlanImage(event: ClipboardEvent) {
+  const file = Array.from(event.clipboardData?.files ?? []).find(item => item.type.startsWith('image/'))
+  if (!file) return
+  event.preventDefault()
+  void readPlanImage(file)
+}
+
+function generateFromMaterials() {
+  const text = materialText.value.trim()
+  const target = materialTarget.value
+  if (!target || !store.planLlmReady || imageLoading.value || imageError.value || (!text && !planImage.value)) return
+  void store.generatePlanDraft(target, {}, {
+    text,
+    imageDataUrl: planImage.value || undefined,
+    scope: materialScope.value
+  })
+}
+
 function openModelPlan() {
   void store.generatePlanQuestions()
 }
@@ -541,8 +669,15 @@ watch(
 .conflicts{margin:0 0 14px;padding:10px 12px 10px 28px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);font-size:12px;color:var(--color-text-secondary);line-height:1.7}
 .conflicts li{margin:2px 0}
 .manual{display:grid;gap:12px;padding:16px;border-radius:var(--radius-lg);background:var(--color-card);border:1px solid var(--color-border);box-shadow:var(--inner-light);margin-bottom:14px}
+.manual-mode{justify-self:start}
+.manual-form{display:grid;gap:12px;min-width:0}
+.manual-target{display:grid;gap:8px}
+.manual-target .tabs{justify-self:start}
 .manual label{display:grid;gap:5px;font-size:11px;color:var(--color-text-muted)}
-.manual input{padding:9px 11px;border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
+.manual input,.manual textarea{min-width:0;padding:9px 11px;border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
+.manual textarea{resize:vertical}
+.manual-preview{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.manual-preview img{display:block;max-width:min(100%,320px);max-height:160px;object-fit:contain;border-radius:var(--radius-sm)}
 .manual-tip{font-size:11.5px;color:var(--color-text-muted);line-height:1.6}
 .manual-actions{display:flex;gap:8px;flex-wrap:wrap}
 .manual-error{font-size:12.5px;color:var(--color-danger);background:var(--color-danger-soft);border-radius:var(--radius-sm);padding:9px 12px;margin:0}

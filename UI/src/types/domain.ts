@@ -111,8 +111,7 @@ export interface Plan {
   weekEndDate: string
   items: PlanItem[]
   locked: boolean
-  /** 计划来源：规则生成与模型生成在界面上的口径不同 */
-  source?: 'rules' | 'llm'
+  source?: 'rules' | 'llm' | 'image'
   clientId?: string
   serverId?: string
   updatedAt?: string
@@ -196,6 +195,8 @@ export interface TrainingSession {
 
   // Camera demo metadata
   cameraUsed: boolean
+  /** 摄像头实际确认的次数；actualReps 保留用户修正后的记录值。 */
+  countedReps?: number
   manualCorrections: number
   confidence?: number
 

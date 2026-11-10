@@ -6,15 +6,14 @@ import { FOOD_CATEGORIES, isMixed, suggestCategory } from '@/services/mealRules'
 import { UNIT_GRAMS } from '@/services/foodComposition'
 import { callLlmChat, extractJson } from '@/services/llm'
 import type { LlmConfig } from '@/services/llm'
+import { canvasToJpegDataUrl, prepareModelImage } from '@/utils/modelImage'
+
+export { canvasToJpegDataUrl }
 
 export type RecognitionProvider = 'cloud' | 'local'
 
 /** 低于这个置信度的条目要在界面上明确标出；不强迫用户逐项确认 */
 export const LOW_CONFIDENCE = 0.6
-
-/** 1024 足够认食物，也能控制通过文本代理上传的体积 */
-export const MAX_IMAGE_EDGE = 1024
-export const MAX_INPUT_BYTES = 12 * 1024 * 1024
 
 export interface RecognizedFood {
   foodName: string
@@ -65,70 +64,12 @@ const LOCAL_CLASSES: Record<string, { zh: string; category: FoodCategory }> = {
 export const LOCAL_MODEL_LABEL = '本机 EfficientDet-Lite0'
 export const LOCAL_CLASS_COUNT = Object.keys(LOCAL_CLASSES).length
 
-/**
- * 画布转 data URL 走异步的 toBlob + FileReader：toDataURL 是同步编码，
- * 手机上传 12MP 照片时会把主线程卡住好几秒，看起来像页面死掉。
- */
-export function canvasToJpegDataUrl(canvas: HTMLCanvasElement, quality = 0.85): Promise<string> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('浏览器无法编码这张图片'))
-        return
-      }
-      const reader = new FileReader()
-      reader.onload = () => {
-        if (typeof reader.result === 'string') resolve(reader.result)
-        else reject(new Error('浏览器无法读取压缩后的图片'))
-      }
-      reader.onerror = () => reject(reader.error ?? new Error('浏览器无法读取压缩后的图片'))
-      reader.readAsDataURL(blob)
-    }, 'image/jpeg', quality)
-  })
-}
-
-/**
- * 把用户选/拍的照片缩到最长边 1024 并转成 JPEG data URL。
- * 只在内存里处理：data URL 用于这次识别和预览，不写入 localStorage。
- */
+/** 为食物识别准备图片，保留原有的错误分类。 */
 export async function prepareFoodPhoto(file: File): Promise<string> {
-  if (!file.type.startsWith('image/')) {
-    throw new FoodRecognitionError('请选择图片文件（JPEG / PNG / WebP）。', 'image')
-  }
-  if (file.size > MAX_INPUT_BYTES) {
-    throw new FoodRecognitionError('这张照片超过 12 MB，请换一张更小的图片。', 'image')
-  }
-  let bitmap: ImageBitmap | null = null
   try {
-    // 大文件先让解码器按 1024 宽缩放，避免整张 12MP 原图都解进内存；
-    // portrait 图会在画布里再缩一次到最长边 1024。
-    if (file.size > 2 * 1024 * 1024) {
-      try {
-        bitmap = await createImageBitmap(file, { resizeWidth: MAX_IMAGE_EDGE, resizeQuality: 'high' })
-      } catch {
-        bitmap = await createImageBitmap(file)
-      }
-    } else {
-      bitmap = await createImageBitmap(file)
-    }
-    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height))
-    const width = Math.max(1, Math.round(bitmap.width * scale))
-    const height = Math.max(1, Math.round(bitmap.height * scale))
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new FoodRecognitionError('浏览器无法处理这张图片，请换一张再试。', 'image')
-    // 透明背景转 JPEG 会变黑，先铺白底
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, width, height)
-    ctx.drawImage(bitmap, 0, 0, width, height)
-    return await canvasToJpegDataUrl(canvas, 0.85)
+    return await prepareModelImage(file)
   } catch (err) {
-    if (err instanceof FoodRecognitionError) throw err
-    throw new FoodRecognitionError('这张图片无法读取，请换一张 JPEG / PNG / WebP 照片。', 'image')
-  } finally {
-    bitmap?.close()
+    throw new FoodRecognitionError(err instanceof Error ? err.message : '这张图片无法读取。', 'image')
   }
 }
 
