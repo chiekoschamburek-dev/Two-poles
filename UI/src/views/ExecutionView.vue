@@ -76,6 +76,9 @@
           :disabled="!live || !cameraRule || finished || calibrating" @click="useCameraCounting">摄像头计数</button>
         <button type="button" class="chip" :class="{ active: countMode === 'manual' }" :aria-pressed="countMode === 'manual'"
           :disabled="finished || calibrating" @click="useManualCounting">手动计数</button>
+        <!-- 手机端摄像头小窗放不下机位校准按钮，这里补一个入口；桌面端用取景框里的原按钮 -->
+        <button type="button" class="chip calib-chip" :disabled="calibrating || !counter || finished || status !== 'playing'"
+          @click="runCalibrate">{{ calibrating ? '校准中…' : counter ? '校准机位' : (live ? '无计数规则' : '摄像头未开启') }}</button>
       </div>
       <div class="manual-count-buttons">
         <button type="button" aria-label="减少一次" :disabled="!canCount || reps === 0" @click="changeManualCount(-1)">−1</button>
@@ -1094,6 +1097,8 @@ onUnmounted(() => {
 .counting-sources,.manual-count-buttons{display:flex;flex-wrap:wrap;gap:8px}
 .counting-controls p{flex-basis:100%;margin:0;font-size:12px;line-height:1.6;color:var(--color-text-secondary)}
 .counting-controls button{min-height:44px}
+/* 桌面端的校准入口在摄像头取景框里；这颗 chip 只服务手机端小窗 */
+@media(min-width:768px){.calib-chip{display:none}}
 .manual-count-buttons button{padding:8px 18px;border-radius:var(--radius-sm);background:var(--pole-movement-soft);color:var(--pole-movement-strong);font-weight:700}
 .manual-count-buttons button:disabled{opacity:.45;cursor:not-allowed}
 
@@ -1223,8 +1228,10 @@ onUnmounted(() => {
   .pane-cam .cam-idle .cam-error{font-size:9.5px;line-height:1.5;padding:6px 8px;max-width:none}
   .pane-cam .cam-main-btn{min-height:28px;padding:0 8px;font-size:10.5px}
   .stage-overlay{flex-direction:column;align-items:flex-start;gap:6px}
-  .count-strip{grid-template-columns:1fr 1.4fr}
-  .count-strip .strip-cell:last-child{display:none}
+  /* 三格都保留：压字号与内距换空间，手机端也要能看到已用时长与暂停状态 */
+  .count-strip{grid-template-columns:1fr 1.3fr 1fr}
+  .count-strip .strip-cell{padding:10px 12px}
+  .count-strip .strip-num{font-size:22px}
   .after-area{max-width:none}
 }
 </style>
