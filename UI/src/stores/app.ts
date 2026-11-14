@@ -7,7 +7,7 @@ import { estimateEnergy, unitKey } from '@/services/foodComposition'
 import type { EnergyEstimate } from '@/services/foodComposition'
 import { clearMealPhotos, deleteMealPhoto } from '@/services/mealPhotos'
 import { clearAnalysisKeyframes, deleteAnalysisKeyframes } from '@/services/analysisKeyframes'
-import { AUTO_RECOMMEND_MIN_AGE, buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
+import { buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
 import { findExercise, gateReason } from '@/services/exercises'
 import { buildPlanFeedbackMessages, validatePlanFeedback } from '@/services/planFeedback'
 import { normalizeProfile } from '@/services/profileRules'
@@ -662,7 +662,6 @@ export const useAppStore = defineStore('app', () => {
     if (requireProfile) {
       const profile = userProfile.value
       if (!profile) return '请先填写并保存个人档案。'
-      if (profile.age < AUTO_RECOMMEND_MIN_AGE) return '当前档案年龄未达到自动推荐条件，可在计划页手工录入。'
       const restriction = gateReason(profile)
       if (restriction) return restriction
     }
@@ -853,7 +852,6 @@ export const useAppStore = defineStore('app', () => {
     const guard = !text ? '请先填写训练反馈。' : planModelError(false)
     if (guard) return fail(guard)
     if (!plan) return fail('请先为所选周创建计划，再提交反馈。')
-    if (profile && profile.age < AUTO_RECOMMEND_MIN_AGE) return fail('当前档案年龄未达到自动推荐条件，可在计划页手工录入。')
     const restriction = gateReason(profile)
     if (restriction) return fail(restriction)
 

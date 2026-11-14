@@ -10,7 +10,6 @@ import type {
 } from '@/types/domain'
 import { shortDate, toISODate } from '@/utils/time'
 import { findExercise, gateReason } from '@/services/exercises'
-import { AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
 
 export type AdjustmentSource = 'time-conflict' | 'feedback'
 export type FeedbackDirection = 'down' | 'up' | 'safety'
@@ -170,7 +169,7 @@ export function buildFeedbackIntents(
   const today = toISODate(now)
   const sinceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - FEEDBACK_WINDOW_DAYS)
   const since = toISODate(sinceDate)
-  const allowNumeric = !profile || (profile.age >= AUTO_RECOMMEND_MIN_AGE && !gateReason(profile))
+  const allowNumeric = !profile || !gateReason(profile)
   const byExercise = new Map<string, TrainingSession[]>()
 
   for (const session of sessions) {

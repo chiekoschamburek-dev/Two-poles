@@ -37,7 +37,6 @@
             <span class="field-label">年龄（必填）</span>
             <input ref="ageInput" v-model.number="age" type="number" min="12" max="90" placeholder="填写实际年龄" :aria-invalid="!!ageError" required />
             <small v-if="ageError" class="fine err">{{ ageError }}</small>
-            <small v-else-if="age !== '' && age < AUTO_RECOMMEND_MIN_AGE" class="fine">12–17 岁可建档并记录，自动训练推荐面向 18 岁及以上。</small>
           </label>
         </div>
 
@@ -217,7 +216,6 @@ import PbList from '@/components/profile/PbList.vue'
 import GymList from '@/components/profile/GymList.vue'
 import { useAppStore } from '@/stores/app'
 import type { GoalType, UserProfile } from '@/types/domain'
-import { AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
 import { gateReason } from '@/services/exercises'
 import { FIELD_EVENTS, TRACK_EVENTS, bodyErrors, cycleRangeError } from '@/services/profileRules'
 import { prepareModelImage } from '@/utils/modelImage'

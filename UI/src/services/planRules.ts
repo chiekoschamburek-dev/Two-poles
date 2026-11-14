@@ -18,9 +18,6 @@ export const PLAN_RULES_VERSION = 'plan-rules-v4'
 /** 每周固定安排的星期：周一、周三、周五（0=周日） */
 const TRAINING_WEEKDAYS = [1, 3, 5]
 
-/** 自动推荐的年龄下限，与首期适用范围一致 */
-export const AUTO_RECOMMEND_MIN_AGE = 18
-
 const VENUE_LABELS: Record<string, Venue> = {
   宿舍或家: '宿舍或家',
   家: '宿舍或家',
@@ -107,16 +104,6 @@ export function buildDayPlan(d: Date, profile: UserProfile | null = null, versio
   const date = toISODate(d)
   const empty = { items: [], conflicts: [], auto: true, ruleVersion: PLAN_RULES_VERSION }
   if (!TRAINING_WEEKDAYS.includes(d.getDay())) return { ...empty, items: [] }
-
-  if (profile && profile.age < AUTO_RECOMMEND_MIN_AGE) {
-    return {
-      items: [],
-      conflicts: [],
-      auto: false,
-      gateNote: `未满 ${AUTO_RECOMMEND_MIN_AGE} 岁：可以记录训练与三餐，但不生成自动推荐。需要安排请在计划页手工录入。`,
-      ruleVersion: PLAN_RULES_VERSION
-    }
-  }
 
   const gate = gateReason(profile)
   if (gate) {

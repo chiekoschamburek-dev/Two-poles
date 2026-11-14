@@ -1,7 +1,7 @@
 // 纯逻辑自检：不依赖浏览器，直接断言这次冲突修复后的规则行为。
 // 运行：npm run selfcheck
 import { createPinia, setActivePinia } from 'pinia'
-import { buildDayPlan, alternativesFor, isPlanDay, AUTO_RECOMMEND_MIN_AGE } from '@/services/planRules'
+import { buildDayPlan, alternativesFor, isPlanDay } from '@/services/planRules'
 import { buildWeeklyReport, loadOf, weekStart } from '@/services/weekRules'
 import { buildLoadSeries, intensitySplit, loadZone } from '@/services/loadRules'
 import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, inferMealType, suggestCategory, RULE_VERSION } from '@/services/mealRules'
@@ -61,8 +61,7 @@ const knee = buildDayPlan(iso(2), p({ equipment: ['无器材', '椅子'], restri
 ok('膝部负担小剔除深蹲跳等高膝负荷项', !knee.items.some(i => i.exerciseName === '深蹲跳'))
 
 const minor = buildDayPlan(iso(0), p({ age: 16 }))
-ok('未满 18 岁不生成自动推荐', minor.auto === false && minor.items.length === 0)
-ok('给出年龄门槛说明', !!minor.gateNote && minor.gateNote.includes('18'))
+ok('16 岁同样生成自动推荐（年龄门槛已移除）', minor.auto === true)
 
 const preg = buildDayPlan(iso(0), p({ restrictions: ['孕期或产后'] }))
 ok('孕期不进自动推荐但可记录', preg.auto === false && !!preg.gateNote)
@@ -241,7 +240,6 @@ ok('计划不再带模式字段', store.plans.every(pl => !('mode' in pl)))
 ok('同一周只保留一份计划', store.plans.length === 1)
 ok('统一模板周五有安排', isPlanDay(iso(4), p({})))
 ok('周二仍是休息日', !isPlanDay(iso(1), p({})))
-ok('自动推荐年龄门槛导出', AUTO_RECOMMEND_MIN_AGE === 18)
 
 const persistedPlans = JSON.parse(mem.get('twopoles.v1.plans') || '[]')
 const persistedHistory = JSON.parse(mem.get('twopoles.v1.planHistory') || '[]')
@@ -897,7 +895,7 @@ ok('非空未完成原因进入安全事实', buildFeedbackIntents(reasonSession
 const gateIntent = buildFeedbackIntents(highHigh, p({ restrictions: ['孕期或产后'] }), fbNow)[0]
 ok('GATE_RESTRICTIONS 不生成数字调整', gateIntent?.direction === 'safety' && gateIntent.allowNumeric === false)
 const minorIntent = buildFeedbackIntents(highHigh, p({ age: 17 }), fbNow)[0]
-ok('未成年不生成数字调整', minorIntent?.direction === 'safety' && minorIntent.allowNumeric === false)
+ok('17 岁同样生成数字调整（年龄门槛已移除）', minorIntent != null && minorIntent.allowNumeric === true)
 
 console.log('\n18. 无计划 / 无目标边界')
 const noPlanCurrent = buildAdjustmentSuggestions({
