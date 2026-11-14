@@ -1,5 +1,11 @@
 import { ref } from 'vue'
+import { Capacitor } from '@capacitor/core'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import { newId } from '@/utils/id'
+
+/** 原生 App（Capacitor）里提醒交给系统本地通知：App 被杀也由系统闹钟弹出；
+ * 浏览器里维持原有的页面定时器 + Service Worker 通知。 */
+const isNative = Capacitor.isNativePlatform()
 
 export interface SupplementReminder {
   id: string
@@ -42,8 +48,19 @@ let firedDate = ''
 const fired = new Set<string>()
 
 function readPermission(): SupplementPermission {
+  if (isNative) return 'default' // 真实权限由 refreshNativePermission 异步刷新
   if (typeof Notification === 'undefined') return 'unsupported'
   return Notification.permission
+}
+
+async function refreshNativePermission(): Promise<void> {
+  if (!isNative) return
+  try {
+    const state = await LocalNotifications.checkPermissions()
+    permission.value = state.display === 'granted' ? 'granted' : state.display === 'denied' ? 'denied' : 'default'
+  } catch {
+    permission.value = 'default'
+  }
 }
 
 function refreshPermission() {
@@ -96,6 +113,49 @@ function persist() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(reminders.value))
   } catch {
     // 本机存储不可用时提醒只在本次会话有效
+  }
+  void syncNativeSchedule()
+}
+
+/** 由提醒 id + 时间推导稳定的 int32 通知 id：同一条提醒同一时间可整点覆盖更新 */
+function nativeNotificationId(reminderId: string, time: string): number {
+  const key = `${reminderId}:${time}`
+  let hash = 0
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) | 0
+  }
+  // 0 在部分安卓系统里有特殊语义，避开
+  return Math.abs(hash) || 1
+}
+
+/** 把当前提醒表整表预约成系统每日重复通知；任何增删改后都整表重建 */
+async function syncNativeSchedule(): Promise<void> {
+  if (!isNative) return
+  try {
+    const pending = await LocalNotifications.getPending()
+    if (pending.notifications.length) {
+      await LocalNotifications.cancel({
+        notifications: pending.notifications.map(item => ({ id: item.id }))
+      })
+    }
+    const notifications = reminders.value
+      .filter(reminder => reminder.enabled)
+      .flatMap(reminder => reminder.times.map(time => ({
+        id: nativeNotificationId(reminder.id, time),
+        title: `补剂提醒 · ${reminder.name}`,
+        body: `${time} 到点${reminder.dosage ? ` · ${reminder.dosage}` : ''}。`,
+        schedule: {
+          on: { hour: Number(time.slice(0, 2)), minute: Number(time.slice(3, 5)) },
+          repeats: true,
+          allowWhileIdle: true,
+          exact: true
+        }
+      })))
+    if (notifications.length) {
+      await LocalNotifications.schedule({ notifications })
+    }
+  } catch {
+    // 预约失败不打断页面操作；下次变更会再次尝试整表重建
   }
 }
 
@@ -212,6 +272,16 @@ async function ensureServiceWorker(): Promise<ServiceWorkerRegistration | null> 
 }
 
 async function requestSupplementPermission(): Promise<SupplementPermission> {
+  if (isNative) {
+    try {
+      const state = await LocalNotifications.requestPermissions()
+      permission.value = state.display === 'granted' ? 'granted' : state.display === 'denied' ? 'denied' : 'default'
+    } catch {
+      permission.value = 'default'
+    }
+    if (permission.value === 'granted') void syncNativeSchedule()
+    return permission.value
+  }
   if (typeof Notification === 'undefined') {
     permission.value = 'unsupported'
     return permission.value
@@ -235,6 +305,8 @@ async function requestSupplementPermission(): Promise<SupplementPermission> {
 }
 
 async function sendSupplementNotification(title: string, body: string, tag = 'supplement'): Promise<boolean> {
+  // 原生 App 里系统通知由 syncNativeSchedule 整表预约，这里不发页面通知避免重复
+  if (isNative) return false
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
     refreshPermission()
     return false
@@ -312,6 +384,14 @@ function startSupplementScheduler(onReminder: ReminderDelivery): () => void {
   lastCheck = Date.now()
   hydrateFired()
   void ensureServiceWorker()
+  void refreshNativePermission()
+  void syncNativeSchedule()
+  if (isNative) {
+    // 点系统通知跳到补剂页；同一进程只注册一次（schedulerRunning 守卫）
+    void LocalNotifications.addListener('localNotificationActionPerformed', () => {
+      window.location.assign(`${import.meta.env.BASE_URL}supplements`)
+    })
+  }
   schedulerTimer = window.setInterval(tick, 15_000)
   visibilityHandler = () => {
     if (document.visibilityState === 'visible') tick()
@@ -361,4 +441,4 @@ export function useSupplementReminders() {
   }
 }
 
-export { startSupplementScheduler }
+export { startSupplementScheduler, isNative as isNativeSupplements }

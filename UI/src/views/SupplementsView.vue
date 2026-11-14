@@ -21,7 +21,8 @@
         <h2>系统通知</h2>
         <span>{{ permissionLabel }}</span>
       </div>
-      <p class="sup-copy">开启后，应用切到后台时可以弹出浏览器通知；关闭浏览器后不会触发。</p>
+      <p v-if="isNativeSupplements" class="sup-copy">提醒由系统闹钟调度：到点弹出系统通知，应用未打开也会提醒。建议在系统设置里把本应用加入电池白名单，避免被省电策略延迟。</p>
+      <p v-else class="sup-copy">开启后，应用切到后台时可以弹出浏览器通知；关闭浏览器后不会触发。</p>
       <div class="sup-actions">
         <button
           v-if="permission !== 'granted' && permission !== 'unsupported'"
@@ -146,6 +147,7 @@ import PoleMark from '@/components/poles/PoleMark.vue'
 import { useAppStore } from '@/stores/app'
 import {
   useSupplementReminders,
+  isNativeSupplements,
   type SupplementReminder
 } from '@/composables/useSupplementReminders'
 
