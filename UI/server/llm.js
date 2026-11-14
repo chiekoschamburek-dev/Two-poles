@@ -57,6 +57,11 @@ function isPrivateHost(hostname) {
   return !!m && Number(m[1]) >= 16 && Number(m[1]) <= 31
 }
 
+/** Node 源站地址：函数变量 API_ORIGIN 优先，默认走 DNS-only 的 origin 子域（ESA 禁止 fetch 裸 IP） */
+function apiOriginOf(env) {
+  return (readEnv(env, 'API_ORIGIN') || 'http://origin.bupt-empty-classrom.top').replace(/\/+$/, '')
+}
+
 function spaFallback(request, env) {
   const url = new URL(request.url)
   const accept = request.headers.get('accept') || ''
@@ -67,8 +72,7 @@ function spaFallback(request, env) {
   }
   // 函数路由会接管一切路径：自取 /index.html 会再次进入函数、被上面的守卫拦成 404，
   // 所以从 Node 源站取同一份 dist 的 index.html（try_files 永远 200）；源站不可达时维持原 404。
-  const apiOrigin = (readEnv(env, 'API_ORIGIN') || 'http://origin.bupt-empty-classrom.top').replace(/\/+$/, '')
-  return fetch(apiOrigin + '/index.html', { headers: { 'x-esa-spa': '1' } })
+  return fetch(apiOriginOf(env) + '/index.html', { headers: { 'x-esa-spa': '1' } })
     .catch(() => new Response('Not Found', { status: 404 }))
 }
 
@@ -282,9 +286,8 @@ export default {
     // origin.bupt-empty-classrom.top（DNS 仅解析、直指 Node 主机，不开代理加速），
     // 换服务器时改这条 DNS 记录的值，或改函数变量 API_ORIGIN，无需重新发版。
     if (path.startsWith('/api/v1/') || path.startsWith('/apk/')) {
-      const apiOrigin = (readEnv(effectiveEnv, 'API_ORIGIN') || 'http://origin.bupt-empty-classrom.top').replace(/\/+$/, '')
       const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
-      return fetch(apiOrigin + url.pathname + url.search, {
+      return fetch(apiOriginOf(effectiveEnv) + url.pathname + url.search, {
         method: request.method,
         headers: request.headers,
         body: hasBody ? await request.arrayBuffer() : undefined

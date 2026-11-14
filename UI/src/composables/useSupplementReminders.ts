@@ -430,7 +430,9 @@ function tick() {
       const title = `补剂提醒 · ${reminder.name}`
       const message = `${time} 到点${reminder.dosage ? ` · ${reminder.dosage}` : ''}。`
       schedulerDelivery?.({ title, message, reminder, time })
-      if (document.visibilityState !== 'visible' || !document.hasFocus()) {
+      // 原生端系统通知由 syncNativeSchedule 预约的系统闹钟负责，页面只做页内提示，
+      // 避免系统闹钟与页面定时器在同一分钟各发一条
+      if (!isNative && (document.visibilityState !== 'visible' || !document.hasFocus())) {
         void sendSupplementNotification(title, message, `supplement-${reminder.id}-${time}`)
       }
     }

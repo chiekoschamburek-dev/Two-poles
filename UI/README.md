@@ -73,6 +73,18 @@ npm run typecheck
 - 图标由 `public/favicon.svg` 栅格化生成（含 maskable 与 apple-touch-icon），换品牌资源后跑 `npm run icons:generate`，产物入库、部署不依赖该脚本。
 - 独立模式下 iOS 状态栏/Home 指示条由 `--safe-top` / `--safe-bottom`（tokens.css）在 TopBar / MobileNav / AppShell 让位。
 
+### 安卓 App（Capacitor）
+
+- `capacitor.config.ts`：WebView 直接加载线上站点（`server.url`），网页更新 App 零发版；原生能力目前是补剂提醒的**系统本地通知**（App 被杀也由系统闹钟弹出，代码分流见 `useSupplementReminders.ts` 的 `isNative` 分支，浏览器路径不变）。
+- 出新 APK 的固定顺序（本机已配好 JDK 21 + SDK，见 `D:\android-tools` 与 `~/.gradle/init.gradle` 镜像）：
+  ```bash
+  npm run build && npm run cap:prepare   # 构建并生成精简 dist-lite（剔除 App 用不到的端侧模型/演示视频）
+  npx cap sync android                   # 把 dist-lite 与插件同步进 android 工程
+  cd android && JAVA_HOME='D:\android-tools\jdk-21.0.13+9' ANDROID_HOME='D:\android-tools\sdk' ./gradlew.bat assembleDebug --no-daemon
+  # 产物 app/build/outputs/apk/debug/app-debug.apk → scp 到服务器 /opt/twopoles/apk/ 更新下载直链
+  ```
+- 下载直链：`/apk/twopoles-debug.apk`（nginx alias，边缘函数已放行该路径；SW 对它直连不缓存）。改原生代码或图标才需要重出 APK，纯网页更新零发版。
+
 ## 📁 项目结构
 
 ```
