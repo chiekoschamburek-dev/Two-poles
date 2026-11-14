@@ -66,15 +66,27 @@ npm run typecheck
 
 模型默认密钥、`/api/llm/*` 的单入口边缘函数 `UI/server/llm.js` 与函数变量配置，见 [DEPLOY-ESA.md](DEPLOY-ESA.md)。
 
+### PWA（安装到手机主屏）
+
+- `public/manifest.json` + `public/sw.js`：手机浏览器打开站点后「添加到主屏幕/安装」，独立窗口运行；`sw.js` 做运行时缓存（页面导航网络优先、静态资源缓存优先），离线可打开看过的页面并跑端侧动作分析。`/api/*` 与视频拖动的 Range 请求不拦截。
+- `main.ts` 在生产环境注册 SW；dev 不注册（缓存会污染 Vite 的无哈希模块）。
+- 图标由 `public/favicon.svg` 栅格化生成（含 maskable 与 apple-touch-icon），换品牌资源后跑 `npm run icons:generate`，产物入库、部署不依赖该脚本。
+- 独立模式下 iOS 状态栏/Home 指示条由 `--safe-top` / `--safe-bottom`（tokens.css）在 TopBar / MobileNav / AppShell 让位。
+
 ## 📁 项目结构
 
 ```
 UI/
 ├── public/
 │   ├── favicon.svg          # 品牌标记（圆角 Navy 底板版）
+│   ├── manifest.json        # PWA 清单（icons 由 favicon.svg 栅格化）
+│   ├── sw.js                # PWA Service Worker：通知回跳 + 运行时缓存
+│   ├── pwa-*.png            # PWA 图标（npm run icons:generate 生成，入库）
+│   ├── apple-touch-icon.png # iOS 主屏图标（同上生成）
 │   └── mediapipe/           # wasm + pose_landmarker_lite.task（npm run camera:assets 生成，不入库）
 ├── scripts/
-│   └── fetch-camera-assets.mjs  # 拉取端侧推理资产
+│   ├── fetch-camera-assets.mjs  # 拉取端侧推理资产
+│   └── generate-icons.mjs       # 从 favicon.svg 生成 PWA 图标
 ├── src/
 │   ├── components/
 │   │   ├── common/          # BaseButton / BaseCard / StatusBadge / InsightCard / ToastRegion

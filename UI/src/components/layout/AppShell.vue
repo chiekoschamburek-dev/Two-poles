@@ -71,15 +71,15 @@ onBeforeUnmount(() => {
 <style scoped>
 /* 背景由 body 的固定纸面 + 颗粒层承担：这里若再画一遍会盖掉噪点并让渐变随滚动重复 */
 .shell { min-height: 100vh; }
-/* 导航脊是 fixed 且贯穿整屏，主区只让出它的宽度；页头自己负责吸顶 */
+/* 导航脊是 fixed 且贯穿整屏，主区只让出它的宽度；页头自己负责吸顶（含 PWA 刘海让位，见 TopBar） */
 .main-content {
-  min-height: calc(100vh - var(--topbar-height));
+  min-height: calc(100vh - var(--topbar-height) - var(--safe-top));
   margin-left: var(--sidebar-width);
   padding: var(--space-2) var(--gutter) var(--space-10) var(--space-7);
 }
 /* 工作台：主区固定为视口高度减去页头，内部两栏各自滚动 */
 .main-content.main-workspace {
-  height: calc(100dvh - var(--topbar-height));
+  height: calc(100dvh - var(--topbar-height) - var(--safe-top));
   min-height: 0;
   display: flex;
   overflow: hidden;
@@ -101,8 +101,9 @@ onBeforeUnmount(() => {
   .main-content.main-workspace { padding: 8px 12px; }
 }
 @media (max-width: 767px) {
-  .main-content { padding: var(--space-2) var(--space-4) calc(var(--mobile-nav-height) + var(--space-8)); }
+  /* 底栏胶囊会因 Home 指示条整体上移（见 MobileNav），内容底部同步让位 */
+  .main-content { padding: var(--space-2) var(--space-4) calc(var(--mobile-nav-height) + var(--safe-bottom) + var(--space-8)); }
   /* 手机端底栏是浮起来的胶囊：工作台把这段高度让出来，卡片不会被压住 */
-  .main-content.main-workspace { padding: 6px 10px calc(var(--mobile-nav-height) + 8px); }
+  .main-content.main-workspace { padding: 6px 10px calc(var(--mobile-nav-height) + var(--safe-bottom) + 8px); }
 }
 </style>

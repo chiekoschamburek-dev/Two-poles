@@ -20,5 +20,9 @@ async function mount() {
     await worker.start({ onUnhandledRequest: 'bypass' })
   }
   app.mount('#app')
+  // PWA：生产环境注册 Service Worker（离线缓存 + 补剂提醒通知）；dev 不注册，避免缓存干扰 Vite
+  if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
+    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`)
+  }
 }
 void mount()

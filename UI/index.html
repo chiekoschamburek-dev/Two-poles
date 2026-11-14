@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="两仪·TwoPoles - 个性化运动与饮食协同助手" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.json" />
+    <!-- iOS 不读 manifest 图标，主屏图标走这条；黑条状态栏让内容延伸到刘海下，safe-area 由 TopBar/MobileNav 让位 -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f4ef" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14171a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="两仪" />
     <title>两仪·TwoPoles</title>
     <script>
       // 首帧前把主题落到 DOM，否则深色用户每次刷新都会白闪一下

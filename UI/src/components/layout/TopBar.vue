@@ -78,9 +78,12 @@ const cycleWeek = computed(() => {
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
-  height: var(--topbar-height);
+  /* PWA 独立模式下 iOS 状态栏悬在内容上，顶栏加高让出刘海 */
+  height: calc(var(--topbar-height) + var(--safe-top));
+  padding-top: var(--safe-top);
   margin-left: var(--sidebar-width);
-  padding: 0 var(--gutter) 0 var(--space-7);
+  padding-left: var(--space-7);
+  padding-right: var(--gutter);
   display: flex;
   align-items: center;
   gap: 14px;

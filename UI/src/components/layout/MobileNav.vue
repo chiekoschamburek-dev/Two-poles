@@ -102,7 +102,8 @@ const items = computed<NavItem[]>(() => {
     position: fixed;
     left: 10px;
     right: 10px;
-    bottom: 10px;
+    /* PWA 独立模式下 iOS Home 指示条悬在底部，胶囊整体上移让位 */
+    bottom: calc(10px + var(--safe-bottom));
     height: var(--mobile-nav-height);
     z-index: var(--z-sticky);
     align-items: center;

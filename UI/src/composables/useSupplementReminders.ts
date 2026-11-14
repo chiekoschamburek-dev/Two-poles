@@ -196,6 +196,9 @@ function persistFired() {
 
 async function ensureServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !window.isSecureContext) return null
+  // 生产环境的 SW 由 main.ts 启动时注册（同一 sw.js，重复 register 幂等）；
+  // dev 不注册——SW 现在带运行时缓存，会把 Vite 的无哈希模块按缓存优先返回，污染开发服务器
+  if (!import.meta.env.PROD) return null
   if (!swPromise) {
     swPromise = navigator.serviceWorker
       .register(`${import.meta.env.BASE_URL}sw.js`)

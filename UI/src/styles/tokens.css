@@ -185,6 +185,9 @@
   --sidebar-width: 86px;
   --topbar-height: 58px;
   --mobile-nav-height: 64px;
+  /* PWA 独立模式（iOS 刘海/Home 指示条）让位用；浏览器里 inset 为 0，无副作用 */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --content-max-width: 1440px;
   --gutter: clamp(16px, 2.4vw, 34px);
 
