@@ -64,6 +64,9 @@ async function refreshNativePermission(): Promise<void> {
 }
 
 function refreshPermission() {
+  // 原生端权限以 refreshNativePermission / requestSupplementPermission 的结果为准，
+  // 不能用浏览器 API 刷回 default（webview 里 Notification 是 undefined）
+  if (isNative) return
   permission.value = readPermission()
 }
 
@@ -305,8 +308,21 @@ async function requestSupplementPermission(): Promise<SupplementPermission> {
 }
 
 async function sendSupplementNotification(title: string, body: string, tag = 'supplement'): Promise<boolean> {
-  // 原生 App 里系统通知由 syncNativeSchedule 整表预约，这里不发页面通知避免重复
-  if (isNative) return false
+  // 原生 App：发一条立即可见的系统通知（测试提醒用），日常提醒仍由整表预约的每日闹钟承担
+  if (isNative) {
+    try {
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: nativeNotificationId(`test:${Date.now()}`, 'now'),
+          title,
+          body
+        }]
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
     refreshPermission()
     return false
