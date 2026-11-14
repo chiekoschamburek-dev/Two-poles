@@ -44,3 +44,4 @@ coverage/
 
 # Local API database and export artifacts
 server/data/
+dist-lite/

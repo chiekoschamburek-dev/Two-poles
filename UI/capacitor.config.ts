@@ -7,7 +7,9 @@ import type { CapacitorConfig } from '@capacitor/cli'
 const config: CapacitorConfig = {
   appId: 'com.twopoles.app',
   appName: '两仪',
-  webDir: 'dist',
+  // App 加载的是 server.url 指向的线上站点，这里的 webDir 只做壳资源；
+  // 用剔除大资源后的精简副本，安装包从 53MB 缩到 ~1MB（先 npm run build && npm run cap:prepare）
+  webDir: 'dist-lite',
   server: {
     url: 'https://two-poles.bupt-empty-classrom.top',
     cleartext: false

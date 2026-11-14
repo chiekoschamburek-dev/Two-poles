@@ -11,6 +11,7 @@
     "camera:assets": "node scripts/fetch-camera-assets.mjs",
     "icons:generate": "node scripts/generate-icons.mjs",
     "build": "vue-tsc && vite build",
+    "cap:prepare": "node scripts/prepare-capacitor-dist.mjs",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "selfcheck": "esbuild scripts/selfcheck.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.selfcheck.mjs && node .selfcheck.mjs",
