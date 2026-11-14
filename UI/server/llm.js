@@ -274,6 +274,19 @@ export default {
       return handleChat(request, effectiveEnv)
     }
 
+    // 账号与同步 API：本站点由边缘函数接管路由，ESA 的「DNS 记录（源站改写）」回源规则
+    // 对函数路由的流量不生效，所以在这里把 /api/v1/* 原样转发到有持久磁盘的 Node 主机。
+    // 源站地址用函数变量 API_ORIGIN 配置（如 http://47.94.123.235），换服务器时只改变量不重新发版。
+    if (path.startsWith('/api/v1/')) {
+      const apiOrigin = (readEnv(effectiveEnv, 'API_ORIGIN') || 'http://47.94.123.235').replace(/\/+$/, '')
+      const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
+      return fetch(apiOrigin + url.pathname + url.search, {
+        method: request.method,
+        headers: request.headers,
+        body: hasBody ? await request.arrayBuffer() : undefined
+      })
+    }
+
     if (path.startsWith('/api/')) return json(404, { error: '接口不存在' })
 
     return spaFallback(request)

@@ -23,7 +23,15 @@ location /api/v1/ {
 }
 ```
 
-使用独立 API 域名时需与站点同站，并在 CORS_ORIGINS 中精确放行前端 origin。refresh cookie 使用 SameSite=Lax；任意跨站部署仅靠 CORS 不足以续期。Node 服务不能直接放进 ESA 的边缘函数运行时。以上为部署方案，本轮只完成本机验收，未发布或更改线上回源。接口与已知边界见 [server/README.md](server/README.md)。
+使用独立 API 域名时需与站点同站，并在 CORS_ORIGINS 中精确放行前端 origin。refresh cookie 使用 SameSite=Lax；任意跨站部署仅靠 CORS 不足以续期。Node 服务不能直接放进 ESA 的边缘函数运行时。接口与已知边界见 [server/README.md](server/README.md)。
+
+### 实际落地（2026-11-14）：`/api/v1/*` 由边缘函数转发，不走回源规则
+
+实测结论：本站以「函数和 Pages」接入，**函数路由覆盖整个主机名，ESA 的「DNS 记录（源站改写）」等回源规则对函数路由的流量不生效**——`/api/v1/*` 会先被 `llm.js` 的 `/api/*` 兜底拦成 404。因此转发做在函数里：
+
+- `server/llm.js` 在 `/api/*` 兜底之前，把 `GET/POST/PATCH/DELETE /api/v1/*` 原样（方法、头、体、Cookie）转发到函数变量 `API_ORIGIN`（当前 `http://47.94.123.235`，即试运行中的 Node 主机），响应连同 Set-Cookie 原样返回。换服务器时改 `API_ORIGIN` 函数变量即可，无需重新发版。
+- Node 主机侧：systemd 常驻 `npm run server`，nginx :80 反代 `127.0.0.1:8787`；SQLite 在 `/opt/twopoles/data/`，每日 `VACUUM INTO` 快照备份（保留 7 份）。
+- 试用期内 `COOKIE_SECURE=false`（与 http 直连 IP 的调试入口共用一套环境）；IP 入口退役后切 `true`。
 
 ## 结构
 
