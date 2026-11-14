@@ -1,11 +1,30 @@
 import { ref } from 'vue'
 import { Capacitor } from '@capacitor/core'
-import { LocalNotifications } from '@capacitor/local-notifications'
+import { LocalNotifications, Importance, Visibility } from '@capacitor/local-notifications'
 import { newId } from '@/utils/id'
 
 /** 原生 App（Capacitor）里提醒交给系统本地通知：App 被杀也由系统闹钟弹出；
  * 浏览器里维持原有的页面定时器 + Service Worker 通知。 */
 const isNative = Capacitor.isNativePlatform()
+/** 高重要度渠道才会横幅弹出 + 锁屏显示；默认渠道只默默进通知中心 */
+const SUPPLEMENT_CHANNEL = 'supplement-reminders'
+
+let channelReady = false
+async function ensureChannel(): Promise<void> {
+  if (!isNative || channelReady) return
+  try {
+    await LocalNotifications.createChannel({
+      id: SUPPLEMENT_CHANNEL,
+      name: '补剂提醒',
+      description: '每日补剂到点提醒',
+      importance: Importance.High,
+      visibility: Visibility.Public
+    })
+    channelReady = true
+  } catch {
+    // 渠道创建失败时回落默认渠道，通知仍会进通知中心
+  }
+}
 
 export interface SupplementReminder {
   id: string
@@ -155,6 +174,7 @@ async function syncNativeSchedule(): Promise<void> {
         id: nativeNotificationId(reminder.id, time),
         title: `补剂提醒 · ${reminder.name}`,
         body: `${time} 到点${reminder.dosage ? ` · ${reminder.dosage}` : ''}。`,
+        channelId: SUPPLEMENT_CHANNEL,
         schedule: {
           on: { hour: Number(time.slice(0, 2)), minute: Number(time.slice(3, 5)) },
           repeats: true,
@@ -338,11 +358,13 @@ async function sendSupplementNotification(title: string, body: string, tag = 'su
   // 原生 App：发一条立即可见的系统通知（测试提醒用），日常提醒仍由整表预约的每日闹钟承担
   if (isNative) {
     try {
+      await ensureChannel()
       await LocalNotifications.schedule({
         notifications: [{
           id: nativeNotificationId(`test:${Date.now()}`, 'now'),
           title,
-          body
+          body,
+          channelId: SUPPLEMENT_CHANNEL
         }]
       })
       return true
