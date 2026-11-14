@@ -276,9 +276,11 @@ export default {
 
     // 账号与同步 API：本站点由边缘函数接管路由，ESA 的「DNS 记录（源站改写）」回源规则
     // 对函数路由的流量不生效，所以在这里把 /api/v1/* 原样转发到有持久磁盘的 Node 主机。
-    // 源站地址用函数变量 API_ORIGIN 配置（如 http://47.94.123.235），换服务器时只改变量不重新发版。
+    // 注意：ESA 运行时禁止 fetch 裸 IP（防 SSRF），源站必须用域名——默认走
+    // origin.bupt-empty-classrom.top（DNS 仅解析、直指 Node 主机，不开代理加速），
+    // 换服务器时改这条 DNS 记录的值，或改函数变量 API_ORIGIN，无需重新发版。
     if (path.startsWith('/api/v1/')) {
-      const apiOrigin = (readEnv(effectiveEnv, 'API_ORIGIN') || 'http://47.94.123.235').replace(/\/+$/, '')
+      const apiOrigin = (readEnv(effectiveEnv, 'API_ORIGIN') || 'http://origin.bupt-empty-classrom.top').replace(/\/+$/, '')
       const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
       return fetch(apiOrigin + url.pathname + url.search, {
         method: request.method,
