@@ -57,7 +57,7 @@ function isPrivateHost(hostname) {
   return !!m && Number(m[1]) >= 16 && Number(m[1]) <= 31
 }
 
-function spaFallback(request) {
+function spaFallback(request, env) {
   const url = new URL(request.url)
   const accept = request.headers.get('accept') || ''
   const isNavigation = request.method === 'GET' && accept.includes('text/html')
@@ -65,9 +65,11 @@ function spaFallback(request) {
   if (url.pathname === '/index.html' && request.headers.get('x-esa-spa') === '1') {
     return new Response('Not Found', { status: 404 })
   }
-  return fetch(new URL('/index.html', url.origin), {
-    headers: { 'x-esa-spa': '1' }
-  })
+  // 函数路由会接管一切路径：自取 /index.html 会再次进入函数、被上面的守卫拦成 404，
+  // 所以从 Node 源站取同一份 dist 的 index.html（try_files 永远 200）；源站不可达时维持原 404。
+  const apiOrigin = (readEnv(env, 'API_ORIGIN') || 'http://origin.bupt-empty-classrom.top').replace(/\/+$/, '')
+  return fetch(apiOrigin + '/index.html', { headers: { 'x-esa-spa': '1' } })
+    .catch(() => new Response('Not Found', { status: 404 }))
 }
 
 async function handleChat(request, env) {
@@ -291,6 +293,6 @@ export default {
 
     if (path.startsWith('/api/')) return json(404, { error: '接口不存在' })
 
-    return spaFallback(request)
+    return spaFallback(request, effectiveEnv)
   }
 }
