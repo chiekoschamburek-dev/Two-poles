@@ -327,7 +327,7 @@ const {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   border-top: 1px solid var(--hair-soft);
-  background: #fbfaf7;
+  background: var(--surface-field);
 }
 .mh-stats > div { padding: 8px 12px 9px; border-left: 1px solid var(--hair-soft); }
 .mh-stats > div:first-child { border-left: 0; }
@@ -342,7 +342,7 @@ const {
 .mh-stats span { display: block; margin-top: 2px; font-size: 8.5px; line-height: 1.3; color: var(--color-text-muted); white-space: nowrap; }
 
 .mh-meals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 14px 12px; }
-.mh-meal { background: #faf9f6; border: 1px solid var(--hair-soft); border-radius: var(--radius-base); padding: 7px 8px; }
+.mh-meal { background: var(--surface-field); border: 1px solid var(--hair-soft); border-radius: var(--radius-base); padding: 7px 8px; }
 .mh-meal span { display: flex; align-items: center; gap: 4px; font-size: 8.5px; color: var(--color-text-muted); }
 .mh-meal span i { width: 5px; height: 5px; border-radius: 50%; border: 1px solid var(--hair-strong); }
 .mh-meal.done span i { background: var(--pole-nutrition); border-color: var(--pole-nutrition); }
