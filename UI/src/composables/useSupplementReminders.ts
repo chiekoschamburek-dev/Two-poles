@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { Capacitor } from '@capacitor/core'
-import { LocalNotifications, Importance, Visibility } from '@capacitor/local-notifications'
+import { LocalNotifications, Importance } from '@capacitor/local-notifications'
 import { newId } from '@/utils/id'
 
 /** 原生 App（Capacitor）里提醒交给系统本地通知：App 被杀也由系统闹钟弹出；
@@ -18,7 +18,7 @@ async function ensureChannel(): Promise<void> {
       name: '补剂提醒',
       description: '每日补剂到点提醒',
       importance: Importance.High,
-      visibility: Visibility.Public
+      visibility: 1 // Visibility.Public（插件里是类型别名，运行时用数值：1 = 锁屏可见）
     })
     channelReady = true
   } catch {
