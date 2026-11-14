@@ -245,14 +245,6 @@
       <p v-else class="muted">{{ isToday ? '今天' : '这一天' }}还没有训练或餐食记录。空着是合法状态，不代表没吃没练。</p>
     </BaseCard>
 
-    <InsightCard class="rules animate-slide-in-up" card-id="meal-rules" eyebrow="HOW THIS WORKS" title="这些结论是怎么来的">
-      <template #icon><Sparkles :size="20" /></template>
-      <ul class="lims">
-        <li v-for="l in limitations" :key="l">{{ l }}</li>
-      </ul>
-      <p class="ver">规则版本 {{ RULE_VERSION }} · 是否含营养估算：{{ hasEstimateToday ? '是（区间粗估，来源见上）' : '否' }} · 记录仅存本机浏览器</p>
-    </InsightCard>
-
     <FoodCaptureDialog
       :open="captureOpen"
       :date="date"
@@ -272,10 +264,9 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { ArrowRight, Camera, ChevronLeft, ChevronRight, PenLine, Sparkles } from 'lucide-vue-next'
+import { ArrowRight, Camera, ChevronLeft, ChevronRight, PenLine } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
-import InsightCard from '@/components/common/InsightCard.vue'
 import StatStrip, { type StatItem } from '@/components/common/StatStrip.vue'
 import DietFeedbackCard from '@/components/meals/DietFeedbackCard.vue'
 import MealForm from '@/components/meals/MealForm.vue'
@@ -286,8 +277,6 @@ import type { Meal, MealDraft, MealItem, MealType, ModelEnergyEstimate } from '@
 import {
   FOOD_CATEGORIES,
   MEAL_TYPE_OPTIONS,
-  RULE_VERSION,
-  buildLimitations,
   inferMealType,
   isMixed,
   mealTypeLabel,
@@ -364,29 +353,6 @@ const mealStats = computed<StatItem[]>(() => {
     { label: '完整记录', value: s.completeCount, unit: '条', hint: '每项都填了份量' },
     { label: '部分记录', value: s.partialCount, unit: '条', hint: '有食物，但份量没估全' },
     { label: '加餐', value: s.snackCount, unit: '次', hint: '不记录也是合法状态' }
-  ]
-})
-
-const hasLocalEstimateToday = computed(() => showEstimate.value && store.meals.some(m =>
-  m.date === date.value && (m.analysis?.estimateRefs?.length ?? 0) > 0
-))
-const hasModelEstimateToday = computed(() => showEstimate.value && store.meals.some(m =>
-  m.date === date.value && m.items.some(i => !!i.modelEnergy)
-))
-const hasEstimateToday = computed(() => hasLocalEstimateToday.value || hasModelEstimateToday.value)
-const limitations = computed(() => {
-  const base = buildLimitations(hasLocalEstimateToday.value)
-  // 只有模型热量时，不能同时留一句"没有热量估算"
-  const cleaned = hasModelEstimateToday.value && !hasLocalEstimateToday.value
-    ? base.filter(l => !l.includes('hasNutritionEstimate = false'))
-    : base
-  return [
-    ...cleaned,
-    ...(hasModelEstimateToday.value
-      ? ['部分照片识别结果带有模型提供的热量区间：它只是模型粗估，未与成分表核对，也不构成营养建议。']
-      : []),
-    '照片识别会给出名称、类别与置信度；低置信度项在列表里标注，默认不强迫逐项确认。',
-    '识别失败不会生成记录；照片是否在本机保存可在结果页/设置选择。模型识别发送前会单独说明并征得同意。'
   ]
 })
 
@@ -797,11 +763,6 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .tl-body strong{font-size:13.5px;color:var(--color-ink)}
 .tl-body small{font-size:11.5px;color:var(--color-text-muted);margin-top:3px;line-height:1.6}
 .tl-note{font-size:12px;color:var(--color-text-muted);margin:6px 18px 0;line-height:1.65}
-.rules{margin-top:14px}
-.lims{list-style:none;padding:0;margin:0;display:grid;gap:6px}
-.lims li{position:relative;padding-left:16px;font-size:12px;color:var(--color-text-secondary);line-height:1.7}
-.lims li::before{content:'·';position:absolute;left:2px;top:-1px;color:var(--color-accent);font-weight:700;font-size:16px}
-.ver{font-size:11px;color:var(--color-text-muted);margin:10px 0 0}
 
 @media(max-width:1099px){
   .day-grid{grid-template-columns:1fr}

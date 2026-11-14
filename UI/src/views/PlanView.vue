@@ -230,15 +230,6 @@
       </BaseCard>
       <p v-if="!cycleStart" class="cycle-note">四周周期以档案里的"周期开始"日期为起点。没填时这里只说明阶段划分，负荷一律标为"未记录"——不用示例数字冒充你的数据。</p>
     </div>
-
-    <BaseCard v-if="planHistoryCount" class="history animate-slide-in-up">
-      <div class="card-head"><div><span class="eyebrow">VERSIONS</span><h3>本机计划历史</h3></div><span class="fine">{{ planHistoryCount }} 个版本</span></div>
-      <ul class="verlist">
-        <li v-for="h in recentHistory" :key="`${h.id}-v${h.version}`">
-          <b>v{{ h.version }}</b><em>{{ h.reason }}</em><small>{{ h.createdAt.slice(0, 16).replace('T', ' ') }}</small>
-        </li>
-      </ul>
-    </BaseCard>
   </div>
 </template>
 
@@ -334,7 +325,6 @@ const pendingHint = computed(() => {
   }
   return '这些是事实提示，不会自动改计划。'
 })
-const recentHistory = computed(() => [...store.planHistory].reverse().slice(0, 6))
 const notice = computed(() => store.dayPlanNotice(selectedDate.value))
 
 /** 已存的周计划优先（含锁定与完成状态）；该周还没有计划时只做实时预览，不落盘 */
@@ -770,15 +760,6 @@ watch(
 .pending-copy small.pending-evidence{color:var(--color-text-secondary)}
 .pending-actions{display:flex;gap:7px;flex-wrap:wrap;flex:none;align-self:center}
 .pending-actions :deep(button){width:auto}
-.history{margin-top:14px}
-.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
-.card-head h3{font-size:15px;margin:5px 0 0}
-.fine{font-family:var(--font-num);font-size:10.5px;color:var(--color-text-muted)}
-.verlist{list-style:none;margin:0;padding:0;display:grid;gap:0}
-.verlist li{display:flex;align-items:baseline;gap:10px;font-size:12px;color:var(--color-text-secondary);padding:8px 0;border-top:1px solid var(--hair-soft);flex-wrap:wrap}
-.verlist b{font-family:var(--font-num);color:var(--color-ink);font-size:12px;font-weight:600}
-.verlist em{font-style:normal;flex:1;min-width:180px;color:var(--color-text-muted)}
-.verlist small{font-family:var(--font-num);font-size:10.5px;color:var(--color-text-muted);font-variant-numeric:tabular-nums}
 /* 计划页属于运动侧：info 徽标与按钮焦点收到陶土色；success / caution / danger 继续承担状态语义 */
 .detail :deep(.badge.info){color:var(--pole-movement-strong);background:var(--pole-movement-soft);box-shadow:inset 0 0 0 1px var(--pole-movement-line)}
 .detail :deep(.badge.info .dot){background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
