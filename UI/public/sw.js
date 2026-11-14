@@ -33,6 +33,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
   if (url.pathname.startsWith('/api/')) return
+  // APK 等大文件下载直连网络：不缓存也不做页面兜底，否则下载失败会被缓存首页顶掉
+  if (url.pathname.startsWith('/apk/')) return
   // 视频拖动走 Range 分段请求，Cache API 兜不住完整响应，直接放行给浏览器 HTTP 缓存
   if (request.headers.has('range')) return
 
