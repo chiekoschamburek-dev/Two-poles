@@ -69,9 +69,20 @@
           </span>
           <span v-if="!form.times.length" class="sup-muted">还没有时间</span>
         </div>
+        <div class="sup-suggest" aria-label="常用时间">
+          <button
+            v-for="preset in timePresets"
+            :key="preset.time"
+            type="button"
+            class="sup-suggest-btn"
+            :class="{ active: form.times.includes(preset.time) }"
+            :aria-pressed="form.times.includes(preset.time)"
+            @click="togglePreset(preset.time)"
+          >{{ preset.label }} {{ preset.time }}</button>
+        </div>
         <div class="sup-time-add">
-          <input v-model="newTime" type="time" class="sup-time-input" aria-label="新的提醒时间" />
-          <button type="button" class="sup-btn ghost small" @click="addTime"><Plus :size="13" />添加时间</button>
+          <input v-model="newTime" type="time" class="sup-time-input" aria-label="自定义提醒时间" />
+          <button type="button" class="sup-btn ghost small" @click="addTime"><Plus :size="13" />自定义添加</button>
         </div>
       </div>
 
@@ -139,6 +150,15 @@ import {
 } from '@/composables/useSupplementReminders'
 
 const suggestions = ['鱼油', '肌酸', '维生素D', '蛋白粉', '钙片']
+// 常用服药/补剂时间点：一键选中或取消，避免在手机上跟系统的双转盘时间选择器较劲；
+// 精确时间仍可用下方自定义输入（原生 time 控件）
+const timePresets = [
+  { label: '晨起', time: '07:00' },
+  { label: '早餐后', time: '08:00' },
+  { label: '午餐后', time: '12:30' },
+  { label: '晚餐后', time: '18:30' },
+  { label: '睡前', time: '22:00' }
+]
 const store = useAppStore()
 const {
   reminders,
@@ -203,6 +223,15 @@ function addTime() {
 function removeTime(time: string) {
   form.times = form.times.filter(item => item !== time)
   error.value = ''
+}
+
+function togglePreset(time: string) {
+  error.value = ''
+  if (form.times.includes(time)) {
+    form.times = form.times.filter(item => item !== time)
+  } else {
+    form.times = [...form.times, time].sort()
+  }
 }
 
 function resetForm() {
@@ -425,6 +454,13 @@ async function testNotification() {
   cursor: pointer;
 }
 .sup-suggest-btn:hover { border-color: var(--pole-nutrition-line); color: var(--pole-nutrition-strong); background: var(--pole-nutrition-soft); }
+.sup-suggest-btn.active,
+.sup-suggest-btn.active:hover {
+  border-color: var(--pole-nutrition);
+  background: var(--pole-nutrition-soft);
+  color: var(--pole-nutrition-strong);
+  font-weight: 600;
+}
 .sup-time-list { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 26px; }
 .sup-time-chip {
   display: inline-flex;
