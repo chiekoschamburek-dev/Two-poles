@@ -36,68 +36,13 @@
       <p v-else-if="permission === 'unsupported'" class="sup-hint">当前浏览器不支持系统通知，仍会使用页面内提示。</p>
     </section>
 
-    <section ref="formRef" class="sup-card">
-      <div class="sup-card-head">
-        <h2>{{ editingId ? '编辑补剂提醒' : '添加补剂提醒' }}</h2>
-        <span>每日</span>
-      </div>
-
-      <label class="sup-field">
-        <span class="sup-label">补剂名称</span>
-        <input v-model="form.name" class="sup-input" type="text" maxlength="30" placeholder="例如 鱼油" />
-      </label>
-      <div class="sup-suggest" aria-label="常用补剂">
-        <button
-          v-for="name in suggestions"
-          :key="name"
-          type="button"
-          class="sup-suggest-btn"
-          @click="form.name = name"
-        >{{ name }}</button>
-      </div>
-
-      <label class="sup-field">
-        <span class="sup-label">剂量 / 备注（选填）</span>
-        <input v-model="form.dosage" class="sup-input" type="text" maxlength="40" placeholder="例如 1 粒 / 5 g" />
-      </label>
-
-      <div class="sup-field">
-        <span class="sup-label">提醒时间</span>
-        <div class="sup-time-list">
-          <span v-for="time in form.times" :key="time" class="sup-time-chip">
-            {{ time }}
-            <button type="button" :aria-label="`移除 ${time}`" @click="removeTime(time)"><X :size="12" /></button>
-          </span>
-          <span v-if="!form.times.length" class="sup-muted">还没有时间</span>
-        </div>
-        <div class="sup-suggest" aria-label="常用时间">
-          <button
-            v-for="preset in timePresets"
-            :key="preset.time"
-            type="button"
-            class="sup-suggest-btn"
-            :class="{ active: form.times.includes(preset.time) }"
-            :aria-pressed="form.times.includes(preset.time)"
-            @click="togglePreset(preset.time)"
-          >{{ preset.label }} {{ preset.time }}</button>
-        </div>
-        <div class="sup-time-add">
-          <input v-model="newTime" type="time" class="sup-time-input" aria-label="自定义提醒时间" />
-          <button type="button" class="sup-btn ghost small" @click="addTime"><Plus :size="13" />自定义添加</button>
-        </div>
-      </div>
-
-      <p v-if="error" class="sup-error" role="alert">{{ error }}</p>
-      <div class="sup-form-actions">
-        <button type="button" class="sup-btn dark" @click="save">{{ editingId ? '保存修改' : '添加提醒' }}</button>
-        <button v-if="editingId" type="button" class="sup-btn ghost" @click="resetForm">取消</button>
-      </div>
-    </section>
-
     <section class="sup-card">
       <div class="sup-card-head">
         <h2>我的补剂</h2>
-        <span>{{ reminders.length }} 项</span>
+        <div class="sup-head-right">
+          <span class="sup-count">{{ reminders.length }} 项</span>
+          <button type="button" class="sup-btn dark small" @click="openAdd"><Plus :size="13" />添加提醒</button>
+        </div>
       </div>
 
       <div v-if="reminders.length" class="sup-list">
@@ -133,18 +78,82 @@
           </div>
         </article>
       </div>
-      <p v-else class="sup-empty">还没有补剂提醒。可以从上面的常用补剂开始。</p>
+      <p v-else class="sup-empty">还没有补剂提醒。点右上角「添加提醒」开始。</p>
     </section>
+
+    <Teleport to="body">
+      <div v-if="formOpen" class="sup-scrim" @click.self="closeForm">
+        <div class="sup-dlg" role="dialog" aria-modal="true" aria-labelledby="sup-form-title">
+          <header class="sup-dlg-head">
+            <div>
+              <span class="micro nut">SUPPLEMENTS · 每日</span>
+              <h2 id="sup-form-title">{{ editingId ? '编辑补剂提醒' : '添加补剂提醒' }}</h2>
+            </div>
+            <button class="sup-dlg-x" type="button" aria-label="关闭" @click="closeForm">✕</button>
+          </header>
+          <div class="sup-dlg-body">
+            <label class="sup-field">
+              <span class="sup-label">补剂名称</span>
+              <input v-model="form.name" class="sup-input" type="text" maxlength="30" placeholder="例如 鱼油" />
+            </label>
+            <div class="sup-suggest" aria-label="常用补剂">
+              <button
+                v-for="name in suggestions"
+                :key="name"
+                type="button"
+                class="sup-suggest-btn"
+                @click="form.name = name"
+              >{{ name }}</button>
+            </div>
+            <label class="sup-field">
+              <span class="sup-label">剂量 / 备注（选填）</span>
+              <input v-model="form.dosage" class="sup-input" type="text" maxlength="40" placeholder="例如 1 粒 / 5 g" />
+            </label>
+            <div class="sup-field">
+              <span class="sup-label">提醒时间</span>
+              <div class="sup-time-list">
+                <span v-for="time in form.times" :key="time" class="sup-time-chip">
+                  {{ time }}
+                  <button type="button" :aria-label="`移除 ${time}`" @click="removeTime(time)"><X :size="12" /></button>
+                </span>
+                <span v-if="!form.times.length" class="sup-muted">还没有时间</span>
+              </div>
+              <div class="sup-suggest" aria-label="常用时间">
+                <button
+                  v-for="preset in timePresets"
+                  :key="preset.time"
+                  type="button"
+                  class="sup-suggest-btn"
+                  :class="{ active: form.times.includes(preset.time) }"
+                  :aria-pressed="form.times.includes(preset.time)"
+                  @click="togglePreset(preset.time)"
+                >{{ preset.label }} {{ preset.time }}</button>
+              </div>
+              <div class="sup-time-add">
+                <input v-model="newTime" type="time" class="sup-time-input" aria-label="自定义提醒时间" />
+                <button type="button" class="sup-btn ghost small" @click="addTime"><Plus :size="13" />自定义添加</button>
+              </div>
+            </div>
+            <p v-if="error" class="sup-error" role="alert">{{ error }}</p>
+            <div class="sup-form-actions">
+              <button type="button" class="sup-btn dark" @click="save">{{ editingId ? '保存修改' : '添加提醒' }}</button>
+              <button type="button" class="sup-btn ghost" @click="closeForm">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <p class="sup-note">提醒只保存在本机；系统通知依赖浏览器权限。补剂使用请遵循产品说明或专业人士建议。</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Pill, Plus, X } from 'lucide-vue-next'
 import PoleMark from '@/components/poles/PoleMark.vue'
 import { useAppStore } from '@/stores/app'
+import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
 import {
   useSupplementReminders,
   isNativeSupplements,
@@ -183,7 +192,8 @@ const editingId = ref<string | null>(null)
 const newTime = ref('20:00')
 const error = ref('')
 const pendingDelete = ref<string | null>(null)
-const formRef = ref<HTMLElement | null>(null)
+const formOpen = ref(false)
+let formScrollLock: symbol | null = null
 const nowTick = ref(Date.now())
 let clockTimer: number | undefined
 
@@ -246,6 +256,31 @@ function resetForm() {
   pendingDelete.value = null
 }
 
+function openForm() {
+  formOpen.value = true
+  formScrollLock = lockBodyScroll()
+}
+
+function openAdd() {
+  resetForm()
+  openForm()
+}
+
+function closeForm() {
+  formOpen.value = false
+  unlockBodyScroll(formScrollLock)
+  formScrollLock = null
+  resetForm()
+}
+
+// 弹窗关闭（X / 取消 / 蒙层）以外的意外卸载也要释放滚动锁
+watch(formOpen, (open) => {
+  if (!open && formScrollLock) {
+    unlockBodyScroll(formScrollLock)
+    formScrollLock = null
+  }
+})
+
 function startEdit(reminder: SupplementReminder) {
   editingId.value = reminder.id
   form.name = reminder.name
@@ -254,7 +289,7 @@ function startEdit(reminder: SupplementReminder) {
   newTime.value = ''
   error.value = ''
   pendingDelete.value = null
-  formRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  openForm()
 }
 
 function save() {
@@ -280,7 +315,7 @@ function save() {
     message: `${saved.times.join(' / ')} 每日提醒${saved.dosage ? ` · ${saved.dosage}` : ''}`,
     duration: 3000
   })
-  resetForm()
+  closeForm()
 }
 
 function confirmDelete(id: string) {
@@ -481,6 +516,37 @@ async function testNotification() {
 .sup-time-chip button { display: grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
 .sup-time-add { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
 .sup-time-input { width: 128px; flex: none; }
+.sup-head-right { display: flex; align-items: center; gap: 9px; }
+.sup-count { font-size: 10.5px; color: var(--color-text-muted); }
+.sup-scrim {
+  position: fixed; inset: 0; z-index: var(--z-modal-backdrop);
+  background: rgba(17, 22, 26, .46); backdrop-filter: blur(3px);
+  display: grid; place-items: center; padding: 16px;
+}
+.sup-dlg {
+  width: min(560px, 100%);
+  max-height: min(88vh, 940px);
+  display: flex; flex-direction: column;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 30px 80px -40px rgba(11, 16, 20, .65);
+  overflow: hidden;
+}
+.sup-dlg-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 16px 18px 12px; border-bottom: 1px solid var(--color-divider);
+}
+.sup-dlg-head h2 { font-size: 17px; margin: 5px 0 0; letter-spacing: -.01em; }
+.sup-dlg-x {
+  width: 30px; height: 30px; border-radius: 9px; flex: none;
+  color: var(--color-text-muted); font-size: 13px;
+}
+.sup-dlg-x:hover { background: var(--color-neutral-soft); color: var(--color-ink); }
+.sup-dlg-body {
+  overflow-y: auto; padding: 14px 18px 18px; flex: 1; min-height: 0;
+  display: grid; gap: 12px; align-content: start;
+}
 .sup-muted { font-size: 9px; color: var(--color-text-muted); }
 .sup-error { margin: 9px 0 0; font-size: 10px; line-height: 1.6; color: var(--color-danger); }
 .sup-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
