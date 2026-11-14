@@ -23,6 +23,11 @@
       </div>
       <p v-if="isNativeSupplements" class="sup-copy">提醒由系统闹钟调度：到点弹出系统通知，应用未打开也会提醒。建议在系统设置里把本应用加入电池白名单，避免被省电策略延迟。</p>
       <p v-else class="sup-copy">开启后，应用切到后台时可以弹出浏览器通知；关闭浏览器后不会触发。</p>
+      <p v-if="isNativeSupplements" class="sup-hint" role="status">
+        <template v-if="scheduleStatus.error">⚠️ 预约失败：{{ scheduleStatus.error }}</template>
+        <template v-else-if="scheduleStatus.count">✅ 已向系统预约 {{ scheduleStatus.count }} 条每日提醒{{ scheduleStatus.exact ? '（精确闹钟）' : '（非精确，到点可能延迟几分钟）' }}。</template>
+        <template v-else>还没有向系统预约提醒——添加提醒后，这里会显示预约结果。</template>
+      </p>
       <div class="sup-actions">
         <button
           v-if="permission !== 'granted' && permission !== 'unsupported'"
@@ -31,6 +36,7 @@
           @click="enableNotifications"
         >开启浏览器通知</button>
         <button type="button" class="sup-btn ghost" @click="testNotification">发送测试提醒</button>
+        <button v-if="isNativeSupplements" type="button" class="sup-btn ghost" @click="syncNativeSchedule">重建系统提醒</button>
       </div>
       <p v-if="permission === 'denied'" class="sup-hint warn">通知权限被拒绝，请在浏览器站点设置里重新允许。</p>
       <p v-else-if="permission === 'unsupported'" class="sup-hint">当前浏览器不支持系统通知，仍会使用页面内提示。</p>
@@ -174,6 +180,8 @@ const store = useAppStore()
 const {
   reminders,
   permission,
+  scheduleStatus,
+  syncNativeSchedule,
   addReminder,
   updateReminder,
   toggleReminder,

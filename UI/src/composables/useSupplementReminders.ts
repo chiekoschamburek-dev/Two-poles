@@ -131,7 +131,15 @@ function nativeNotificationId(reminderId: string, time: string): number {
   return Math.abs(hash) || 1
 }
 
-/** 把当前提醒表整表预约成系统每日重复通知；任何增删改后都整表重建 */
+/** 预约结果的可视化状态：补剂页直接展示，让「约没约上」可验证 */
+const scheduleStatus = ref<{ count: number; exact: boolean; error: string | null }>({
+  count: 0,
+  exact: false,
+  error: null
+})
+
+/** 把当前提醒表整表预约成系统每日重复通知；任何增删改后都整表重建。
+ * 精确闹钟在安卓 14+ 默认收回，被拒时降级为不精确闹钟（仍会在 App 被杀后触发，只是可能延迟几分钟）。 */
 async function syncNativeSchedule(): Promise<void> {
   if (!isNative) return
   try {
@@ -154,11 +162,30 @@ async function syncNativeSchedule(): Promise<void> {
           exact: true
         }
       })))
+    let exact = false
     if (notifications.length) {
-      await LocalNotifications.schedule({ notifications })
+      try {
+        await LocalNotifications.schedule({ notifications })
+        exact = true
+      } catch {
+        // 精确闹钟被系统拒绝（安卓 14+ 默认收回）：降级为不精确闹钟再约一次
+        await LocalNotifications.schedule({
+          notifications: notifications.map(item => ({ ...item, schedule: { ...item.schedule, exact: false } }))
+        })
+      }
     }
-  } catch {
-    // 预约失败不打断页面操作；下次变更会再次尝试整表重建
+    const after = await LocalNotifications.getPending()
+    scheduleStatus.value = {
+      count: after.notifications.length,
+      exact,
+      error: after.notifications.length < notifications.length ? '部分提醒未被系统接受，请重试一次' : null
+    }
+  } catch (err) {
+    scheduleStatus.value = {
+      count: 0,
+      exact: false,
+      error: err instanceof Error ? err.message : String(err)
+    }
   }
 }
 
@@ -447,6 +474,8 @@ export function useSupplementReminders() {
   return {
     reminders,
     permission,
+    scheduleStatus,
+    syncNativeSchedule,
     addReminder,
     updateReminder,
     toggleReminder,
