@@ -185,6 +185,9 @@
   --sidebar-width: 86px;
   --topbar-height: 58px;
   --mobile-nav-height: 64px;
+  /* 页脚（备案信息）占了视口底部一段，工作台页据此从 100dvh 里扣掉 */
+  --site-footer-height: 44px;
+  --site-footer-height-mobile: 114px;
   /* PWA 独立模式（iOS 刘海/Home 指示条）让位用；浏览器里 inset 为 0，无副作用 */
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
