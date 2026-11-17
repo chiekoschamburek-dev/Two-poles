@@ -2,7 +2,6 @@
   <div class="page-wrap" :class="{ 'cycle-view': view === 'cycle' }">
     <div class="page-head animate-slide-in-up">
       <div><span class="eyebrow">TRAINING PLAN</span><h1>训练计划</h1><p>把每一次完成，变成下一次更好的安排。</p></div>
-      <BaseButton :icon="Plus" @click="manualOpen = !manualOpen">{{ manualOpen ? '收起手工录入' : '手工录入' }}</BaseButton>
     </div>
 
     <div class="toolbar animate-slide-in-up">
@@ -176,7 +175,15 @@
       <p v-if="!cycleStart" class="cycle-note">四周周期以档案里的"周期开始"日期为起点。没填时这里只说明阶段划分，负荷一律标为"未记录"——不用示例数字冒充你的数据。</p>
     </div>
 
-    <section ref="manualSection" v-if="manualOpen" class="manual animate-scale-in" aria-label="手工录入计划">
+    <section ref="manualSection" class="manual-block" aria-label="手工录入计划">
+      <div v-if="!manualOpen" class="manual-entry">
+        <div class="manual-entry-copy">
+          <strong>手动添加训练</strong>
+          <small>自己排进来的项目会标注「不参与自动推荐」，保存时生成新版本；也可以粘一段训练表或截图让模型整理。</small>
+        </div>
+        <BaseButton :icon="Plus" variant="secondary" @click="manualOpen = true">手工录入</BaseButton>
+      </div>
+      <div v-else class="manual animate-scale-in">
       <div class="tabs manual-mode" role="group" aria-label="录入方式">
         <button type="button" :class="{ active: manualMode === 'single' }" :aria-pressed="manualMode === 'single'" @click="manualMode = 'single'">逐项填写</button>
         <button type="button" :class="{ active: manualMode === 'materials' }" :aria-pressed="manualMode === 'materials'" @click="manualMode = 'materials'">文本或图片</button>
@@ -228,6 +235,7 @@
           <BaseButton variant="ghost" size="sm" type="button" @click="manualOpen = false">取消</BaseButton>
         </div>
       </form>
+      </div>
     </section>
   </div>
 </template>
@@ -654,8 +662,14 @@ watch(
 .ver-reason em{font-style:normal;margin-left:6px}
 .conflicts{margin:0 0 14px;padding:10px 12px 10px 28px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);font-size:12px;color:var(--color-text-secondary);line-height:1.7}
 .conflicts li{margin:2px 0}
-.manual{display:grid;gap:12px;padding:16px;border-radius:var(--radius-lg);background:var(--color-card);border:1px solid var(--color-border);box-shadow:var(--inner-light);margin-bottom:14px}
+.manual{display:grid;gap:12px;padding:16px;border-radius:var(--radius-lg);background:var(--color-card);border:1px solid var(--color-border);box-shadow:var(--inner-light)}
 .manual-mode{justify-self:start}
+/* 手工录入排到内容之后：入口是一张低调的清单行，展开后才变成表单 */
+.manual-block{margin-bottom:14px}
+.manual-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:13px 16px;border:1px dashed var(--hair-strong);border-radius:var(--radius-lg);background:var(--surface-field)}
+.manual-entry-copy{min-width:0;flex:1}
+.manual-entry-copy strong{display:block;font-size:12.5px;font-weight:600;color:var(--color-ink)}
+.manual-entry-copy small{display:block;margin-top:3px;font-size:10.5px;line-height:1.6;color:var(--color-text-muted)}
 .manual-form{display:grid;gap:12px;min-width:0}
 .manual-target{display:grid;gap:8px}
 .manual-target .tabs{justify-self:start}
@@ -777,8 +791,8 @@ watch(
   .page-wrap{display:flex;flex-direction:column}
   .layout,.plan-sidebar{display:contents}
   .page-head{order:1}.toolbar{order:2}.gate-note,.ver-reason,.conflicts{order:3}
-  .detail{order:4}.plan-feedback{order:5}.pending{order:6}.manual{order:7}.calendar{order:8}.cycle{order:4}
+  .detail{order:4}.plan-feedback{order:5}.pending{order:6}.manual-block{order:7}.calendar{order:8}.cycle{order:4}
   .page-wrap.cycle-view .pending{order:3}
-  .detail,.pending,.plan-feedback,.manual,.calendar,.cycle{margin-bottom:14px}
+  .detail,.pending,.plan-feedback,.manual-block,.calendar,.cycle{margin-bottom:14px}
 }
 </style>
