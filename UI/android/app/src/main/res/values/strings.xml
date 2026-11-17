@@ -4,4 +4,6 @@
     <string name="title_activity_main">两仪</string>
     <string name="package_name">com.twopoles.app</string>
     <string name="custom_url_scheme">com.twopoles.app</string>
+    <string name="supplement_notification_channel">补剂提醒</string>
+    <string name="supplement_notification_channel_description">每日补剂到点提醒</string>
 </resources>

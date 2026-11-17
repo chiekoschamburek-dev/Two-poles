@@ -21,12 +21,12 @@
         <h2>系统通知</h2>
         <span>{{ permissionLabel }}</span>
       </div>
-      <p v-if="isNativeSupplements" class="sup-copy">提醒由系统闹钟调度：到点弹出系统通知，应用未打开也会提醒。建议在系统设置里把本应用加入电池白名单，避免被省电策略延迟。</p>
-      <p v-else class="sup-copy">开启后，应用切到后台时可以弹出浏览器通知；关闭浏览器后不会触发。</p>
-      <p v-if="isNativeSupplements" class="sup-hint" role="status">
-        <template v-if="scheduleStatus.error">⚠️ 预约失败：{{ scheduleStatus.error }}</template>
-        <template v-else-if="scheduleStatus.count">✅ 已向系统预约 {{ scheduleStatus.count }} 条每日提醒{{ scheduleStatus.exact ? '（精确闹钟）' : '（非精确，到点可能延迟几分钟）' }}。</template>
-        <template v-else>还没有向系统预约提醒——添加提醒后，这里会显示预约结果。</template>
+      <p v-if="isNativeSupplements" class="sup-copy">开启系统通知后，补剂提醒会出现在手机通知栏。测试提醒将在预约后约 30 秒触发。</p>
+      <p v-else class="sup-copy">浏览器页面停止运行后，提醒可能无法送达。安卓 App 支持系统后台提醒。</p>
+      <p v-if="isNativeSupplements && (scheduleStatus.error || permission === 'granted')" class="sup-hint" role="status">
+        <template v-if="scheduleStatus.error">系统提醒预约失败：{{ scheduleStatus.error }}</template>
+        <template v-else-if="scheduleStatus.count">已预约 {{ scheduleStatus.count }} 条每日提醒<span v-if="isAndroidSupplements && !scheduleStatus.exact">，系统可能延后送达</span>。</template>
+        <template v-else>暂无已预约的每日提醒。</template>
       </p>
       <div class="sup-actions">
         <button
@@ -34,11 +34,12 @@
           type="button"
           class="sup-btn dark"
           @click="enableNotifications"
-        >开启浏览器通知</button>
-        <button type="button" class="sup-btn ghost" @click="testNotification">发送测试提醒</button>
-        <button v-if="isNativeSupplements" type="button" class="sup-btn ghost" @click="syncNativeSchedule">重建系统提醒</button>
+        >{{ isNativeSupplements ? '开启系统通知' : '开启浏览器通知' }}</button>
+        <button type="button" class="sup-btn ghost" @click="testNotification">{{ isNativeSupplements ? '测试后台提醒' : '发送测试提醒' }}</button>
+        <button v-if="isAndroidSupplements && scheduleStatus.count && !scheduleStatus.exact" type="button" class="sup-btn ghost" @click="enableExactAlarms">开启准时提醒</button>
+        <button v-if="isNativeSupplements && permission === 'granted'" type="button" class="sup-btn ghost" @click="syncNativeSchedule(true)">重建系统提醒</button>
       </div>
-      <p v-if="permission === 'denied'" class="sup-hint warn">通知权限被拒绝，请在浏览器站点设置里重新允许。</p>
+      <p v-if="permission === 'denied'" class="sup-hint warn">{{ permissionSettingsHint }}</p>
       <p v-else-if="permission === 'unsupported'" class="sup-hint">当前浏览器不支持系统通知，仍会使用页面内提示。</p>
     </section>
 
@@ -150,7 +151,7 @@
       </div>
     </Teleport>
 
-    <p class="sup-note">提醒只保存在本机；系统通知依赖浏览器权限。补剂使用请遵循产品说明或专业人士建议。</p>
+    <p class="sup-note">提醒只保存在本机。补剂使用请遵循产品说明或专业人士建议。</p>
   </div>
 </template>
 
@@ -162,6 +163,7 @@ import { useAppStore } from '@/stores/app'
 import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
 import {
   useSupplementReminders,
+  isAndroidSupplements,
   isNativeSupplements,
   type SupplementReminder
 } from '@/composables/useSupplementReminders'
@@ -182,6 +184,7 @@ const {
   permission,
   scheduleStatus,
   syncNativeSchedule,
+  enableExactSupplementReminders,
   addReminder,
   updateReminder,
   toggleReminder,
@@ -223,6 +226,9 @@ const permissionTone = computed(() => {
   if (permission.value === 'denied') return 'warn'
   return ''
 })
+const permissionSettingsHint = isNativeSupplements
+  ? '请在手机设置中允许「两仪」发送通知。'
+  : '请在浏览器站点设置里重新允许通知。'
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
 function addTime() {
@@ -337,15 +343,14 @@ async function enableNotifications() {
   if (result === 'granted') {
     store.showToast({
       type: 'success',
-      title: '浏览器通知已开启',
-      message: '应用在后台运行时也会收到补剂提醒。',
+      title: '通知已开启',
       duration: 3500
     })
   } else if (result === 'denied') {
     store.showToast({
       type: 'warning',
       title: '通知权限被拒绝',
-      message: '请在浏览器站点设置中重新允许通知。',
+      message: permissionSettingsHint,
       duration: 4500
     })
   } else if (result === 'unsupported') {
@@ -354,6 +359,18 @@ async function enableNotifications() {
       title: '浏览器不支持系统通知',
       message: '提醒仍会使用页面内提示。',
       duration: 4000
+    })
+  }
+}
+
+async function enableExactAlarms() {
+  try {
+    await enableExactSupplementReminders()
+  } catch {
+    store.showToast({
+      type: 'warning',
+      title: '未能打开准时提醒设置',
+      message: '请在手机设置的「闹钟和提醒」中允许「两仪」。'
     })
   }
 }
@@ -374,7 +391,7 @@ async function testNotification() {
     store.showToast({
       type: 'warning',
       title: '通知权限被拒绝',
-      message: '请在浏览器站点设置中重新允许通知。',
+      message: permissionSettingsHint,
       duration: 4000
     })
     return
@@ -382,7 +399,7 @@ async function testNotification() {
   if (state !== 'granted') {
     store.showToast({
       type: 'warning',
-      title: '需要先开启浏览器通知',
+      title: '需要先开启通知',
       message: '允许通知后才能测试后台提醒。',
       duration: 4000
     })
@@ -390,13 +407,13 @@ async function testNotification() {
   }
   const sent = await sendSupplementNotification(
     '补剂提醒 · 测试',
-    '如果你看到这条通知，后台提醒就能正常弹出。',
+    '这是一条用于检查通知栏的测试提醒。',
     'supplement-test'
   )
   store.showToast({
     type: sent ? 'success' : 'warning',
-    title: sent ? '测试通知已发送' : '未能发送系统通知',
-    message: sent ? '可以切换到其他标签页确认通知。' : '请检查浏览器通知权限。',
+    title: sent ? (isNativeSupplements ? '测试提醒已预约' : '测试通知已发送') : '未能发送系统通知',
+    message: sent && isNativeSupplements ? '请返回手机桌面或锁屏，约 30 秒后查看通知栏。' : undefined,
     duration: 4000
   })
 }

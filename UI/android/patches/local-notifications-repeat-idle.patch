@@ -1,0 +1,22 @@
+diff --git a/src/main/kotlin/com/capacitorjs/plugins/localnotifications/TimedNotificationPublisher.kt b/src/main/kotlin/com/capacitorjs/plugins/localnotifications/TimedNotificationPublisher.kt
+--- a/src/main/kotlin/com/capacitorjs/plugins/localnotifications/TimedNotificationPublisher.kt
++++ b/src/main/kotlin/com/capacitorjs/plugins/localnotifications/TimedNotificationPublisher.kt
+@@ -62,12 +62,16 @@ class TimedNotificationPublisher : BroadcastReceiver() {
+         val pendingIntent = PendingIntent.getBroadcast(context, id, clone, flags)
+         val storedNotification = NotificationStorage(context).getSavedNotificationAsJSObject(id.toString())
+         val wantsExact = storedNotification?.getBoolean("isExactNotification", true) ?: true
++        val allowWhileIdle = storedNotification?.getJSObject("schedule")?.getBoolean("allowWhileIdle", false) == true
+         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+-        if (wantsExact && canExact) {
++        if (wantsExact && canExact && allowWhileIdle) {
++            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pendingIntent)
++        } else if (wantsExact && canExact) {
+             alarmManager.setExact(AlarmManager.RTC, trigger, pendingIntent)
+         } else {
+             if (wantsExact) {
+                 Logger.warn("Capacitor/LocalNotification", "Exact alarms not allowed in user settings.  Notification scheduled with non-exact alarm.")
+             }
+-            alarmManager.set(AlarmManager.RTC, trigger, pendingIntent)
++            if (allowWhileIdle) alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pendingIntent)
++            else alarmManager.set(AlarmManager.RTC, trigger, pendingIntent)
+         }
