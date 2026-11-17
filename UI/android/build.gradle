@@ -25,23 +25,27 @@ allprojects {
 }
 
 project(':capacitor-local-notifications') {
-    def repeatIdlePatch = rootProject.file('patches/local-notifications-repeat-idle.patch')
+    def notificationPatches = [
+        rootProject.file('patches/local-notifications-repeat-idle.patch'),
+        rootProject.file('patches/local-notifications-supplement-banner.patch')
+    ]
     def pluginDir = projectDir
     def patchLocalNotifications = tasks.register('patchLocalNotifications') {
         doLast {
-            // Capacitor 8.3.1 drops allowWhileIdle when re-arming a calendar notification.
-            def gitApply = { List<String> flags ->
-                providers.exec {
-                    workingDir pluginDir
-                    environment 'GIT_CEILING_DIRECTORIES', pluginDir.parentFile.absolutePath
-                    commandLine(['git', 'apply', '--ignore-space-change'] + flags + [repeatIdlePatch.absolutePath])
-                    ignoreExitValue = true
+            notificationPatches.each { patch ->
+                def gitApply = { List<String> flags ->
+                    providers.exec {
+                        workingDir pluginDir
+                        environment 'GIT_CEILING_DIRECTORIES', pluginDir.parentFile.absolutePath
+                        commandLine(['git', 'apply', '--ignore-space-change'] + flags + [patch.absolutePath])
+                        ignoreExitValue = true
+                    }
                 }
-            }
-            if (gitApply(['--reverse', '--check']).result.get().exitValue != 0) {
-                def applyResult = gitApply([])
-                if (applyResult.result.get().exitValue != 0) {
-                    throw new GradleException("Cannot apply ${repeatIdlePatch.name}: ${applyResult.standardError.asText.get()}")
+                if (gitApply(['--reverse', '--check']).result.get().exitValue != 0) {
+                    def applyResult = gitApply([])
+                    if (applyResult.result.get().exitValue != 0) {
+                        throw new GradleException("Cannot apply ${patch.name}: ${applyResult.standardError.asText.get()}")
+                    }
                 }
             }
         }

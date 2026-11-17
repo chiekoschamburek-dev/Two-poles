@@ -1,21 +1,25 @@
 import { ref } from 'vue'
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications'
 import { newId } from '@/utils/id'
 
 const isNative = Capacitor.isNativePlatform()
 const isAndroid = Capacitor.getPlatform() === 'android'
 const SUPPLEMENT_CHANNEL = 'supplement-reminders'
-const SCHEDULE_VERSION = 1
+const SCHEDULE_VERSION = 2
+const ANDROID_HIGH_IMPORTANCE = 4
+const SupplementNotificationSettings = registerPlugin<{
+  open(options: { channel: boolean }): Promise<void>
+}>('SupplementNotificationSettings')
 
-async function ensureChannel(): Promise<string | undefined> {
+async function ensureChannel() {
   if (!isAndroid) return
   try {
     await LocalNotifications.createChannel({
       id: SUPPLEMENT_CHANNEL,
       name: '补剂提醒',
       description: '每日补剂到点提醒',
-      importance: 4,
+      importance: ANDROID_HIGH_IMPORTANCE,
       visibility: 1
     })
   } catch (error) {
@@ -26,8 +30,7 @@ async function ensureChannel(): Promise<string | undefined> {
   const { channels } = await LocalNotifications.listChannels()
   const channel = channels.find(item => item.id === SUPPLEMENT_CHANNEL)
   if (!channel) throw new Error('未能创建补剂提醒通知类别')
-  if (channel.importance === 0) throw new Error('请在手机设置中开启「补剂提醒」通知类别')
-  return channel.id
+  return channel
 }
 
 export interface SupplementReminder {
@@ -156,9 +159,10 @@ function nativeNotificationId(reminderId: string, time: string): number {
 }
 
 /** 预约结果的可视化状态：补剂页直接展示，让「约没约上」可验证 */
-const scheduleStatus = ref<{ count: number; exact: boolean; error: string | null }>({
+const scheduleStatus = ref<{ count: number; exact: boolean | null; channelImportance: number | null; error: string | null }>({
   count: 0,
-  exact: false,
+  exact: null,
+  channelImportance: null,
   error: null
 })
 
@@ -171,6 +175,8 @@ function syncNativeSchedule(force = false): Promise<void> {
 }
 
 async function reconcileNativeSchedule(force: boolean): Promise<void> {
+  let exact: boolean | null = null
+  let channelImportance: number | null = null
   try {
     const granted = await refreshNativePermission() === 'granted'
     const enabled = reminders.value.filter(reminder => reminder.enabled)
@@ -182,19 +188,21 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
     const removed = [...existing.keys()].filter(id => !desiredIds.has(id))
     if (removed.length) await LocalNotifications.cancel({ notifications: removed.map(id => ({ id })) })
 
-    if (!granted || !enabled.length) {
-      scheduleStatus.value = { count: 0, exact: false, error: null }
+    if (!granted) {
+      scheduleStatus.value = { count: 0, exact, channelImportance, error: null }
       return
     }
 
-    const channelId = await ensureChannel()
-    const exact = isAndroid && (await LocalNotifications.checkExactNotificationSetting()).exact_alarm === 'granted'
+    exact = isAndroid ? (await LocalNotifications.checkExactNotificationSetting()).exact_alarm === 'granted' : null
+    const channel = await ensureChannel()
+    channelImportance = channel?.importance ?? null
+    if (channelImportance === 0) throw new Error('请在通知设置中开启「补剂提醒」类别')
     const desired: LocalNotificationSchema[] = enabled.flatMap(reminder => reminder.times.map(time => ({
       id: nativeNotificationId(reminder.id, time),
       title: `补剂提醒 · ${reminder.name}`,
       body: `${time} 到点${reminder.dosage ? ` · ${reminder.dosage}` : ''}。`,
-      channelId,
-      isExactNotification: exact,
+      channelId: isAndroid ? SUPPLEMENT_CHANNEL : undefined,
+      isExactNotification: exact === true,
       extra: { supplementScheduleVersion: SCHEDULE_VERSION },
       schedule: {
         on: { hour: Number(time.slice(0, 2)), minute: Number(time.slice(3, 5)), second: 0 },
@@ -204,19 +212,21 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
     const changed = desired.filter(item => {
       const previous = existing.get(item.id)
       return force || !previous || previous.title !== item.title || previous.body !== item.body ||
-        previous.isExactNotification !== exact || previous.extra?.supplementScheduleVersion !== SCHEDULE_VERSION
+        previous.isExactNotification !== item.isExactNotification || previous.extra?.supplementScheduleVersion !== SCHEDULE_VERSION
     })
     const result = changed.length ? await LocalNotifications.schedule({ notifications: changed }) : null
     const count = desired.length - changed.length + (result?.notifications.length ?? 0)
     scheduleStatus.value = {
       count,
-      exact: exact && !result?.warning,
+      exact: result?.warning ? false : exact,
+      channelImportance,
       error: count < desired.length ? '部分提醒未被系统接受，请重建系统提醒' : null
     }
   } catch (err) {
     scheduleStatus.value = {
       count: 0,
-      exact: false,
+      exact,
+      channelImportance,
       error: err instanceof Error ? err.message : String(err)
     }
   }
@@ -225,6 +235,10 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
 async function enableExactSupplementReminders(): Promise<void> {
   await LocalNotifications.changeExactNotificationSetting()
   await syncNativeSchedule()
+}
+
+function openSupplementNotificationSettings(): Promise<void> {
+  return SupplementNotificationSettings.open({ channel: permission.value === 'granted' })
 }
 
 function sortTimes(times: string[]): string[] {
@@ -372,27 +386,32 @@ async function requestSupplementPermission(): Promise<SupplementPermission> {
   return permission.value
 }
 
-async function sendSupplementNotification(title: string, body: string, tag = 'supplement'): Promise<boolean> {
-  if (isNative) {
-    try {
-      if (await refreshNativePermission() !== 'granted') return false
-      const channelId = await ensureChannel()
-      const exact = isAndroid && (await LocalNotifications.checkExactNotificationSetting()).exact_alarm === 'granted'
-      const result = await LocalNotifications.schedule({
-        notifications: [{
-          id: -nativeNotificationId('test', 'now'),
-          title,
-          body,
-          channelId,
-          isExactNotification: exact,
-          schedule: { at: new Date(Date.now() + 30_000), allowWhileIdle: true }
-        }]
-      })
-      return result.notifications.length === 1
-    } catch {
-      return false
-    }
+async function scheduleSupplementTest(title: string, body: string): Promise<void> {
+  if (await refreshNativePermission() !== 'granted') throw new Error('请先允许「两仪」发送通知。')
+  const channel = await ensureChannel()
+  if (channel?.importance === 0) throw new Error('请在通知设置中开启「补剂提醒」类别。')
+  if (isAndroid && (await LocalNotifications.checkExactNotificationSetting()).exact_alarm !== 'granted') {
+    await syncNativeSchedule()
+    throw new Error('请先点「开启准时提醒」，允许「两仪」设置闹钟和提醒，再运行测试。')
   }
+  const id = -nativeNotificationId('test', 'now')
+  const result = await LocalNotifications.schedule({
+    notifications: [{
+      id,
+      title,
+      body,
+      channelId: isAndroid ? SUPPLEMENT_CHANNEL : undefined,
+      isExactNotification: isAndroid,
+      isExactMandatory: isAndroid,
+      schedule: { at: new Date(Date.now() + 30_000), allowWhileIdle: true }
+    }]
+  })
+  if (result.warning || !result.notifications.some(notification => notification.id === id)) {
+    throw new Error('系统未接受测试预约，请检查通知和闹钟权限。')
+  }
+}
+
+async function sendSupplementNotification(title: string, body: string, tag = 'supplement'): Promise<boolean> {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
     refreshPermission()
     return false
@@ -524,14 +543,16 @@ export function useSupplementReminders() {
     scheduleStatus,
     syncNativeSchedule,
     enableExactSupplementReminders,
+    openSupplementNotificationSettings,
     addReminder,
     updateReminder,
     toggleReminder,
     removeReminder,
     requestSupplementPermission,
+    scheduleSupplementTest,
     sendSupplementNotification,
     nextReminderLabel
   }
 }
 
-export { startSupplementScheduler, isNative as isNativeSupplements, isAndroid as isAndroidSupplements }
+export { startSupplementScheduler, isNative as isNativeSupplements, isAndroid as isAndroidSupplements, ANDROID_HIGH_IMPORTANCE }

@@ -10,11 +10,11 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(SupplementNotificationSettings.class);
         super.onCreate(savedInstanceState);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // 已安装的 App 也可能先加载线上旧页面，由原生端保证渠道已经存在。
             NotificationChannel channel = new NotificationChannel(
-                "supplement-reminders",
+                SupplementNotificationSettings.CHANNEL_ID,
                 getString(R.string.supplement_notification_channel),
                 NotificationManager.IMPORTANCE_HIGH
             );

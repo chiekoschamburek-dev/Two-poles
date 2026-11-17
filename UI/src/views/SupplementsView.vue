@@ -21,12 +21,15 @@
         <h2>系统通知</h2>
         <span>{{ permissionLabel }}</span>
       </div>
-      <p v-if="isNativeSupplements" class="sup-copy">开启系统通知后，补剂提醒会出现在手机通知栏。测试提醒将在预约后约 30 秒触发。</p>
+      <p v-if="isNativeSupplements" class="sup-copy">后台提醒由手机系统发送。开启横幅通知后，使用其他 App 时也能看到提醒。</p>
       <p v-else class="sup-copy">浏览器页面停止运行后，提醒可能无法送达。安卓 App 支持系统后台提醒。</p>
       <p v-if="isNativeSupplements && (scheduleStatus.error || permission === 'granted')" class="sup-hint" role="status">
         <template v-if="scheduleStatus.error">系统提醒预约失败：{{ scheduleStatus.error }}</template>
-        <template v-else-if="scheduleStatus.count">已预约 {{ scheduleStatus.count }} 条每日提醒<span v-if="isAndroidSupplements && !scheduleStatus.exact">，系统可能延后送达</span>。</template>
+        <template v-else-if="scheduleStatus.count">已预约 {{ scheduleStatus.count }} 条每日提醒<span v-if="scheduleStatus.exact === false">，系统可能延后送达</span>。</template>
         <template v-else>暂无已预约的每日提醒。</template>
+      </p>
+      <p v-if="scheduleStatus.channelImportance !== null && scheduleStatus.channelImportance > 0 && scheduleStatus.channelImportance < ANDROID_HIGH_IMPORTANCE" class="sup-hint warn">
+        「补剂提醒」当前只会显示在通知栏。请在通知设置中开启横幅或悬浮通知。
       </p>
       <div class="sup-actions">
         <button
@@ -36,7 +39,8 @@
           @click="enableNotifications"
         >{{ isNativeSupplements ? '开启系统通知' : '开启浏览器通知' }}</button>
         <button type="button" class="sup-btn ghost" @click="testNotification">{{ isNativeSupplements ? '测试后台提醒' : '发送测试提醒' }}</button>
-        <button v-if="isAndroidSupplements && scheduleStatus.count && !scheduleStatus.exact" type="button" class="sup-btn ghost" @click="enableExactAlarms">开启准时提醒</button>
+        <button v-if="isAndroidSupplements && scheduleStatus.exact === false" type="button" class="sup-btn ghost" @click="enableExactAlarms">开启准时提醒</button>
+        <button v-if="isAndroidSupplements" type="button" class="sup-btn ghost" @click="openNotificationSettings">通知设置</button>
         <button v-if="isNativeSupplements && permission === 'granted'" type="button" class="sup-btn ghost" @click="syncNativeSchedule(true)">重建系统提醒</button>
       </div>
       <p v-if="permission === 'denied'" class="sup-hint warn">{{ permissionSettingsHint }}</p>
@@ -162,6 +166,7 @@ import PoleMark from '@/components/poles/PoleMark.vue'
 import { useAppStore } from '@/stores/app'
 import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
 import {
+  ANDROID_HIGH_IMPORTANCE,
   useSupplementReminders,
   isAndroidSupplements,
   isNativeSupplements,
@@ -185,11 +190,13 @@ const {
   scheduleStatus,
   syncNativeSchedule,
   enableExactSupplementReminders,
+  openSupplementNotificationSettings,
   addReminder,
   updateReminder,
   toggleReminder,
   removeReminder,
   requestSupplementPermission,
+  scheduleSupplementTest,
   sendSupplementNotification,
   nextReminderLabel
 } = useSupplementReminders()
@@ -375,6 +382,18 @@ async function enableExactAlarms() {
   }
 }
 
+async function openNotificationSettings() {
+  try {
+    await openSupplementNotificationSettings()
+  } catch {
+    store.showToast({
+      type: 'warning',
+      title: '请在手机设置中打开「两仪」的通知',
+      message: '选择「补剂提醒」，允许横幅或悬浮通知。'
+    })
+  }
+}
+
 async function testNotification() {
   let state = permission.value
   if (state === 'default') state = await requestSupplementPermission()
@@ -405,15 +424,32 @@ async function testNotification() {
     })
     return
   }
-  const sent = await sendSupplementNotification(
-    '补剂提醒 · 测试',
-    '这是一条用于检查通知栏的测试提醒。',
-    'supplement-test'
-  )
+  const title = '补剂提醒 · 测试'
+  const message = '这是一条用于检查系统通知的测试提醒。'
+  if (isNativeSupplements) {
+    try {
+      await scheduleSupplementTest(title, message)
+      store.showToast({
+        type: 'success',
+        title: '测试提醒已预约',
+        message: '请返回手机桌面，约 30 秒后查看顶部横幅或通知栏。',
+        duration: 5000
+      })
+    } catch (error) {
+      store.showToast({
+        type: 'warning',
+        title: '未能预约测试提醒',
+        message: error instanceof Error ? error.message : String(error),
+        duration: 5500
+      })
+    }
+    return
+  }
+
+  const sent = await sendSupplementNotification(title, message, 'supplement-test')
   store.showToast({
     type: sent ? 'success' : 'warning',
-    title: sent ? (isNativeSupplements ? '测试提醒已预约' : '测试通知已发送') : '未能发送系统通知',
-    message: sent && isNativeSupplements ? '请返回手机桌面或锁屏，约 30 秒后查看通知栏。' : undefined,
+    title: sent ? '测试通知已发送' : '未能发送系统通知',
     duration: 4000
   })
 }

@@ -1,0 +1,27 @@
+diff --git a/src/main/kotlin/com/capacitorjs/plugins/localnotifications/LocalNotificationManager.kt b/src/main/kotlin/com/capacitorjs/plugins/localnotifications/LocalNotificationManager.kt
+--- a/src/main/kotlin/com/capacitorjs/plugins/localnotifications/LocalNotificationManager.kt
++++ b/src/main/kotlin/com/capacitorjs/plugins/localnotifications/LocalNotificationManager.kt
+@@ -147,11 +147,11 @@ class LocalNotificationManager(
+         val channelId = localNotification.channelId ?: soundChannelId(localNotification) ?: DEFAULT_NOTIFICATION_CHANNEL_ID
+-        val foreground = localNotification.foreground == true
++        val alertOnEveryDelivery = channelId == "supplement-reminders"
+         val mBuilder = NotificationCompat.Builder(context, channelId)
+             .setContentTitle(localNotification.title)
+             .setContentText(localNotification.body)
+             .setAutoCancel(localNotification.autoCancel)
+             .setOngoing(localNotification.ongoing)
+-            .setPriority(if (foreground) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
++            .setPriority(if (alertOnEveryDelivery || localNotification.foreground == true) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+             .setGroupSummary(localNotification.groupSummary)
+ 
+         localNotification.badge?.let { mBuilder.setNumber(it) }
+@@ -196,7 +196,8 @@ class LocalNotificationManager(
+         }
+ 
+         mBuilder.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+-        mBuilder.setOnlyAlertOnce(true)
++        // A daily reminder reuses its notification ID, even if yesterday's reminder is still visible.
++        mBuilder.setOnlyAlertOnce(!alertOnEveryDelivery)
+ 
+         mBuilder.setSmallIcon(localNotification.resolveSmallIcon(context, getDefaultSmallIcon(context)))
+         mBuilder.setLargeIcon(localNotification.resolveLargeIcon(context))
