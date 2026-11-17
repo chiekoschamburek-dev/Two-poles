@@ -1,0 +1,429 @@
+{
+  "generatedAt": "2026-11-17T10:57:49.519Z",
+  "target": "dev",
+  "baseUrl": "http://127.0.0.1:5173",
+  "caveats": [
+    "库存素材机位/人物任意且未裁剪，只能逐片报告，不得聚合成单一准确率",
+    "角度口径是与人工数字化的一致性（±3–5°），不是绝对真值",
+    "语料未触发的规则标 untested，合成正例只算逻辑覆盖",
+    "DEV 强制主线程 CPU，性能数字是最坏情况，不能代表生产"
+  ],
+  "clips": [
+    {
+      "clip": "test_squat",
+      "hasTruth": false,
+      "view": "front",
+      "viewConfidence": 1,
+      "action": "squat",
+      "actionConfident": false,
+      "precheckVerdict": "degraded",
+      "fullClip": {
+        "view": "front",
+        "verdict": "degraded",
+        "reasons": [
+          "深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作"
+        ]
+      },
+      "pipelinePrecheck": {
+        "view": "front",
+        "verdict": "degraded",
+        "action": "squat",
+        "reasons": [
+          "深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作"
+        ]
+      },
+      "precheckWindowMismatch": false,
+      "repCount": {
+        "truth": null,
+        "counted": 4,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [
+        "SQ-CN-02"
+      ],
+      "timing": {
+        "modelLoadMs": 247,
+        "inferenceP50": 99.2,
+        "inferenceP95": 115.3,
+        "samples": 149,
+        "pipelineWallMs": 49335,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 149,
+        "pipelineRepCount": 4,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "sit-to-stand",
+      "hasTruth": false,
+      "view": "side",
+      "viewConfidence": 0.03877159302393707,
+      "action": "squat",
+      "actionConfident": true,
+      "precheckVerdict": "degraded",
+      "fullClip": {
+        "view": "side",
+        "verdict": "degraded",
+        "reasons": [
+          "未识别到完整重复动作：请完整拍摄至少 1 次动作后重试"
+        ]
+      },
+      "pipelinePrecheck": {
+        "view": null,
+        "verdict": "rejected",
+        "action": null,
+        "reasons": [
+          "无法判定分析视角：请从侧面或正面全身入镜，手机与髋同高"
+        ]
+      },
+      "precheckWindowMismatch": true,
+      "repCount": {
+        "truth": null,
+        "counted": null,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 247,
+        "inferenceP50": 53.5,
+        "inferenceP95": 61.4,
+        "samples": 228,
+        "pipelineWallMs": null,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 228,
+        "pipelineRepCount": null,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "peso-muerto",
+      "hasTruth": false,
+      "view": "side",
+      "viewConfidence": 0.6714135031471189,
+      "action": "squat",
+      "actionConfident": false,
+      "precheckVerdict": "degraded",
+      "fullClip": {
+        "view": "side",
+        "verdict": "degraded",
+        "reasons": [
+          "深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作"
+        ]
+      },
+      "pipelinePrecheck": {
+        "view": "side",
+        "verdict": "degraded",
+        "action": "squat",
+        "reasons": [
+          "未识别到完整重复动作：请完整拍摄至少 1 次动作后重试"
+        ]
+      },
+      "precheckWindowMismatch": false,
+      "repCount": {
+        "truth": null,
+        "counted": 1,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [
+        "SQ-SE-01",
+        "SQ-SE-02",
+        "SQ-SE-03"
+      ],
+      "timing": {
+        "modelLoadMs": 247,
+        "inferenceP50": 42,
+        "inferenceP95": 50.3,
+        "samples": 455,
+        "pipelineWallMs": 51927,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 455,
+        "pipelineRepCount": 1,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "peso-muerto-sumo",
+      "hasTruth": false,
+      "view": "front",
+      "viewConfidence": 0.044479398724563336,
+      "action": "squat",
+      "actionConfident": false,
+      "precheckVerdict": "degraded",
+      "fullClip": {
+        "view": "front",
+        "verdict": "degraded",
+        "reasons": [
+          "深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作"
+        ]
+      },
+      "pipelinePrecheck": {
+        "view": "front",
+        "verdict": "degraded",
+        "action": "squat",
+        "reasons": [
+          "未识别到完整重复动作：请完整拍摄至少 1 次动作后重试",
+          "深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作"
+        ]
+      },
+      "precheckWindowMismatch": false,
+      "repCount": {
+        "truth": null,
+        "counted": 1,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 247,
+        "inferenceP50": 47.4,
+        "inferenceP95": 55.7,
+        "samples": 331,
+        "pipelineWallMs": 47783,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 331,
+        "pipelineRepCount": 1,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "deadlift-demo",
+      "hasTruth": false,
+      "view": null,
+      "viewConfidence": 0,
+      "action": "deadlift",
+      "actionConfident": true,
+      "precheckVerdict": "rejected",
+      "fullClip": {
+        "view": null,
+        "verdict": "rejected",
+        "reasons": [
+          "无法判定分析视角：请从侧面或正面全身入镜，手机与髋同高"
+        ]
+      },
+      "pipelinePrecheck": {
+        "view": null,
+        "verdict": "rejected",
+        "action": null,
+        "reasons": [
+          "无法判定分析视角：请从侧面或正面全身入镜，手机与髋同高"
+        ]
+      },
+      "precheckWindowMismatch": false,
+      "repCount": {
+        "truth": null,
+        "counted": null,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 247,
+        "inferenceP50": 55,
+        "inferenceP95": 66.9,
+        "samples": 110,
+        "pipelineWallMs": null,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 110,
+        "pipelineRepCount": null,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "easy-run",
+      "hasTruth": false,
+      "view": "front",
+      "viewConfidence": 1,
+      "action": "deadlift",
+      "actionConfident": true,
+      "precheckVerdict": "degraded",
+      "fullClip": {
+        "view": "front",
+        "verdict": "degraded",
+        "reasons": [
+          "未识别到完整重复动作：请完整拍摄至少 1 次动作后重试"
+        ]
+      },
+      "pipelinePrecheck": {
+        "view": "front",
+        "verdict": "degraded",
+        "action": "squat",
+        "reasons": [
+          "未识别到完整重复动作：请完整拍摄至少 1 次动作后重试",
+          "深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作"
+        ]
+      },
+      "precheckWindowMismatch": false,
+      "repCount": {
+        "truth": null,
+        "counted": 0,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 247,
+        "inferenceP50": 56.8,
+        "inferenceP95": 66.8,
+        "samples": 299,
+        "pipelineWallMs": 21906,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 299,
+        "pipelineRepCount": 0,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "brisk-walk",
+      "hasTruth": false,
+      "view": "front",
+      "viewConfidence": 1,
+      "action": "squat",
+      "actionConfident": false,
+      "precheckVerdict": "degraded",
+      "fullClip": {
+        "view": "front",
+        "verdict": "degraded",
+        "reasons": [
+          "未识别到完整重复动作：请完整拍摄至少 1 次动作后重试",
+          "深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作"
+        ]
+      },
+      "pipelinePrecheck": {
+        "view": "front",
+        "verdict": "degraded",
+        "action": "squat",
+        "reasons": [
+          "未识别到完整重复动作：请完整拍摄至少 1 次动作后重试",
+          "深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作"
+        ]
+      },
+      "precheckWindowMismatch": false,
+      "repCount": {
+        "truth": null,
+        "counted": 0,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 247,
+        "inferenceP50": 55.6,
+        "inferenceP95": 61.5,
+        "samples": 299,
+        "pipelineWallMs": 22372,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 299,
+        "pipelineRepCount": 0,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    }
+  ]
+}

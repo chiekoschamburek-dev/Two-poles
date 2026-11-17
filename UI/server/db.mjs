@@ -310,6 +310,7 @@ CREATE TABLE IF NOT EXISTS motion_analyses (
   metrics TEXT NOT NULL DEFAULT '[]',
   rep_count INTEGER,
   gait_cycles INTEGER,
+  usable_ratio REAL,
   session_id TEXT,
   rule_version TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -335,6 +336,13 @@ export function openDatabase(path = ':memory:') {
   if (!hasAvatarColumn()) {
     transaction(db, () => {
       if (!hasAvatarColumn()) db.exec('ALTER TABLE profiles ADD COLUMN avatar_data_url TEXT')
+    })
+  }
+  // 幂等 probe-and-ALTER：老库补 usable_ratio（可用帧占比），新库由 SCHEMA 直接建出
+  const hasUsableRatio = () => db.prepare('PRAGMA table_info(motion_analyses)').all().some(column => column.name === 'usable_ratio')
+  if (!hasUsableRatio()) {
+    transaction(db, () => {
+      if (!hasUsableRatio()) db.exec('ALTER TABLE motion_analyses ADD COLUMN usable_ratio REAL')
     })
   }
   migrateRemoveMode(db)

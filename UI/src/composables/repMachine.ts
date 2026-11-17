@@ -12,6 +12,13 @@ export interface RepRule {
   minVisibility: number
   /** 相邻推理帧间隔过长时放弃未完成的行程，默认 1 秒。 */
   maxGapMs?: number
+  /**
+   * 关键点短暂不可见时冻结而不是丢弃半次行程，默认 1 秒（与 maxGapMs 同口径）。
+   * 真实深蹲/坐站在最低点会自遮挡，构成角的三点可见度最小值会掉到 0.5 以下；
+   * 立即 clearMovement 会把「必须到达底部才计数」的那一段抹掉，导致真实视频恒计 0 次。
+   * 实测 sit-to-stand.mp4 最低点遮挡约 867ms，故取 1000ms 而非更短值。
+   */
+  maxOcclusionMs?: number
 }
 
 export interface RepInterval {
@@ -28,6 +35,8 @@ export interface RepMachineSnapshot {
   calibratedNeutral: number | null
   /** 本次 feed 是否完成了一次重复 */
   counted: boolean
+  /** 当前三区阈值；展示层直接读它，不再另算一套 */
+  thresholds: { neutral: number; low: number; high: number; increasing: boolean }
 }
 
 export interface RepMachine {
@@ -53,13 +62,24 @@ export function createRepMachine(rule: RepRule): RepMachine {
   let armed = false
   let reachedEnd = false
   let repStartedAt: number | null = null
+  let occludedSince: number | null = null
 
   const neutral = () => calibratedNeutral ?? rule.neutral
   const increasing = () => rule.bottom > neutral()
   const midpoint = () => (neutral() + rule.bottom) / 2
 
   function snapshot(counted = false): RepMachineSnapshot {
-    return { count, phase, gate, lastRepMs, lastRep, calibratedNeutral, counted }
+    const mid = midpoint()
+    const up = increasing()
+    return {
+      count, phase, gate, lastRepMs, lastRep, calibratedNeutral, counted,
+      thresholds: {
+        neutral: neutral(),
+        increasing: up,
+        low: mid + (up ? rule.hysteresis : -rule.hysteresis),
+        high: mid + (up ? -rule.hysteresis : rule.hysteresis)
+      }
+    }
   }
 
   function clearMovement() {
@@ -68,6 +88,7 @@ export function createRepMachine(rule: RepRule): RepMachine {
     zoneSince = 0
     armed = reachedEnd = false
     repStartedAt = null
+    occludedSince = null
   }
 
   function interrupt(text: string | null = '请回到起始姿势后继续') {
@@ -88,13 +109,26 @@ export function createRepMachine(rule: RepRule): RepMachine {
     if (!Number.isFinite(ts) || (lastTs !== null && ts <= lastTs)) return snapshot()
     const gap = lastTs !== null && ts - lastTs > (rule.maxGapMs ?? 1000)
     lastTs = ts
-    if (angle === null || !Number.isFinite(angle) || angle < 0 || angle > 180
-      || !Number.isFinite(visibility) || visibility < rule.minVisibility) {
+    // 算不出角 = 测量失败（关键点缺失），硬中断，保住「丢点不得补计残留半次」的保证
+    if (angle === null || !Number.isFinite(angle) || angle < 0 || angle > 180) {
       clearMovement()
       phase = 'occluded'
       gate = '关键点不可见，计数暂停；请完整入镜后回到起始姿势'
       return snapshot()
     }
+    // 角算得出但可见度低 = 自遮挡。真实深蹲最低点必然如此，宽限期内冻结而不是丢弃半次行程
+    if (!Number.isFinite(visibility) || visibility < rule.minVisibility) {
+      if (occludedSince === null) occludedSince = ts
+      if (ts - occludedSince > (rule.maxOcclusionMs ?? 1000)) {
+        clearMovement()
+        gate = '关键点长时间不可见，请完整入镜后回到起始姿势'
+      } else {
+        gate = '关键点不可见，计数暂停；请完整入镜后回到起始姿势'
+      }
+      phase = 'occluded'
+      return snapshot()
+    }
+    occludedSince = null
     if (gap) {
       clearMovement()
       gate = '画面中断，请回到起始姿势后继续'

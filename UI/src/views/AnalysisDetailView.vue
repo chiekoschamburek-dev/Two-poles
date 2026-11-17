@@ -164,7 +164,7 @@ async function loadKeyframes() {
 function remove() {
   const current = record.value
   if (!current) return
-  if (!window.confirm('删除后这条分析记录与关键帧截图都会从本机移除，确定删除？')) return
+  if (!window.confirm('删除后这条分析记录、关键帧截图与本机保存的动作数据都会移除，确定删除？')) return
   store.removeAnalysis(current.id)
   router.push('/analysis')
 }

@@ -240,8 +240,12 @@ export function guideExercise(base: DemoExercise | undefined, guide: TrainingGui
   const reps = readInt(item?.plannedReps, 1, 200)
   const distance = readInt(item?.plannedDistance, 1, Number.MAX_SAFE_INTEGER)
   const minutes = readInt(item?.plannedTargetMinutes ?? item?.plannedDuration, 1, 240)
-  if (guide === 'camera' && base && !hold && !distance) {
-    if (base.mode === 'reps') return applyPlanOverrides(base, { sets, reps })
+  // reps 动作必须保持 reps：此前带 plannedHoldSeconds/plannedDistance 会掉进 makeHold → mode:'time'，
+  // 而 cameraRule 只在 mode==='reps' 时存在，导致摄像头计数被静默关掉。
+  if (guide === 'camera' && base) {
+    if (base.mode === 'reps') {
+      return { ...applyPlanOverrides(base, { sets, reps }), targetDistance: distance }
+    }
     if (base.mode === 'steps') return applyPlanOverrides(base, { minutes })
     return applyPlanOverrides(base, { sets })
   }
@@ -320,6 +324,8 @@ export interface SessionInput {
   notes?: string
   averageConfidence: number
   manualCorrections: number
+  /** 实时跟练按个人起始姿势校准后的中立位；未校准时为 null。离线分析永远是固定阈值 */
+  calibratedNeutral?: number | null
   elapsedMs: number
 }
 
@@ -372,6 +378,7 @@ export function summarizeSession(input: SessionInput): Omit<TrainingSession, 'id
     countedReps: input.cameraUsed ? input.countedReps ?? 0 : undefined,
     actualReps,
     completionStatus: allSetsDone && actualReps >= plannedReps ? 'completed' : 'partial',
-    confidence: Math.round(input.averageConfidence * 100) / 100
+    confidence: Math.round(input.averageConfidence * 100) / 100,
+    ...(input.calibratedNeutral != null ? { calibratedNeutral: input.calibratedNeutral } : {})
   }
 }

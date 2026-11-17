@@ -5,12 +5,11 @@ import { createPoseEngine, createMainThreadPoseEngine } from './poseEngine'
 import type { PoseEngine } from './poseEngine'
 import { EMPTY_POSE_METRICS, nextTimestamp } from './poseMath'
 import type { PoseMetrics } from './poseMath'
+import { POSE_MODEL_PATHS, POSE_ASSETS_HINT } from './poseLandmarkerFactory'
 
 export type PoseCameraStatus = 'idle' | 'starting' | 'live' | 'unsupported' | 'denied' | 'error'
 
-const WASM_PATH = '/mediapipe/wasm'
-const MODEL_PATH = '/mediapipe/models/pose_landmarker_lite.task'
-const MODEL_PATHS = { wasmPath: WASM_PATH, modelPath: MODEL_PATH }
+const MODEL_PATHS = POSE_MODEL_PATHS
 
 export type PoseSample = PoseMetrics & { timestamp: number }
 
@@ -29,6 +28,8 @@ export function usePoseCamera() {
   const visibility = ref(0)
   /** 一个原子采样值对应一个新推理帧，计数端不得按屏幕刷新率重复消费。 */
   const sample = shallowRef<PoseSample | null>(null)
+  /** 最近一帧原始关键点；统一引擎按它提取 MotionFrame，与离线分析走同一套几何 */
+  const landmarks = shallowRef<NormalizedLandmark[] | null>(null)
   /** 实际生效的后端与推理落点，供界面如实显示，不猜 */
   const delegate = ref<'GPU' | 'CPU' | null>(null)
   const runsIn = ref<'worker' | 'main' | null>(null)
@@ -110,11 +111,12 @@ export function usePoseCamera() {
         bitmap.close()
         return
       }
-      const { landmarks, metrics } = await currentEngine.detect(bitmap, ts)
+      const { landmarks: landmarks_, metrics } = await currentEngine.detect(bitmap, ts)
       if (seq !== startSeq || currentEngine !== engine) return
       applyMetrics(metrics)
       sample.value = { ...metrics, timestamp: ts }
-      draw(landmarks)
+      landmarks.value = landmarks_
+      draw(landmarks_)
       delegate.value = currentEngine.state.delegate
       runsIn.value = currentEngine.state.runsIn
       frames++
@@ -176,6 +178,7 @@ export function usePoseCamera() {
     stopStream()
     applyMetrics(EMPTY_POSE_METRICS)
     sample.value = null
+    landmarks.value = null
     fps.value = 0
     delegate.value = null
     runsIn.value = null
@@ -303,7 +306,7 @@ export function usePoseCamera() {
     } catch (err) {
       if (seq !== startSeq) return
       status.value = 'error'
-      errorMessage.value = `相机已连接，但端侧姿态模型加载失败：${(err as Error)?.message || '请确认已运行 npm run camera:assets'}`
+      errorMessage.value = `相机已连接，但端侧姿态模型加载失败：${(err as Error)?.message || POSE_ASSETS_HINT}`
       stop()
       return
     }
@@ -333,6 +336,7 @@ export function usePoseCamera() {
     delegate,
     runsIn,
     startingStage,
+    landmarks,
     start,
     stop
   }

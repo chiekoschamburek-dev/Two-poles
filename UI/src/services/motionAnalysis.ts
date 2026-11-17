@@ -9,8 +9,11 @@ import type {
   MotionPrecheckResult
 } from '@/types/domain'
 import { createRepMachine } from '@/composables/repMachine'
-import type { RepInterval, RepRule } from '@/composables/repMachine'
+import type { RepInterval } from '@/composables/repMachine'
+import { angleAt, clampVisibility, frameVisibility, jointScore, jointVisibility } from '@/composables/poseMath'
+import { configForAction, repRuleFor } from '@/services/motionConfig'
 import { rulesFor } from '@/services/motionRules'
+import { consistencyRulesFor } from '@/services/motionConsistency'
 
 export interface MotionPoint {
   x: number
@@ -63,6 +66,8 @@ export interface RepAnalysis {
   hipHeightDiff: number | null
   eccentricMs: number | null
   bottomHoldMs: number | null
+  /** 该次所有帧的平均可见度，参与 finding 置信度推导 */
+  visibilityMean: number | null
 }
 
 export interface GaitAnalysis {
@@ -90,15 +95,6 @@ const FRONT_MIN_RATIO = 0.42
 const FINDINGS_LIMIT = 20
 const METRICS_LIMIT = 30
 
-const SQUAT_REP_RULE: RepRule = {
-  neutral: 172, bottom: 95, hysteresis: 8, minStageMs: 200,
-  minRepMs: 500, maxStageMs: 8000, minVisibility: MIN_FRAME_VISIBILITY
-}
-const DEADLIFT_REP_RULE: RepRule = {
-  neutral: 165, bottom: 95, hysteresis: 8, minStageMs: 200,
-  minRepMs: 500, maxStageMs: 8000, minVisibility: MIN_FRAME_VISIBILITY
-}
-
 const LANDMARKS = {
   shoulder: { left: 11, right: 12 },
   hip: { left: 23, right: 24 },
@@ -108,32 +104,24 @@ const LANDMARKS = {
   toe: { left: 31, right: 32 }
 } as const
 
-const CORE_INDICES = [11, 12, 23, 24, 25, 26, 27, 28]
-
-function clampVisibility(value: unknown): number {
-  return Number.isFinite(value) ? Math.max(0, Math.min(1, value as number)) : 0
-}
-
 function readPoint(landmarks: NormalizedLandmark[], index: number): MotionPoint | null {
   const landmark = landmarks[index]
   if (!landmark || !Number.isFinite(landmark.x) || !Number.isFinite(landmark.y)) return null
   return { x: landmark.x, y: landmark.y, visibility: clampVisibility(landmark.visibility) }
 }
 
-function angleAt(a: MotionPoint, vertex: MotionPoint, b: MotionPoint): number | null {
-  const v1x = a.x - vertex.x
-  const v1y = a.y - vertex.y
-  const v2x = b.x - vertex.x
-  const v2y = b.y - vertex.y
-  const magnitude = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)
-  if (!magnitude) return null
-  const cos = Math.min(1, Math.max(-1, (v1x * v2x + v1y * v2y) / magnitude))
-  return Math.round((Math.acos(cos) * 180) / Math.PI)
-}
-
 function midpoint(a: MotionPoint | null, b: MotionPoint | null): MotionPoint | null {
   if (!a || !b) return null
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, visibility: Math.min(a.visibility, b.visibility) }
+}
+
+/** 供验证夹具直接断言逐帧测量口径，与内部计数/规则用的是同一个函数。 */
+export function measureJointAngle(frame: MotionFrame, joint: 'knee' | 'hip'): { angle: number | null; visibility: number } {
+  return jointAngle(frame, joint)
+}
+
+export function measureTrunkAngle(shoulder: MotionPoint | null, hip: MotionPoint | null): number | null {
+  return trunkAngle(shoulder, hip)
 }
 
 function trunkAngle(shoulder: MotionPoint | null, hip: MotionPoint | null): number | null {
@@ -145,30 +133,61 @@ function trunkAngle(shoulder: MotionPoint | null, hip: MotionPoint | null): numb
   return Math.round((Math.atan2(Math.abs(dx), Math.max(0, dy)) * 180) / Math.PI)
 }
 
-function sideJointPoint(frame: MotionFrame, joint: 'knee' | 'hip'): { point: MotionPoint; side: 'left' | 'right' } | null {
-  const left = frame.points[joint].left
-  const right = frame.points[joint].right
+/**
+ * 选侧口径：用顶点关节自身可见度（膝角看膝、髋角看髋），与实时侧统一。
+ * 对外返回的 visibility 仍是三点最小值——那是喂状态机的口径，不改。
+ */
+function sideTriple(frame: MotionFrame, joint: 'knee' | 'hip'): { side: 'left' | 'right'; score: number; visibility: number } | null {
+  const read = (side: 'left' | 'right') => {
+    const hip = frame.points.hip[side]
+    const knee = frame.points.knee[side]
+    const ankle = frame.points.ankle[side]
+    const shoulder = frame.points.shoulder[side]
+    const points = joint === 'knee'
+      ? (hip && knee && ankle ? [hip, knee, ankle] : null)
+      : (shoulder && hip && knee ? [shoulder, hip, knee] : null)
+    if (!points) return null
+    const angle = angleAt(points[0], points[1], points[2])
+    return {
+      side,
+      score: angle === null ? 0 : jointScore(points[1]),
+      visibility: angle === null ? 0 : jointVisibility(points)
+    }
+  }
+  const left = read('left')
+  const right = read('right')
   if (!left && !right) return null
-  if (!left) return { point: right!, side: 'right' }
-  if (!right) return { point: left, side: 'left' }
-  return right.visibility > left.visibility ? { point: right, side: 'right' } : { point: left, side: 'left' }
+  if (!left) return right
+  if (!right) return left
+  return right.score > left.score ? right : left
+}
+
+function sideJointPoint(frame: MotionFrame, joint: 'knee' | 'hip'): { point: MotionPoint; side: 'left' | 'right' } | null {
+  const chosen = sideTriple(frame, joint)
+  if (!chosen) return null
+  const point = frame.points[joint][chosen.side]
+  return point ? { point, side: chosen.side } : null
 }
 
 function jointAngle(frame: MotionFrame, joint: 'knee' | 'hip'): { angle: number | null; visibility: number } {
-  const side = sideJointPoint(frame, joint)?.side ?? 'left'
+  const chosen = sideTriple(frame, joint)
+  if (!chosen) return { angle: null, visibility: 0 }
+  const side = chosen.side
   const hip = frame.points.hip[side]
   const knee = frame.points.knee[side]
   const ankle = frame.points.ankle[side]
   const shoulder = frame.points.shoulder[side]
-  if (!hip || !knee || !ankle) return { angle: null, visibility: 0 }
-  const angle = joint === 'knee' ? angleAt(hip, knee, ankle) : shoulder ? angleAt(shoulder, hip, knee) : null
-  const visibility = Math.min(hip.visibility, knee.visibility, joint === 'knee' ? ankle.visibility : shoulder?.visibility ?? 0)
-  return { angle, visibility }
+  if (joint === 'knee') {
+    if (!hip || !knee || !ankle) return { angle: null, visibility: 0 }
+    return { angle: angleAt(hip, knee, ankle), visibility: chosen.visibility }
+  }
+  if (!shoulder || !hip || !knee) return { angle: null, visibility: 0 }
+  return { angle: angleAt(shoulder, hip, knee), visibility: chosen.visibility }
 }
 
 export function extractMotionFrame(landmarks: NormalizedLandmark[], timeMs: number): MotionFrame {
   const point = (joint: keyof typeof LANDMARKS, side: 'left' | 'right') => readPoint(landmarks, LANDMARKS[joint][side])
-  const visibility = CORE_INDICES.reduce((sum, index) => sum + clampVisibility(landmarks[index]?.visibility), 0) / CORE_INDICES.length
+  const visibility = frameVisibility(landmarks)
   return {
     timeMs,
     visibility,
@@ -204,7 +223,10 @@ export function detectView(frames: MotionFrame[]): { view: AnalysisView | null; 
 }
 
 function segmentReps(frames: MotionFrame[], action: AnalysisAction): { intervals: RepInterval[]; count: number } {
-  const machine = createRepMachine(action === 'deadlift' ? DEADLIFT_REP_RULE : SQUAT_REP_RULE)
+  const config = configForAction(action)
+  const machine = createRepMachine(config
+    ? repRuleFor(config, 'offline')
+    : { neutral: 172, bottom: 95, hysteresis: 8, minStageMs: 200, minRepMs: 500, maxStageMs: 8000, minVisibility: MIN_FRAME_VISIBILITY })
   const intervals: RepInterval[] = []
   for (const frame of frames) {
     const sample = jointAngle(frame, action === 'deadlift' ? 'hip' : 'knee')
@@ -214,7 +236,8 @@ function segmentReps(frames: MotionFrame[], action: AnalysisAction): { intervals
   return { intervals, count: machine.snapshot().count }
 }
 
-function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: number, fps: number, action: AnalysisAction): RepAnalysis {
+/** 供实时模式复用：rep 结束时该次所有帧都是过去/当前，摘要与离线逐位相同 */
+export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: number, fps: number, action: AnalysisAction): RepAnalysis {
   const repFrames = frames.filter(frame => frame.timeMs >= interval.startMs && frame.timeMs <= interval.endMs)
   let bottomFrame: MotionFrame | null = null
   let bottomAngle: number | null = null
@@ -232,13 +255,16 @@ function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: number,
       bottomKneeAngle: null, bottomHipAngle: null, bottomTrunkAngle: null,
       endKneeAngle: null, endHipAngle: null, endTrunkAngle: null,
       depthOffset: null, leftKneeAngle: null, rightKneeAngle: null, kneeAnkleRatio: null,
-      shoulderHeightDiff: null, hipHeightDiff: null, eccentricMs: null, bottomHoldMs: null
+      shoulderHeightDiff: null, hipHeightDiff: null, eccentricMs: null, bottomHoldMs: null, visibilityMean: null
     }
   }
+  const visibilityMean = repFrames.length
+    ? repFrames.reduce((sum, frame) => sum + frame.visibility, 0) / repFrames.length
+    : null
   const endFrame = repFrames[repFrames.length - 1] ?? bottomFrame
   const endKnee = jointAngle(endFrame, 'knee')
   const endHip = jointAngle(endFrame, 'hip')
-  const endSide = sideJointPoint(endFrame, 'knee')?.side ?? 'left'
+  const endSide = sideJointPoint(endFrame, action === 'deadlift' ? 'hip' : 'knee')?.side ?? 'left'
   const endTrunk = trunkAngle(endFrame.points.shoulder[endSide], endFrame.points.hip[endSide])
   const leftKnee = bottomFrame.points.hip.left && bottomFrame.points.knee.left && bottomFrame.points.ankle.left
     ? angleAt(bottomFrame.points.hip.left, bottomFrame.points.knee.left, bottomFrame.points.ankle.left) : null
@@ -246,7 +272,7 @@ function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: number,
     ? angleAt(bottomFrame.points.hip.right, bottomFrame.points.knee.right, bottomFrame.points.ankle.right) : null
   const knee = jointAngle(bottomFrame, 'knee')
   const hipJoint = jointAngle(bottomFrame, 'hip')
-  const side = sideJointPoint(bottomFrame, 'knee')?.side ?? 'left'
+  const side = sideJointPoint(bottomFrame, action === 'deadlift' ? 'hip' : 'knee')?.side ?? 'left'
   const shoulder = bottomFrame.points.shoulder[side]
   const hipPoint = bottomFrame.points.hip[side]
   const trunk = trunkAngle(shoulder, hipPoint)
@@ -288,7 +314,8 @@ function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: number,
     shoulderHeightDiff,
     hipHeightDiff,
     eccentricMs: Math.max(0, bottomFrame.timeMs - interval.startMs),
-    bottomHoldMs
+    bottomHoldMs,
+    visibilityMean
   }
 }
 
@@ -422,20 +449,35 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     analyzeRep(series.frames, interval, index + 1, series.fps, series.action)
   )
   const gait = series.action === 'running' ? analyzeGait(series.frames, series.fps) : undefined
-  const context = { action: series.action, view: series.view, reps, fps: series.fps, gait }
+  const viewConfidence = detectView(series.frames).confidence
+  const context = { action: series.action, view: series.view, reps, fps: series.fps, gait, viewConfidence }
   const findings: MotionAnalysisFinding[] = []
   const metrics: MotionAnalysisMetric[] = []
-  for (const rule of rulesFor(series.action, series.view)) {
+  for (const rule of [...rulesFor(series.action, series.view), ...consistencyRulesFor(series.action)]) {
     const output = rule.evaluate(context)
     if (rule.output === 'finding') findings.push(...(output as MotionAnalysisFinding[]))
     else metrics.push(...(output as MotionAnalysisMetric[]))
   }
+  const angles = series.frames.map(frame => {
+    const knee = jointAngle(frame, 'knee')
+    const hip = jointAngle(frame, 'hip')
+    const side = sideJointPoint(frame, series.action === 'deadlift' ? 'hip' : 'knee')?.side ?? 'left'
+    return {
+      timeMs: frame.timeMs,
+      visibility: frame.visibility,
+      kneeAngle: knee.angle,
+      hipAngle: hip.angle,
+      trunkAngle: trunkAngle(frame.points.shoulder[side], frame.points.hip[side])
+    }
+  })
   return {
     findings: dedupeFindings(findings),
     metrics: capMetrics(metrics),
     repCount: series.action === 'running' ? null : segmented.count,
     gaitCycles: gait?.cycles ?? null,
-    usableRatio
+    usableRatio,
+    reps,
+    angles
   }
 }
 

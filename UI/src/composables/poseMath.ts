@@ -1,5 +1,12 @@
 // 姿态几何与帧时序的纯函数：不碰 DOM，可在 selfcheck 里直接断言。
+// 这里是实时跟练与离线分析唯一的几何接缝：关节索引、算角、可见度、选侧都在这一份实现里。
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision'
+
+/** 只要求 x/y，NormalizedLandmark 与 motionAnalysis 的 MotionPoint 都能直接传进来 */
+export interface GeometryPoint {
+  x: number
+  y: number
+}
 
 export type PoseMetrics = {
   kneeAngle: number | null
@@ -14,15 +21,46 @@ export type PoseMetrics = {
   hipSide: 'left' | 'right' | null
 }
 
+/** 12 关节并集：实时原本缺 heel/toe，离线原本缺 elbow/wrist */
+export const LANDMARK_INDEX = {
+  shoulder: { left: 11, right: 12 },
+  elbow: { left: 13, right: 14 },
+  wrist: { left: 15, right: 16 },
+  hip: { left: 23, right: 24 },
+  knee: { left: 25, right: 26 },
+  ankle: { left: 27, right: 28 },
+  heel: { left: 29, right: 30 },
+  toe: { left: 31, right: 32 }
+} as const
+
 const LEFT = { shoulder: 11, elbow: 13, wrist: 15, hip: 23, knee: 25, ankle: 27 }
 const RIGHT = { shoulder: 12, elbow: 14, wrist: 16, hip: 24, knee: 26, ankle: 28 }
+
+/**
+ * 帧级可见度口径：8 个双侧核心点均值，缺失按 0。
+ * 缺失关键点不是「可见」的证据；此前实时侧取 6 个左侧点且缺失默认 1，
+ * 同一个 0.5 门槛在两条路径上含义不同。统一到离线口径。
+ * 注意：喂给状态机的是构成角的三点最小值（jointScore），不是这个帧级均值，
+ * 所以本次统一不改变任何一侧的计数，只移动实时的置信度徽章与均值统计。
+ */
+export const CORE_VISIBILITY_INDICES = [11, 12, 23, 24, 25, 26, 27, 28]
+
+export function clampVisibility(value: unknown): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value as number)) : 0
+}
+
+export function frameVisibility(landmarks: NormalizedLandmark[]): number {
+  return CORE_VISIBILITY_INDICES.reduce((sum, index) => sum + clampVisibility(landmarks[index]?.visibility), 0)
+    / CORE_VISIBILITY_INDICES.length
+}
+
 export const EMPTY_POSE_METRICS: PoseMetrics = {
   kneeAngle: null, hipAngle: null, elbowAngle: null, visibility: 0,
   kneeVisibility: 0, elbowVisibility: 0, hipVisibility: 0,
   kneeSide: null, elbowSide: null, hipSide: null
 }
 
-export function angleAt(a: NormalizedLandmark, vertex: NormalizedLandmark, b: NormalizedLandmark): number | null {
+export function angleAt(a: GeometryPoint, vertex: GeometryPoint, b: GeometryPoint): number | null {
   if (![a.x, a.y, vertex.x, vertex.y, b.x, b.y].every(Number.isFinite)) return null
   const v1x = a.x - vertex.x
   const v1y = a.y - vertex.y
@@ -34,24 +72,40 @@ export function angleAt(a: NormalizedLandmark, vertex: NormalizedLandmark, b: No
   return Math.round((Math.acos(cos) * 180) / Math.PI)
 }
 
+/** 构成角的 3 点可见度最小值：喂状态机的可见度口径 */
+export function jointVisibility(points: (GeometryPoint & { visibility?: number })[]): number {
+  if (points.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return 0
+  return Math.min(...points.map(point => clampVisibility(point.visibility)))
+}
+
+/**
+ * 选侧口径：用**顶点关节**自身的可见度（膝角看膝、髋角看髋），与离线原实现一致。
+ * 曾试过用「三点最小值」选侧，实测会让 sit-to-stand、peso-muerto-sumo、test_squat
+ * 的计数从 1/2/4 掉到 0 —— 椅子/杠铃遮挡使三点最小值在左右两侧剧烈翻转。
+ * 统一是统一到既有离线语义，不是统一到新语义，这样才能保证真实素材计数不变。
+ */
+export function jointScore(vertex: GeometryPoint & { visibility?: number }): number {
+  if (!Number.isFinite(vertex.x) || !Number.isFinite(vertex.y)) return 0
+  return clampVisibility(vertex.visibility)
+}
+
 export function computeMetrics(landmarks: NormalizedLandmark[]): PoseMetrics {
   if (landmarks.length < 28) {
     return { ...EMPTY_POSE_METRICS }
   }
-  // 只取参与算角的 6 个关键点求均值：按 11..27 整段取会得到 17 个点，可见度会超过 1
-  const joints = [LEFT.shoulder, LEFT.elbow, LEFT.wrist, LEFT.hip, LEFT.knee, LEFT.ankle]
-  const visibility = joints.reduce((sum, i) => sum + (landmarks[i]?.visibility ?? 1), 0) / joints.length
+  const visibility = frameVisibility(landmarks)
   const joint = (left: number[], right: number[]) => {
     const read = (indices: number[], side: 'left' | 'right') => {
       const points = indices.map(i => landmarks[i])
       const angle = points.every(Boolean) ? angleAt(points[0], points[1], points[2]) : null
-      const score = angle === null ? 0 : Math.min(...points.map(point =>
-        Number.isFinite(point.visibility ?? 1) ? Math.max(0, Math.min(1, point.visibility ?? 1)) : 0))
-      return { angle, visibility: score, side }
+      // 选侧看顶点（indices[1]），对外可见度仍取三点最小值
+      const score = angle === null ? 0 : jointScore(points[1])
+      const visibility = angle === null ? 0 : jointVisibility(points)
+      return { angle, visibility, side, score }
     }
     const l = read(left, 'left')
     const r = read(right, 'right')
-    return r.visibility > l.visibility ? r : l
+    return r.score > l.score ? r : l
   }
   const knee = joint([LEFT.hip, LEFT.knee, LEFT.ankle], [RIGHT.hip, RIGHT.knee, RIGHT.ankle])
   const elbow = joint([LEFT.shoulder, LEFT.elbow, LEFT.wrist], [RIGHT.shoulder, RIGHT.elbow, RIGHT.wrist])

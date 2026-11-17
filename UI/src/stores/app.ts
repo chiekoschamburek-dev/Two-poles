@@ -7,6 +7,7 @@ import { estimateEnergy, unitKey } from '@/services/foodComposition'
 import type { EnergyEstimate } from '@/services/foodComposition'
 import { clearMealPhotos, deleteMealPhoto } from '@/services/mealPhotos'
 import { clearAnalysisKeyframes, deleteAnalysisKeyframes } from '@/services/analysisKeyframes'
+import { clearMotionSeries, deleteMotionSeries } from '@/services/motionSeries'
 import { buildDayPlan, PLAN_RULES_VERSION, PLAN_VERSION } from '@/services/planRules'
 import { findExercise, gateReason } from '@/services/exercises'
 import { buildPlanFeedbackMessages, validatePlanFeedback } from '@/services/planFeedback'
@@ -67,7 +68,8 @@ export const useAppStore = defineStore('app', () => {
     cameraEnabled: true,
     exportFormat: 'json',
     showEnergyEstimate: false,
-    saveFoodPhotoLocally: true
+    saveFoodPhotoLocally: true,
+    saveMotionSeriesLocally: false
   })
   /** F19 语音节奏播报：默认关闭，避免与读屏的 aria-live 双声道同时发声（plan.md §4.4） */
   const speech = ref<SpeechSettings>({ enabled: false, voiceURI: '' })
@@ -1402,6 +1404,7 @@ export const useAppStore = defineStore('app', () => {
       enqueueSync('analysis.delete', target.clientId ?? target.id, { ...target })
       const refs = target.findings.map(finding => finding.keyframeRef).filter((ref): ref is string => !!ref)
       void deleteAnalysisKeyframes(refs).catch(() => { /* 清理失败不影响主数据删除 */ })
+      void deleteMotionSeries([target.id]).catch(() => { /* 清理失败不影响主数据删除 */ })
     }
   }
 
@@ -1425,7 +1428,7 @@ export const useAppStore = defineStore('app', () => {
     analyses.value = []
     plans.value = []
     planHistory.value = []
-    privacy.value = { cameraEnabled: true, exportFormat: 'json', showEnergyEstimate: false, saveFoodPhotoLocally: true }
+    privacy.value = { cameraEnabled: true, exportFormat: 'json', showEnergyEstimate: false, saveFoodPhotoLocally: true, saveMotionSeriesLocally: false }
     speech.value = { enabled: false, voiceURI: '' }
     collapsedCards.value = []
     themePref.value = 'system'
@@ -1443,6 +1446,7 @@ export const useAppStore = defineStore('app', () => {
     if (typeof localStorage !== 'undefined') localStorage.removeItem(WELLNESS_DISMISS_KEY)
     void clearMealPhotos().catch(() => { /* 照片库清理失败时至少保留了主数据清除结果 */ })
     void clearAnalysisKeyframes().catch(() => { /* 关键帧库清理失败时至少保留了主数据清除结果 */ })
+    void clearMotionSeries().catch(() => { /* 动作数据库清理失败时至少保留了主数据清除结果 */ })
     showToast({
       type: 'success',
       title: '数据已清除',

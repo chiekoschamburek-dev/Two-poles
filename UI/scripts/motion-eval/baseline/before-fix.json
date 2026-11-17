@@ -1,0 +1,307 @@
+{
+  "generatedAt": "2026-11-17T09:00:05.120Z",
+  "target": "dev",
+  "baseUrl": "http://127.0.0.1:5173",
+  "caveats": [
+    "库存素材机位/人物任意且未裁剪，只能逐片报告，不得聚合成单一准确率",
+    "角度口径是与人工数字化的一致性（±3–5°），不是绝对真值",
+    "语料未触发的规则标 untested，合成正例只算逻辑覆盖",
+    "DEV 强制主线程 CPU，性能数字是最坏情况，不能代表生产"
+  ],
+  "clips": [
+    {
+      "clip": "test_squat",
+      "hasTruth": false,
+      "view": "front",
+      "viewConfidence": 1,
+      "action": "squat",
+      "actionConfident": false,
+      "precheckVerdict": "degraded",
+      "repCount": {
+        "truth": null,
+        "counted": 0,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 920,
+        "inferenceP50": 88.2,
+        "inferenceP95": 103.2,
+        "samples": 149,
+        "pipelineWallMs": 45902,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 149,
+        "pipelineRepCount": 0,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "sit-to-stand",
+      "hasTruth": false,
+      "view": "side",
+      "viewConfidence": 0.15810908872717322,
+      "action": "squat",
+      "actionConfident": true,
+      "precheckVerdict": "degraded",
+      "repCount": {
+        "truth": null,
+        "counted": 0,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 920,
+        "inferenceP50": 42.8,
+        "inferenceP95": 53.4,
+        "samples": 228,
+        "pipelineWallMs": 21466,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 228,
+        "pipelineRepCount": 0,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "peso-muerto",
+      "hasTruth": false,
+      "view": "side",
+      "viewConfidence": 0.6396714887791111,
+      "action": "squat",
+      "actionConfident": false,
+      "precheckVerdict": "degraded",
+      "repCount": {
+        "truth": null,
+        "counted": 0,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 920,
+        "inferenceP50": 43.3,
+        "inferenceP95": 47.3,
+        "samples": 455,
+        "pipelineWallMs": 45710,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 455,
+        "pipelineRepCount": 0,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "peso-muerto-sumo",
+      "hasTruth": false,
+      "view": "front",
+      "viewConfidence": 0.07885716633076087,
+      "action": "squat",
+      "actionConfident": false,
+      "precheckVerdict": "degraded",
+      "repCount": {
+        "truth": null,
+        "counted": 0,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 920,
+        "inferenceP50": 42.1,
+        "inferenceP95": 46.2,
+        "samples": 331,
+        "pipelineWallMs": 30457,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 331,
+        "pipelineRepCount": 0,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "deadlift-demo",
+      "hasTruth": false,
+      "view": null,
+      "viewConfidence": 0,
+      "action": "deadlift",
+      "actionConfident": true,
+      "precheckVerdict": "rejected",
+      "repCount": {
+        "truth": null,
+        "counted": null,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 920,
+        "inferenceP50": 45.1,
+        "inferenceP95": 53.7,
+        "samples": 110,
+        "pipelineWallMs": null,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 110,
+        "pipelineRepCount": null,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "easy-run",
+      "hasTruth": false,
+      "view": "front",
+      "viewConfidence": 1,
+      "action": "deadlift",
+      "actionConfident": true,
+      "precheckVerdict": "degraded",
+      "repCount": {
+        "truth": null,
+        "counted": 0,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 920,
+        "inferenceP50": 41.3,
+        "inferenceP95": 46.5,
+        "samples": 299,
+        "pipelineWallMs": 14763,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 299,
+        "pipelineRepCount": 0,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    },
+    {
+      "clip": "brisk-walk",
+      "hasTruth": false,
+      "view": "front",
+      "viewConfidence": 1,
+      "action": "squat",
+      "actionConfident": false,
+      "precheckVerdict": "degraded",
+      "repCount": {
+        "truth": null,
+        "counted": 0,
+        "signedError": null
+      },
+      "gaitCycles": {
+        "truth": null,
+        "detected": null
+      },
+      "angleAgreement": {
+        "samples": 0,
+        "status": "untested",
+        "reason": "该片没有数字化关键帧"
+      },
+      "issueDetection": {
+        "status": "untested",
+        "reason": "该片没有问题有无标注"
+      },
+      "untestedRules": [],
+      "timing": {
+        "modelLoadMs": 920,
+        "inferenceP50": 40.9,
+        "inferenceP95": 46.2,
+        "samples": 299,
+        "pipelineWallMs": 17430,
+        "delegate": "CPU",
+        "runsIn": "main"
+      },
+      "crossCheck": {
+        "pureFrameCount": 299,
+        "pipelineRepCount": 0,
+        "note": "通道 a 与通道 b 用同一引擎与同一几何；计数不一致说明 composable 接线有问题"
+      }
+    }
+  ]
+}

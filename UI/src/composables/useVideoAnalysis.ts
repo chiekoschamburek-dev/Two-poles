@@ -1,6 +1,7 @@
 import { ref, onUnmounted } from 'vue'
 import { createPoseEngine } from './poseEngine'
 import type { PoseEngine } from './poseEngine'
+import { POSE_MODEL_PATHS, POSE_ASSETS_HINT } from './poseLandmarkerFactory'
 import { analyzeMotion, extractMotionFrame, precheckMotion, type MotionFrame } from '@/services/motionAnalysis'
 import type {
   AnalysisAction,
@@ -9,10 +10,7 @@ import type {
   MotionPrecheckResult
 } from '@/types/domain'
 
-const MODEL_PATHS = {
-  wasmPath: '/mediapipe/wasm',
-  modelPath: '/mediapipe/models/pose_landmarker_lite.task'
-}
+const MODEL_PATHS = POSE_MODEL_PATHS
 const ALLOWED_TYPES = ['video/mp4', 'video/webm', 'video/quicktime']
 const ALLOWED_EXTS = ['.mp4', '.webm', '.mov']
 const MAX_BYTES = 200 * 1024 * 1024
@@ -82,6 +80,20 @@ export function useVideoAnalysis() {
   let engineClock = 0
   let cancelled = false
   let runSeq = 0
+  /** 最近一次全帧分析的原始帧；供本机留存与事件流用，视频本身仍然丢弃 */
+  let lastFrames: MotionFrame[] = []
+  let lastFps = 0
+  /**
+   * 每趟扫描（precheck / analyze）都要从 t=0 重采样，但 MediaPipe 的 VIDEO 模式要求
+   * 时间戳跨调用严格递增。做法：每趟加一个巨大的基数，趟内按真实帧间隔递增。
+   * 之前只做 engineClock+1 的 nudge，导致第二趟的引擎时间每帧只前进 1ms，
+   * 引擎内部时序平滑彻底失真——同一段视频纯管道数到 4 次，走 composable 却数到 0 次。
+   */
+  let passBase = 0
+  function beginPass() {
+    passBase += 10_000_000
+    engineClock = 0
+  }
 
   function beginRun(): number {
     cancelled = false
@@ -162,7 +174,7 @@ export function useVideoAnalysis() {
     try {
       engine = await createPoseEngine(MODEL_PATHS)
     } catch (err) {
-      throw new VideoAnalysisError('model', `端侧姿态模型加载失败：${(err as Error)?.message || '未知错误'}。请确认已运行 npm run camera:assets 后重试`)
+      throw new VideoAnalysisError('model', `端侧姿态模型加载失败：${(err as Error)?.message || '未知错误'}。${POSE_ASSETS_HINT}后重试`)
     }
     return engine
   }
@@ -220,10 +232,13 @@ export function useVideoAnalysis() {
       throw new VideoAnalysisError('decode', '视频解码失败，请转码为 H.264 MP4 后重试')
     }
     const pose = await ensureEngine()
-    engineClock = Math.max(Math.floor(timeSec * 1000), engineClock + 1)
+    // 两个时钟刻意分开：engineClock 只喂 MediaPipe（趟内按真实帧间隔递增），
+    // 帧记录用真实视频时间——状态机拿它判 minStageMs/minRepMs，绝不能是伪造时间。
+    const timeMs = Math.round(timeSec * 1000)
+    engineClock = Math.max(passBase + timeMs, engineClock + 1)
     try {
       const result = await pose.detect(bitmap, engineClock)
-      return extractMotionFrame(result.landmarks, Math.round(timeSec * 1000))
+      return extractMotionFrame(result.landmarks, timeMs)
     } catch (err) {
       throw new VideoAnalysisError('model', `端侧推理失败：${(err as Error)?.message || '请重试'}`)
     }
@@ -240,6 +255,7 @@ export function useVideoAnalysis() {
     phase.value = 'precheck'
     progress.value = 0
     statusText.value = '正在检查视频是否可分析……'
+    beginPass()
     try {
       const fps = 15
       const span = Math.min(duration.value, 10)
@@ -268,6 +284,7 @@ export function useVideoAnalysis() {
     const seq = beginRun()
     phase.value = 'analyzing'
     progress.value = 0
+    beginPass()
     try {
       const fps = action === 'running' ? RUNNING_FPS : STRENGTH_FPS
       const maxSeconds = action === 'running' ? Math.min(duration.value, RUNNING_MAX_SECONDS) : duration.value
@@ -281,6 +298,8 @@ export function useVideoAnalysis() {
         progress.value = times.length ? (index + 1) / times.length : 1
         statusText.value = `正在分析 ${times[index].toFixed(0)} / ${maxSeconds.toFixed(0)} 秒`
       }
+      lastFrames = frames
+      lastFps = fps
       return analyzeMotion({ action, view, fps, frames })
     } finally {
       if (seq === runSeq) {
@@ -345,5 +364,6 @@ export function useVideoAnalysis() {
 
   onUnmounted(dispose)
 
-  return { phase, progress, statusText, duration, prepare, precheck, analyze, captureKeyframes, cancel, dispose }
+  return { phase, progress, statusText, duration, prepare, precheck, analyze, captureKeyframes, cancel, dispose,
+    capturedFrames: () => lastFrames, capturedFps: () => lastFps }
 }

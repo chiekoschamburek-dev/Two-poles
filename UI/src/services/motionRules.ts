@@ -5,8 +5,9 @@ import type {
   MotionAnalysisMetric
 } from '@/types/domain'
 import type { GaitAnalysis, RepAnalysis } from '@/services/motionAnalysis'
+import { findingConfidence } from '@/services/motionConsistency'
 
-export const MOTION_RULES_VERSION = 'motion-analysis-rules-v1'
+export const MOTION_RULES_VERSION = 'motion-analysis-rules-v2'
 
 export interface MotionRuleContext {
   action: AnalysisAction
@@ -14,6 +15,8 @@ export interface MotionRuleContext {
   reps: RepAnalysis[]
   fps: number
   gait?: GaitAnalysis
+  /** detectView 的判定置信度，参与 finding 置信度推导 */
+  viewConfidence?: number
 }
 
 export interface MotionRule {
@@ -48,45 +51,67 @@ function repFinding(
   measured: number | null,
   unit: string,
   thresholdLabel: string,
-  sourceLabel: string
+  sourceLabel: string,
+  confidence?: number
 ): MotionAnalysisFinding {
-  return { ruleId, title, detail, timeMs: rep.bottomMs, measured, unit, thresholdLabel, sourceLabel }
+  return { ruleId, title, detail, timeMs: rep.bottomMs, measured, unit, thresholdLabel, sourceLabel, ...(confidence !== undefined ? { confidence } : {}) }
+}
+
+/** 绝对阈值规则的置信度：关键点质量 × 视角置信 × 越界幅度 */
+function absoluteConfidence(
+  rep: RepAnalysis,
+  viewConfidence: number | undefined,
+  measured: number | null,
+  threshold: number,
+  scale: number
+): number {
+  return findingConfidence({
+    repVisibilityMean: rep.visibilityMean,
+    viewConfidence,
+    measured,
+    threshold,
+    scale
+  })
 }
 
 const squatSideRules: MotionRule[] = [
   {
     id: 'SQ-SE-01',
     output: 'finding',
-    evaluate: ({ reps }) => reps.flatMap(rep => {
+    evaluate: ({ reps, viewConfidence }) => reps.flatMap(rep => {
       if (rep.depthOffset === null || rep.depthOffset >= 0) return []
       return [repFinding(
         rep, 'SQ-SE-01', '下蹲深度不足',
         `第 ${rep.index} 次最低点髋部没有低于膝部（髋-膝垂直差 ${round2(rep.depthOffset)}）`,
-        round2(rep.depthOffset), '（归一化差值）', '最低点髋点低于膝点（≥ 0）', SQUAT_SOURCE.label
+        round2(rep.depthOffset), '（归一化差值）', '最低点髋点低于膝点（≥ 0）', SQUAT_SOURCE.label,
+        absoluteConfidence(rep, viewConfidence, round2(rep.depthOffset), 0, 0.3)
       )]
     })
   },
   {
     id: 'SQ-SE-02',
     output: 'finding',
-    evaluate: ({ reps }) => reps.flatMap(rep => {
+    evaluate: ({ reps, viewConfidence }) => reps.flatMap(rep => {
       if (rep.bottomKneeAngle === null || (rep.bottomKneeAngle >= 70 && rep.bottomKneeAngle <= 120)) return []
+      const bound = rep.bottomKneeAngle < 70 ? 70 : 120
       return [repFinding(
         rep, 'SQ-SE-02', '最低点膝角偏离参考区间',
         `第 ${rep.index} 次最低点膝角 ${rep.bottomKneeAngle}°`,
-        rep.bottomKneeAngle, '°', '70°–120°', SQUAT_SOURCE.label
+        rep.bottomKneeAngle, '°', '70°–120°', SQUAT_SOURCE.label,
+        absoluteConfidence(rep, viewConfidence, rep.bottomKneeAngle, bound, 20)
       )]
     })
   },
   {
     id: 'SQ-SE-03',
     output: 'finding',
-    evaluate: ({ reps }) => reps.flatMap(rep => {
+    evaluate: ({ reps, viewConfidence }) => reps.flatMap(rep => {
       if (rep.bottomTrunkAngle === null || rep.bottomTrunkAngle <= 45) return []
       return [repFinding(
         rep, 'SQ-SE-03', '躯干前倾偏大',
         `第 ${rep.index} 次最低点躯干与竖直夹角 ${rep.bottomTrunkAngle}°`,
-        rep.bottomTrunkAngle, '°', '≤ 45°', SQUAT_SOURCE.label
+        rep.bottomTrunkAngle, '°', '≤ 45°', SQUAT_SOURCE.label,
+        absoluteConfidence(rep, viewConfidence, rep.bottomTrunkAngle, 45, 15)
       )]
     })
   },
@@ -109,12 +134,13 @@ const squatFrontRules: MotionRule[] = [
   {
     id: 'SQ-FR-01',
     output: 'finding',
-    evaluate: ({ reps }) => reps.flatMap(rep => {
+    evaluate: ({ reps, viewConfidence }) => reps.flatMap(rep => {
       if (rep.kneeAnkleRatio === null || rep.kneeAnkleRatio >= 0.8) return []
       return [repFinding(
         rep, 'SQ-FR-01', '膝内扣',
         `第 ${rep.index} 次最低点膝间距 / 踝间距 ${round2(rep.kneeAnkleRatio)}`,
-        round2(rep.kneeAnkleRatio), '（膝间/踝间）', '膝间距 / 踝间距 ≥ 0.8', VALGUS_SOURCE.label
+        round2(rep.kneeAnkleRatio), '（膝间/踝间）', '膝间距 / 踝间距 ≥ 0.8', VALGUS_SOURCE.label,
+        absoluteConfidence(rep, viewConfidence, round2(rep.kneeAnkleRatio), 0.8, 0.2)
       )]
     })
   },
@@ -138,24 +164,26 @@ const deadliftSideRules: MotionRule[] = [
   {
     id: 'DL-SE-03',
     output: 'finding',
-    evaluate: ({ reps }) => reps.flatMap(rep => {
+    evaluate: ({ reps, viewConfidence }) => reps.flatMap(rep => {
       if (rep.endHipAngle === null || rep.endHipAngle >= 165) return []
       return [repFinding(
         rep, 'DL-SE-03', '锁定伸髋不完整',
         `第 ${rep.index} 次动作结束时髋角 ${rep.endHipAngle}°`,
-        rep.endHipAngle, '°', '锁定帧髋角 ≥ 165°', DEADLIFT_SOURCE.label
+        rep.endHipAngle, '°', '锁定帧髋角 ≥ 165°', DEADLIFT_SOURCE.label,
+        absoluteConfidence(rep, viewConfidence, rep.endHipAngle, 165, 15)
       )]
     })
   },
   {
     id: 'DL-SE-02',
     output: 'finding',
-    evaluate: ({ reps }) => reps.flatMap(rep => {
+    evaluate: ({ reps, viewConfidence }) => reps.flatMap(rep => {
       if (rep.endTrunkAngle === null || rep.endTrunkAngle <= 15) return []
       return [repFinding(
         rep, 'DL-SE-02', '锁定姿态偏离竖直',
         `第 ${rep.index} 次动作结束时躯干与竖直夹角 ${rep.endTrunkAngle}°`,
-        rep.endTrunkAngle, '°', '锁定帧躯干与竖直夹角 ≤ 15°', DEADLIFT_SOURCE.label
+        rep.endTrunkAngle, '°', '锁定帧躯干与竖直夹角 ≤ 15°', DEADLIFT_SOURCE.label,
+        absoluteConfidence(rep, viewConfidence, rep.endTrunkAngle, 15, 10)
       )]
     })
   },

@@ -172,6 +172,17 @@ export default defineConfig(({ mode }) => {
     model: pick('LLM_DEFAULT_MODEL').trim()
   }
   return {
+  // 验证夹具入口只在 EVAL=1 时进构建产物；正常生产构建不含它。
+  ...(process.env.EVAL === '1' ? {
+    build: {
+      rollupOptions: {
+        input: {
+          main: fileURLToPath(new URL('./index.html', import.meta.url)),
+          motionEval: fileURLToPath(new URL('./eval/motion-eval.html', import.meta.url))
+        }
+      }
+    }
+  } : {}),
   plugins: [vue(), llmProxy(defaults), {
     name: 'twopoles-dev-mock-worker',
     apply: 'serve',

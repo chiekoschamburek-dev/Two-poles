@@ -23,7 +23,7 @@
       <section class="an-card">
         <div class="an-card-head">
           <h2>选择视频</h2>
-          <span>本地 · 不上传</span>
+          <span>{{ explanationEnabled ? '视频本机处理 · 解读上传数值' : '本地 · 不上传' }}</span>
         </div>
 
         <div class="an-upload">
@@ -64,7 +64,7 @@
             <li>手机固定，与髋同高，从正侧方或正前方拍全身（头顶到脚底）。</li>
             <li>深蹲、硬拉拍 3–5 次完整动作；跑姿至少 5 个步态周期，优先跑步机侧拍。</li>
             <li>距离 3–5 米，光线均匀，避免逆光和大面积遮挡。</li>
-            <li>分析只在本机进行；视频不会上传，也不会保存。</li>
+            <li>分析只在本机进行；视频不会上传，也不会保存。{{ store.privacy.saveMotionSeriesLocally ? '已开启「保存动作数据」时，关节角度等测量数据会保存在本机。' : '' }}</li>
           </ul>
         </details>
       </section>
@@ -89,6 +89,8 @@
         </ul>
         <p v-else class="an-empty">还没有分析记录。</p>
       </section>
+
+      <MotionTrendCard v-for="trend in motionTrends" :key="trend.action" :trend="trend" />
 
       <section class="an-flow" aria-label="分析流程">
         <div><span class="num">01</span><b>可分析性检查</b><small>全身入镜 / 视角 / 自动识别动作</small></div>
@@ -195,8 +197,60 @@
             <div><dt>实测</dt><dd>{{ formatMeasured(finding) }}</dd></div>
             <div><dt>阈值</dt><dd>{{ finding.thresholdLabel }}</dd></div>
             <div><dt>出处</dt><dd>{{ finding.sourceLabel }}</dd></div>
+            <div v-if="finding.confidence !== undefined">
+              <dt>置信</dt>
+              <dd>
+                <span class="conf" :class="{ low: finding.confidence < 0.5 }">
+                  {{ finding.confidence.toFixed(2) }}{{ finding.confidence < 0.5 ? ' · 仅供参考' : '' }}
+                </span>
+              </dd>
+            </div>
           </dl>
         </article>
+      </BaseCard>
+
+      <AngleCurve
+        v-if="angleSamples.length"
+        :samples="angleSamples"
+        :joint="curveJoint"
+        :fps="15"
+        :marker-times="markerTimes"
+        :title="`${actionLabel} · ${curveJoint === 'hip' ? '髋' : curveJoint === 'trunk' ? '躯干' : '膝'}角曲线`"
+        @seek="seekToFinding"
+      />
+      <div v-if="angleSamples.length" class="curve-switch" role="group" aria-label="切换曲线关节">
+        <button
+          v-for="item in curveJoints"
+          :key="item.id"
+          type="button"
+          class="switch-chip"
+          :class="{ on: curveJoint === item.id }"
+          :aria-pressed="curveJoint === item.id"
+          @click="curveJoint = item.id"
+        >{{ item.label }}</button>
+        <span class="curve-note">{{ seriesSaved ? '角度数据已保存在本机，可在设置关闭。' : '角度数据仅在本次会话内存中，未落盘。' }}</span>
+      </div>
+
+      <BaseCard v-if="report" class="panel">
+        <div class="explain-head">
+          <h2>解读</h2>
+          <button type="button" class="switch-chip" :class="{ on: explanationEnabled }" :aria-pressed="explanationEnabled" @click="toggleExplanation">
+            {{ explanationEnabled ? '已开启' : '开启模型解读' }}
+          </button>
+        </div>
+        <p class="explain-note">
+          {{ explanationEnabled
+            ? '规则结论已判定完毕，模型只把测量结果换一种说法；开启后仅上传测量数值，不上传视频或画面。'
+            : '默认关闭。开启后会把测量数值（不含视频与画面）发到所配置的模型，用于把结论改写得更易读。' }}
+        </p>
+        <p v-if="!report.lines.length" class="muted">本次没有命中关注项，没有需要解读的结论。下面是客观测量值。</p>
+        <p v-if="explaining" class="muted">正在生成解读……规则文案已可用。</p>
+        <article v-for="line in report.lines" :key="line.id" class="explain-line">
+          <strong>{{ line.title }}</strong>
+          <p>{{ line.text }}</p>
+          <span class="engine-tag">{{ line.engine === 'llm' ? '模型改写' : '规则原文' }}</span>
+        </article>
+        <p class="disclaimer">{{ report.disclaimer }}</p>
       </BaseCard>
 
       <BaseCard class="panel">
@@ -231,6 +285,14 @@ import { useAppStore } from '@/stores/app'
 import { useVideoAnalysis, VideoAnalysisError } from '@/composables/useVideoAnalysis'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
 import { saveAnalysisKeyframe } from '@/services/analysisKeyframes'
+import AngleCurve from '@/components/analysis/AngleCurve.vue'
+import MotionTrendCard from '@/components/reports/MotionTrendCard.vue'
+import { buildAllTrends } from '@/services/motionTrends'
+import { useMotionExplanation } from '@/composables/useMotionExplanation'
+import { buildSeriesRecord, saveMotionSeries } from '@/services/motionSeries'
+import { eventsFromFrames } from '@/services/motionEvents'
+import { configForAction, repRuleFor } from '@/services/motionConfig'
+import type { MotionAngleSample } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { toISODate } from '@/utils/time'
 import type {
@@ -256,9 +318,15 @@ const switchableActions: { id: AnalysisAction; label: string }[] = [
   { id: 'deadlift', label: '硬拉' }
 ]
 
+const curveJoints: { id: 'knee' | 'hip' | 'trunk'; label: string }[] = [
+  { id: 'knee', label: '膝角' },
+  { id: 'hip', label: '髋角' },
+  { id: 'trunk', label: '躯干角' }
+]
+
 const disclaimer = '规则参考各关注项所列文献，阈值由本项目自行翻译，未经运动医学或体能专业人士审核；结果仅供复盘参考，不构成诊断或训练处方。'
 
-const { phase, progress, statusText, duration, prepare, precheck, analyze, captureKeyframes, cancel, dispose } = useVideoAnalysis()
+const { phase, progress, statusText, duration, prepare, precheck, analyze, captureKeyframes, cancel, dispose, capturedFrames, capturedFps } = useVideoAnalysis()
 const store = useAppStore()
 
 const step = ref<Step>('pick')
@@ -273,6 +341,32 @@ const saving = ref(false)
 const keyframeUrls = ref<Record<string, string>>({})
 /** 本次分析已保存的记录 id；改判重跑时先删掉它，避免同一段视频留两条结果 */
 const savedRecordId = ref<string | null>(null)
+const angleSamples = ref<MotionAngleSample[]>([])
+const curveJoint = ref<'knee' | 'hip' | 'trunk'>('knee')
+const seriesSaved = ref(false)
+const explanation = useMotionExplanation()
+const motionTrends = computed(() => buildAllTrends(store.analyses, store.sessions))
+
+/** 曲线关节默认跟随动作：硬拉看髋，其余看膝 */
+const defaultCurveJoint = computed(() => action.value === 'deadlift' ? 'hip' : 'knee')
+const markerTimes = computed(() => (result.value?.findings ?? [])
+  .map(finding => finding.timeMs)
+  .filter((time): time is number => time !== null))
+const report = explanation.report
+const explaining = explanation.explaining
+const explanationEnabled = computed(() => explanation.settings.value.enabled)
+
+function toggleExplanation() {
+  explanation.setEnabled(!explanationEnabled.value)
+  if (explanationEnabled.value) void explanation.explain()
+}
+
+function seekToFinding(timeMs: number) {
+  const match = (result.value?.findings ?? []).find(finding => finding.timeMs === timeMs)
+  if (match?.keyframeRef && keyframeUrls.value[match.keyframeRef]) {
+    window.open(keyframeUrls.value[match.keyframeRef], '_blank', 'noopener')
+  }
+}
 
 const busy = computed(() => phase.value === 'precheck')
 const actionLabel = computed(() => ACTION_LABELS[action.value])
@@ -416,6 +510,7 @@ async function persistResult(analysisResult: MotionAnalysisResult, view: Analysi
     metrics: analysisResult.metrics,
     repCount: analysisResult.repCount,
     gaitCycles: analysisResult.gaitCycles,
+    usableRatio: Math.round(analysisResult.usableRatio * 100) / 100,
     ruleVersion: MOTION_RULES_VERSION,
     createdAt: new Date().toISOString(),
     _sync: 'pending'
@@ -423,6 +518,38 @@ async function persistResult(analysisResult: MotionAnalysisResult, view: Analysi
   store.addAnalysis(record)
   savedRecordId.value = id
   return { ...analysisResult, findings }
+}
+
+/** 只有用户显式开启「保存动作数据」才落盘；画面与视频始终不保存 */
+async function persistSeries(analysisResult: MotionAnalysisResult, view: AnalysisView) {
+  seriesSaved.value = false
+  if (!store.privacy.saveMotionSeriesLocally) return
+  const id = savedRecordId.value
+  if (!id) return
+  const frames = capturedFrames()
+  const fps = capturedFps()
+  if (!frames.length || !fps) return
+  const config = configForAction(action.value)
+  const events = config
+    ? eventsFromFrames(frames, repRuleFor(config, 'offline'), config.joint).events
+    : []
+  try {
+    seriesSaved.value = await saveMotionSeries(buildSeriesRecord({
+      key: id,
+      savedAt: new Date().toISOString(),
+      fps,
+      action: action.value,
+      view,
+      ruleVersion: MOTION_RULES_VERSION,
+      usableRatio: analysisResult.usableRatio,
+      frames,
+      angles: analysisResult.angles ?? [],
+      reps: analysisResult.reps ?? [],
+      events
+    }))
+  } catch {
+    // 配额不足或隐私模式：曲线仍可用内存数据渲染，不影响分析结果
+  }
 }
 
 function reconcilePrecheck(analysisResult: MotionAnalysisResult) {
@@ -456,10 +583,21 @@ async function startAnalysis() {
   try {
     const analysisResult = await analyze(action.value, view)
     reconcilePrecheck(analysisResult)
+    angleSamples.value = analysisResult.angles ?? []
+    curveJoint.value = defaultCurveJoint.value
     saving.value = true
     result.value = await persistResult(analysisResult, view)
+    await persistSeries(analysisResult, view)
     saving.value = false
     step.value = 'result'
+    explanation.prepare({
+      action: action.value,
+      findings: result.value.findings,
+      metrics: result.value.metrics,
+      repCount: result.value.repCount,
+      gaitCycles: result.value.gaitCycles
+    })
+    if (explanationEnabled.value) void explanation.explain()
   } catch (error) {
     saving.value = false
     if (isCancelled(error)) {
@@ -624,6 +762,17 @@ onUnmounted(revokeKeyframeUrls)
 .metrics small { font-size: 11px; font-weight: 500; color: var(--color-text-muted); }
 .disclaimer { margin: 2px 2px 0; font-size: 11.5px; line-height: 1.7; color: var(--color-text-muted); }
 .keyframe { display: block; width: min(100%, 360px); margin: 8px 0 10px; border-radius: var(--radius-md); border: 1px solid var(--color-border); }
+.conf { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 600; color: var(--pole-movement-strong); }
+.conf.low { color: var(--color-text-muted); font-weight: 500; }
+.curve-switch { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0 2px; }
+.curve-note { font-size: 9.5px; color: var(--color-text-muted); margin-left: auto; }
+.explain-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.explain-head h2 { margin: 0; font-size: 16px; }
+.explain-note { margin: 0 0 10px; font-size: 11px; line-height: 1.7; color: var(--color-text-muted); }
+.explain-line { padding: 10px 0; border-top: 1px solid var(--color-divider); }
+.explain-line strong { font-size: 13px; }
+.explain-line p { margin: 4px 0 6px; font-size: 13px; line-height: 1.75; color: var(--color-text-secondary); }
+.engine-tag { display: inline-block; padding: 1px 7px; border: 1px solid var(--color-border); border-radius: 999px; font-family: var(--font-num); font-size: 8.5px; font-weight: 600; color: var(--color-text-muted); }
 
 @media (max-width: 767px) {
   .page { gap: 10px; }

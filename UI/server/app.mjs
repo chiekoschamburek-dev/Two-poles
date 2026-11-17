@@ -31,7 +31,8 @@ const DEFAULT_PRIVACY = {
   cameraEnabled: true,
   exportFormat: 'json',
   showEnergyEstimate: false,
-  saveFoodPhotoLocally: true
+  saveFoodPhotoLocally: true,
+  saveMotionSeriesLocally: false
 }
 const MAX_BODY = 2 * 1024 * 1024
 const DEFAULT_DB = fileURLToPath(new URL('./data/twopoles.sqlite', import.meta.url))
@@ -203,6 +204,7 @@ function sessionJson(row) {
     manualCorrections: row.manual_corrections ?? 0,
     countedReps: row.counted_reps ?? undefined,
     confidence: row.avg_confidence ?? undefined,
+    ...(row.calibrated_neutral === null || row.calibrated_neutral === undefined ? {} : { calibratedNeutral: row.calibrated_neutral }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     _sync: 'synced'
@@ -226,6 +228,7 @@ function analysisJson(row) {
     metrics: jsonParse(row.metrics, []),
     repCount: row.rep_count ?? null,
     gaitCycles: row.gait_cycles ?? null,
+    ...(row.usable_ratio === null || row.usable_ratio === undefined ? {} : { usableRatio: row.usable_ratio }),
     sessionId: row.session_id ?? undefined,
     ruleVersion: row.rule_version,
     createdAt: row.created_at,
@@ -1079,13 +1082,13 @@ export function createApiServer(options = {}) {
       db.prepare(`
         INSERT INTO motion_analyses (
           id, client_id, user_id, date, action, exercise_name, view, status,
-          low_confidence_reasons, findings, metrics, rep_count, gait_cycles,
+          low_confidence_reasons, findings, metrics, rep_count, gait_cycles, usable_ratio,
           session_id, rule_version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, clientId, user.id, date, action, exerciseName, view, status,
         JSON.stringify(reasons), JSON.stringify(findings), JSON.stringify(metrics),
-        integerOrNull(raw.repCount), integerOrNull(raw.gaitCycles), sessionId,
+        integerOrNull(raw.repCount), integerOrNull(raw.gaitCycles), numberOrNull(raw.usableRatio), sessionId,
         stringOrNull(raw.ruleVersion, 80) ?? 'motion-analysis-rules-v1',
         stringOrNull(raw.createdAt, 40) ?? now, now
       )

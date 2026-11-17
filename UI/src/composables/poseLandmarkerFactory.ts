@@ -3,6 +3,13 @@ import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision'
 
 export type PoseDelegate = 'GPU' | 'CPU'
 export type PoseModelPaths = { wasmPath: string; modelPath: string }
+
+/** 实时跟练与离线分析共用同一份模型路径；资源路径变更是生产事故，只留一处 */
+export const POSE_MODEL_PATHS: PoseModelPaths = {
+  wasmPath: '/mediapipe/wasm',
+  modelPath: '/mediapipe/models/pose_landmarker_lite.task'
+}
+export const POSE_ASSETS_HINT = '请确认已运行 npm run camera:assets'
 /** WasmFileset 没有从包里导出，只能从 forVisionTasks 的返回值取 */
 export type VisionFileset = Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>
 export type CreatedPoseLandmarker = {

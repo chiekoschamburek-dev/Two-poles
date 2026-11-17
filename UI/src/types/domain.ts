@@ -45,6 +45,8 @@ export interface MotionAnalysisFinding {
   sourceUrl?: string
   /** 本机 IndexedDB 引用；同步到其他设备后取不到图 */
   keyframeRef?: string
+  /** 0–1，由关键点质量×视角置信×越界幅度×基线强度推出；findings 是无模式 JSON，服务端原样透传 */
+  confidence?: number
 }
 
 export interface MotionAnalysisMetric {
@@ -60,6 +62,41 @@ export interface MotionAnalysisResult {
   repCount: number | null
   gaitCycles: number | null
   usableRatio: number
+  /** 逐次摘要；此前算完即丢，现在留给一致性规则、曲线与留存用 */
+  reps?: RepAnalysisRecord[]
+  /** 逐帧角度序列；曲线与关键帧定位用 */
+  angles?: MotionAngleSample[]
+}
+
+/** 与 motionAnalysis.RepAnalysis 同形，放这里避免 types 反向依赖 services */
+export interface RepAnalysisRecord {
+  index: number
+  startMs: number
+  endMs: number
+  bottomMs: number
+  bottomKneeAngle: number | null
+  bottomHipAngle: number | null
+  bottomTrunkAngle: number | null
+  endKneeAngle: number | null
+  endHipAngle: number | null
+  endTrunkAngle: number | null
+  depthOffset: number | null
+  leftKneeAngle: number | null
+  rightKneeAngle: number | null
+  kneeAnkleRatio: number | null
+  shoulderHeightDiff: number | null
+  hipHeightDiff: number | null
+  eccentricMs: number | null
+  bottomHoldMs: number | null
+  visibilityMean: number | null
+}
+
+export interface MotionAngleSample {
+  timeMs: number
+  visibility: number
+  kneeAngle: number | null
+  hipAngle: number | null
+  trunkAngle: number | null
 }
 
 export interface MotionPrecheckResult {
@@ -87,6 +124,8 @@ export interface MotionAnalysis {
   metrics: MotionAnalysisMetric[]
   repCount: number | null
   gaitCycles: number | null
+  /** 可用帧占比：影响结果可信度，趋势里据此标注 */
+  usableRatio?: number
   sessionId?: string
   ruleVersion: string
   createdAt: string
@@ -254,6 +293,8 @@ export interface TrainingSession {
   countedReps?: number
   manualCorrections: number
   confidence?: number
+  /** 实时跟练按个人起始姿势校准后的中立位；离线分析不带（固定文献阈值），趋势据此区分口径 */
+  calibratedNeutral?: number
 
   createdAt: string
   clientId?: string
@@ -416,6 +457,11 @@ export interface PrivacySettings {
   showEnergyEstimate: boolean
   /** 饮食记录里保存压缩缩略图（仅本机，用于回看这次拍的照片） */
   saveFoodPhotoLocally: boolean
+  /**
+   * 默认关闭：开启后跟练与动作分析的关节角度/关键点坐标会存进本机 IndexedDB 供回看曲线。
+   * 画面与视频本身始终不落盘；派生几何数据仍属运动生物特征邻近数据，故需显式同意。
+   */
+  saveMotionSeriesLocally: boolean
   /** 最近一次本地修改时间；用于与同步层做 last-write-wins */
   updatedAt?: string
 }

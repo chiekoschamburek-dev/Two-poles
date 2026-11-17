@@ -68,3 +68,14 @@ data_demo/
 UI\public\
 docs/
 .workbuddy/
+
+# 动作验证夹具：浏览器 profile 与逐帧序列是可再生中间产物（每片约 0.5–0.7MB）。
+# 基线报告与人工真值标注要进仓库，序列不进。
+UI/.eval-chrome/
+UI/.eval-ui-chrome/
+UI/.eval-*.mjs
+UI/.selfcheck.mjs
+UI/.sync-test.mjs
+UI/scripts/motion-eval/baseline/*.series.json
+UI/scripts/motion-eval/baseline/20*.json
+UI/.eval-*.log

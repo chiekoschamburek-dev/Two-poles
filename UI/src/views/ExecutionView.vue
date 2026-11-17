@@ -85,6 +85,17 @@
         <button type="button" aria-label="完成一次" :disabled="!canCount" @click="changeManualCount(1)">+1 完成一次</button>
       </div>
       <p role="status">{{ countingHint }}</p>
+      <div v-if="liveFinding" class="live-finding">
+        <span class="lf-chip" :class="{ low: (liveFinding.confidence ?? 1) < 0.5 }">
+          {{ liveFinding.title }}<template v-if="liveFinding.measured !== null"> · {{ liveFinding.measured }}{{ liveFinding.unit ?? '' }}</template>
+          <template v-if="liveFinding.confidence !== undefined"> · 置信 {{ liveFinding.confidence.toFixed(2) }}</template>
+        </span>
+        <span class="lf-note">组内一致性结果，仅陈述测量，不评分；训练结束后可在动作分析页看完整曲线。</span>
+        <label class="lf-toggle">
+          <input type="checkbox" :checked="motionFeedbackEnabled" @change="toggleMotionFeedback(($event.target as HTMLInputElement).checked)" />
+          语音提醒这条（默认关闭）
+        </label>
+      </div>
     </div>
 
     <div class="stage-grid" :class="{ 'timer-only': trainingMode === 'timer' }">
@@ -172,7 +183,7 @@
 
             <div v-if="!camRequested" class="cam-idle">
               <Camera :size="26" aria-hidden="true" />
-              <p>画面只在本机做姿态推理，不上传、不落盘</p>
+              <p>{{ privacyLine }}</p>
               <button v-if="store.privacy.cameraEnabled && !finished" type="button" class="cam-main-btn" @click="startCamera">开启摄像头</button>
               <small v-else-if="finished">跟练结束，摄像头已关闭</small>
               <small v-else>摄像头已在「设置 → 隐私」关闭</small>
@@ -294,10 +305,12 @@ import { demoVideos } from '@/services/demoVideos'
 import { useAppStore } from '@/stores/app'
 import { usePoseCamera, type PoseSample } from '@/composables/usePoseCamera'
 import { useRepCounter } from '@/composables/useRepCounter'
+import { useMotionSession } from '@/composables/useMotionSession'
+import { configForName } from '@/services/motionConfig'
 import { useSpeech } from '@/composables/useSpeech'
 import { useStepCounter } from '@/composables/useStepCounter'
 import { findExercise } from '@/services/exercises'
-import type { ExercisePhase, PlanItem } from '@/types/domain'
+import type { ExercisePhase, MotionAnalysisFinding, PlanItem } from '@/types/domain'
 import { toISODate } from '@/utils/time'
 import {
   demoExercises,
@@ -380,6 +393,9 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 
 /** F05：实时摄像头用关键点角度驱动状态机计数。 */
 const counter = shallowRef<ReturnType<typeof useRepCounter> | null>(null)
+const session = shallowRef<ReturnType<typeof useMotionSession> | null>(null)
+const liveFinding = ref<MotionAnalysisFinding | null>(null)
+const motionFeedbackEnabled = ref(false)
 const camJoint = ref<'knee' | 'elbow' | 'hip'>('knee')
 
 function jointSample(sample: PoseSample | null) {
@@ -403,19 +419,18 @@ function buildCounter() {
   const cam = cameraRule.value
   if (!cam) {
     counter.value = null
+    session.value = null
     return null
   }
   camJoint.value = cam.joint
-  const c = useRepCounter({
-    neutral: cam.neutral,
-    bottom: cam.bottom,
-    hysteresis: 8,
-    minStageMs: cam.minStageMs,
-    minRepMs: 700,
-    maxStageMs: 6000,
-    minVisibility: 0.5
-  })
+  const config = configForName(exercise.value.name)
+  // 引擎持有唯一的状态机：校准、计数、规则评估共用同一个计数器，避免两份实现漂移
+  const s = config ? useMotionSession({ config, view: 'side' }) : null
+  session.value = s
+  const c = s?.counter ?? null
   counter.value = c
+  s?.feedback.setEnabled(motionFeedbackEnabled.value)
+  if (!c) return null
   cameraCountOffset = reps.value
   countingSide = null
   c.reset('已就绪：先校准机位，或直接在起始姿势下开始')
@@ -665,6 +680,11 @@ const camNote = computed(() => {
   return '未开启'
 })
 
+/** 一旦有派生测量数据落盘，就不能再宣称「完全不落盘」 */
+const privacyLine = computed(() => store.privacy.saveMotionSeriesLocally
+  ? '画面只在本机做姿态推理，不上传。关节角度等测量数据会保存在本机（可在设置关闭），画面本身不落盘。'
+  : '画面只在本机做姿态推理，不上传、不落盘')
+
 const camHint = computed(() => {
   if (!store.privacy.cameraEnabled) return '摄像头已在设置中关闭；到「设置 → 隐私」可重新打开'
   if (cameraConnecting.value) {
@@ -678,8 +698,14 @@ const camHint = computed(() => {
     if (!c) return '该动作暂无自动计数规则，请使用上方手动计数；摄像头画面仅供姿势自查'
     return `端侧关键点计数（${jointLabel.value}）· 阈值 ${Math.round(c.lowThreshold.value)}° · ${c.calibratedNeutral.value !== null ? '已校准' : '未校准'} · 完成一个往返记一次`
   }
-  return '开启后画面只在本机做姿态推理，不上传、不落盘'
+  return privacyLine.value
 })
+
+/** 纠错语音默认关闭，且独立于计数播报开关；开启后仍受置信度/持续/冷却门控 */
+function toggleMotionFeedback(enabled: boolean) {
+  motionFeedbackEnabled.value = enabled
+  session.value?.feedback.setEnabled(enabled)
+}
 
 const canCount = computed(() => status.value === 'playing' && canAdvance.value && !calibrating.value)
 const countingSourceLabel = computed(() => modelReps.value ? (manualCorrections.value ? '摄像头识别 + 手动修正' : '摄像头识别 / 手动录入') : '手动计数')
@@ -721,13 +747,18 @@ watch(pose.sample, sample => {
   const sampleJoint = jointSample(sample)
   if (countingSide && sampleJoint.side && countingSide !== sampleJoint.side) c.interrupt('识别侧发生变化，请回到起始姿势')
   if (sampleJoint.side) countingSide = sampleJoint.side
-  const result = c.feed(sampleJoint.angle, sampleJoint.visibility, sample.timestamp)
+  // 引擎与页面共用同一个计数器：这一帧只喂一次
+  const counted = session.value
+    ? session.value.ingest(pose.landmarks.value, sample.timestamp, { angle: sampleJoint.angle, visibility: sampleJoint.visibility })
+    : (c.feed(sampleJoint.angle, sampleJoint.visibility, sample.timestamp).counted)
+  const sessionFindings = session.value?.findings.value ?? []
+  liveFinding.value = sessionFindings.length ? sessionFindings[sessionFindings.length - 1] : null
   confidence.value = sampleJoint.visibility
   confidenceSum += sampleJoint.visibility
   confidenceCount++
-  phase.value = result.phase
-  message.value = result.gate ?? (result.counted ? '已完成一次往返' : getPhaseText(result.phase, exercise.value.kind))
-  if (result.counted) {
+  phase.value = c.phase.value
+  message.value = c.gate.value ?? (counted ? '已完成一次往返' : getPhaseText(c.phase.value, exercise.value.kind))
+  if (counted) {
     modelReps.value++
     reps.value = Math.max(0, Math.min(c.count.value + cameraCountOffset, exercise.value.repsPerSet))
     speak(String(reps.value))
@@ -886,6 +917,7 @@ function record() {
       countedReps: modelReps.value,
       averageConfidence: averageConfidence.value,
       manualCorrections: manualCorrections.value,
+      calibratedNeutral: counter.value?.calibratedNeutral.value ?? null,
       elapsedMs: elapsedMs.value
     })
   )
@@ -1234,4 +1266,10 @@ onUnmounted(() => {
   .count-strip .strip-num{font-size:22px}
   .after-area{max-width:none}
 }
+/* 实时组内一致性提示：只陈述测量，不评分 */
+.live-finding{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;border:1px solid var(--color-caution);border-radius:var(--radius-md);background:var(--color-caution-soft)}
+.lf-chip{font-size:11px;font-weight:600;color:var(--color-caution);font-variant-numeric:tabular-nums}
+.lf-chip.low{color:var(--color-text-muted);font-weight:500}
+.lf-note{flex:1;min-width:140px;font-size:9.5px;line-height:1.6;color:var(--color-text-muted)}
+.lf-toggle{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;color:var(--color-text-secondary);cursor:pointer;white-space:nowrap}
 </style>

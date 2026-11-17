@@ -202,7 +202,7 @@
 
     <BaseCard class="section animate-slide-in-up">
       <h2>隐私</h2>
-      <p class="sub">当前实现里，摄像头画面只在本机做姿态推理，不上传、也不落盘。下面的开关记录的是你的偏好。</p>
+      <p class="sub">当前实现里，摄像头画面只在本机做姿态推理，不上传、也不落盘。下面的开关记录的是你的偏好。开启「保存动作数据」后，跟练与动作分析产生的关节角度、关键点坐标等测量数据会保存在本机 IndexedDB，用于回看角度曲线；画面与视频本身始终不保存。</p>
 
       <label class="toggle">
         <input type="checkbox" role="switch" :checked="store.privacy.cameraEnabled" @change="setPrivacy('cameraEnabled', ($event.target as HTMLInputElement).checked)" />
@@ -220,6 +220,12 @@
         <input type="checkbox" role="switch" :checked="store.privacy.saveFoodPhotoLocally" @change="setPrivacy('saveFoodPhotoLocally', ($event.target as HTMLInputElement).checked)" />
         <span class="tg"><i></i></span>
         <span class="tlabel"><strong>保存饮食照片（仅本机）</strong><small>开启后，拍照记录会保存 256px 缩略图，并把原图存到本机 IndexedDB，点缩略图即可查看原图；两者都不会进入 JSON/CSV 导出，但会占用本地磁盘。关闭后新记录只保留识别结果，已有照片不会自动删除。</small></span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" role="switch" :checked="store.privacy.saveMotionSeriesLocally" @change="setPrivacy('saveMotionSeriesLocally', ($event.target as HTMLInputElement).checked)" />
+        <span class="tg"><i></i></span>
+        <span class="tlabel"><strong>保存动作数据（仅本机）</strong><small>默认关闭。开启后保存关节角度与关键点坐标，用于回看角度曲线与长期对比；只存本机 IndexedDB，不同步、不进导出，删除分析记录时一起删除，最多保留 30 条或 90 天。画面与视频始终不保存。关闭后曲线只在当次会话内存中可用。</small></span>
       </label>
 
       <p class="fine">

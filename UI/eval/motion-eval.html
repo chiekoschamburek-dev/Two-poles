@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>动作分析验证夹具</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 16px; background: #f2f1ec; color: #11161a; }
+      h1 { font-size: 18px; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+      canvas { border: 1px solid #ccc; background: #fff; max-width: 100%; cursor: crosshair; }
+      pre { background: #fff; padding: 8px; border: 1px solid #ddd; font-size: 11px; max-height: 260px; overflow: auto; }
+      button { padding: 6px 12px; margin-right: 6px; }
+      .note { font-size: 12px; color: #6b747b; line-height: 1.7; max-width: 720px; }
+      #readout { font-variant-numeric: tabular-nums; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>动作分析验证夹具（dev / EVAL 构建专用，不进生产）</h1>
+    <p class="note">
+      角度真值只能靠人工数字化：暂停到关键帧，依次点击 <b>髋 → 膝 → 踝</b>（髋角则点 肩 → 髋 → 膝），
+      工具按点击坐标算参考角。人工点击精度约 ±3–5°，所以报告口径是「与人工数字化的一致性」，不是绝对真值。
+    </p>
+    <div class="row">
+      <div>
+        <input id="file" type="file" accept="video/mp4,video/webm,video/quicktime,.mov" />
+        <div style="margin-top: 8px">
+          <button id="seekBack">−1 帧</button>
+          <button id="seekFwd">+1 帧</button>
+          <button id="clearPts">清除点击</button>
+          <span id="readout"></span>
+        </div>
+        <canvas id="cv" width="640" height="480"></canvas>
+      </div>
+      <div style="flex: 1; min-width: 280px">
+        <pre id="out">等待载入视频……</pre>
+      </div>
+    </div>
+    <div id="app"></div>
+    <script type="module" src="./motion-eval.ts"></script>
+  </body>
+</html>
