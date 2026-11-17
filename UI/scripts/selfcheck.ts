@@ -17,6 +17,7 @@ import { configForName, configForId, configsForAction, repRuleFor } from '@/serv
 import { consistencyRulesFor, findingConfidence } from '@/services/motionConsistency'
 import { evaluateFeedback, initialFeedbackState, noteCountSpoken, clearAnomaly, DEFAULT_MOTION_FEEDBACK } from '@/services/motionFeedbackPolicy'
 import { eventsFromFrames, createFrameBuffer, thresholdsFor, zoneFor } from '@/services/motionEvents'
+import { buildSupplementNotification } from '@/composables/useSupplementReminders'
 import { buildMotionReport, buildMotionReportMessages, validateMotionPhrases, applyMotionPhrases, reportSignature, DEFAULT_MOTION_EXPLANATION } from '@/services/motionReport'
 import { buildActionTrend, recoveryObservations } from '@/services/motionTrends'
 import { useMotionExplanation } from '@/composables/useMotionExplanation'
@@ -2368,6 +2369,40 @@ const kinematicSeriesRecord = buildSeriesRecord({
   ...(goodResult.kinematics ? { kinematics: goodResult.kinematics } : {})
 })
 ok('序列留存带运动学版本', kinematicSeriesRecord.kinematics?.version === MOTION_KINEMATICS_VERSION)
+
+console.log('\n52. 补剂通知文案：可识别、不评判、不重复')
+const fishOil = { id: 'rem-oil', name: '鱼油', dosage: '1 粒' }
+const basic = { id: 'rem-min', name: '复合维生素', dosage: '' }
+const day = (offset: number) => new Date(2026, 10, 17 + offset, 9, 0, 0)
+
+const withDosage = buildSupplementNotification(fishOil, '08:00', day(0))
+ok('标题带上补剂名，能直接认出是哪一个', withDosage.title.includes('鱼油'), withDosage.title)
+ok('有剂量时正文带上剂量', withDosage.body.includes('1 粒'), withDosage.body)
+ok('正文不再复述用户自己设的时间', !withDosage.body.includes('08:00'), withDosage.body)
+
+const plainCopy = buildSupplementNotification(basic, '12:30', day(0))
+ok('无剂量时正文不提剂量占位符', !/[·]\s*$/.test(plainCopy.body) && !plainCopy.body.includes('undefined'), plainCopy.body)
+ok('标题同样带补剂名', plainCopy.title.includes('复合维生素'), plainCopy.title)
+
+ok('同一提醒同一天同一时间文案稳定', (() => {
+  const again = buildSupplementNotification(fishOil, '08:00', day(0))
+  return again.title === withDosage.title && again.body === withDosage.body
+})())
+
+const weekBodies = new Set<string>()
+for (let offset = 0; offset < 7; offset++) {
+  weekBodies.add(buildSupplementNotification(fishOil, '08:00', day(offset)).body)
+}
+ok('一周内正文不会一模一样', weekBodies.size >= 2, `variants=${weekBodies.size}`)
+
+const allBodies = Array.from({ length: 14 }, (_, offset) =>
+  buildSupplementNotification(offset % 2 ? fishOil : basic, '08:00', day(offset)).body)
+ok('文案不含说教或医疗措辞', allBodies.every(body =>
+  !/必须|应该|一定要|治疗|疗效|医嘱/.test(body)), allBodies.join(' / '))
+ok('文案不假设用户已经/还没吃', allBodies.every(body => !/还没吃|忘了吃|漏吃/.test(body)), allBodies.join(' / '))
+ok('正文长度适合通知栏', allBodies.every(body => body.length > 0 && body.length <= 40),
+  String(Math.max(...allBodies.map(body => body.length))))
+ok('标题长度适合通知栏', buildSupplementNotification({ id: 'x', name: '复合维生素', dosage: '' }, '08:00', day(0)).title.length <= 24)
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

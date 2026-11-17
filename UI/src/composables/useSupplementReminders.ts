@@ -216,6 +216,53 @@ const scheduleStatus = ref<{ count: number; exact: boolean | null; channelImport
   error: null
 })
 
+/**
+ * 通知文案：只提醒、不评判，也不假设「吃没吃」——App 无从得知。
+ * 正文按「日期 + 提醒 + 时间」轮换，同一句不会天天重复。
+ */
+const BODIES_WITH_DOSAGE = [
+  (dosage: string) => `${dosage}，到点啦。`,
+  (dosage: string) => `今天 ${dosage}，别忘了。`,
+  (dosage: string) => `${dosage} · 顺手吃一下。`
+]
+
+const BODIES_PLAIN = [
+  () => '到点啦，顺手吃一下。',
+  () => '时间到了，别忘了。',
+  () => '到点了，吃完接着忙。'
+]
+
+function stableHash(input: string): number {
+  let hash = 0
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash)
+}
+
+export function buildSupplementNotification(
+  reminder: Pick<SupplementReminder, 'id' | 'name' | 'dosage'>,
+  time: string,
+  date = new Date()
+): { title: string; body: string } {
+  const seed = `${dateKey(date)}:${reminder.id}:${time}`
+  const dosage = reminder.dosage.trim()
+  const pool = dosage ? BODIES_WITH_DOSAGE : BODIES_PLAIN
+  const build = pool[stableHash(seed) % pool.length]
+  return {
+    title: `该吃 ${reminder.name} 了`,
+    body: dosage ? build(dosage) : (build as () => string)()
+  }
+}
+
+/** 旧版本用标题前缀认领自己的通知；新版改用 extra 标记，文案怎么改都不影响识别 */
+function isSupplementNotification(item: LocalNotificationSchema): boolean {
+  if (!item.schedule?.on) return false
+  if (item.extra?.supplementReminderId) return true
+  if (item.extra?.supplementScheduleVersion) return true
+  return typeof item.title === 'string' && item.title.startsWith('补剂提醒')
+}
+
 let nativeScheduleQueue = Promise.resolve()
 
 function syncNativeSchedule(force = false): Promise<void> {
@@ -232,9 +279,7 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
     const enabled = reminders.value.filter(reminder => reminder.enabled)
     const desiredIds = new Set(enabled.flatMap(reminder => reminder.times.map(time => nativeNotificationId(reminder.id, time))))
     const { notifications: pending } = await LocalNotifications.getAll({ state: 'SCHEDULED' })
-    const existing = new Map(pending.filter(item =>
-      item.schedule?.on && item.title?.startsWith('补剂提醒 · ')
-    ).map(item => [item.id, item]))
+    const existing = new Map(pending.filter(isSupplementNotification).map(item => [item.id, item]))
     const removed = [...existing.keys()].filter(id => !desiredIds.has(id))
     if (removed.length) await LocalNotifications.cancel({ notifications: removed.map(id => ({ id })) })
 
@@ -247,18 +292,22 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
     const channel = await ensureChannel()
     channelImportance = channel?.importance ?? null
     if (channelImportance === 0) throw new Error('请在通知设置中开启「补剂提醒」类别')
-    const desired: LocalNotificationSchema[] = enabled.flatMap(reminder => reminder.times.map(time => ({
-      id: nativeNotificationId(reminder.id, time),
-      title: `补剂提醒 · ${reminder.name}`,
-      body: `${time} 到点${reminder.dosage ? ` · ${reminder.dosage}` : ''}。`,
-      channelId: isAndroid ? SUPPLEMENT_CHANNEL : undefined,
-      isExactNotification: exact === true,
-      extra: { supplementScheduleVersion: SCHEDULE_VERSION },
-      schedule: {
-        on: { hour: Number(time.slice(0, 2)), minute: Number(time.slice(3, 5)), second: 0 },
-        allowWhileIdle: true
-      }
-    })))
+    const today = new Date()
+    const desired: LocalNotificationSchema[] = enabled.flatMap(reminder => reminder.times.map(time => {
+      const copy = buildSupplementNotification(reminder, time, today)
+      return {
+        id: nativeNotificationId(reminder.id, time),
+        title: copy.title,
+        body: copy.body,
+        channelId: isAndroid ? SUPPLEMENT_CHANNEL : undefined,
+        isExactNotification: exact === true,
+        extra: { supplementScheduleVersion: SCHEDULE_VERSION, supplementReminderId: reminder.id },
+        schedule: {
+          on: { hour: Number(time.slice(0, 2)), minute: Number(time.slice(3, 5)), second: 0 },
+          allowWhileIdle: true
+        }
+      } satisfies LocalNotificationSchema
+    }))
     const changed = desired.filter(item => {
       const previous = existing.get(item.id)
       return force || !previous || previous.title !== item.title || previous.body !== item.body ||
@@ -550,8 +599,12 @@ function startSupplementScheduler(onReminder: ReminderDelivery): () => void {
   void syncNativeSchedule()
   if (isNative) {
     // 点系统通知跳到补剂页；同一进程只注册一次（schedulerRunning 守卫）
-    void LocalNotifications.addListener('localNotificationActionPerformed', () => {
-      window.location.assign(`${import.meta.env.BASE_URL}supplements`)
+    void LocalNotifications.addListener('localNotificationActionPerformed', event => {
+      // 点通知直接落在对应的那条补剂上，而不是让用户再翻一遍列表
+      const extra = event.notification?.extra as { supplementReminderId?: string } | undefined
+      const id = extra?.supplementReminderId
+      const base = `${import.meta.env.BASE_URL}supplements`
+      window.location.assign(id ? `${base}?focus=${encodeURIComponent(id)}` : base)
     }).catch(() => undefined)
   }
   schedulerTimer = window.setInterval(tick, 15_000)

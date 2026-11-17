@@ -61,61 +61,6 @@
         </li>
       </ul>
     </BaseCard>
-
-    <section v-if="manualOpen" class="manual animate-scale-in" aria-label="手工录入计划">
-      <div class="tabs manual-mode" role="group" aria-label="录入方式">
-        <button type="button" :class="{ active: manualMode === 'single' }" :aria-pressed="manualMode === 'single'" @click="manualMode = 'single'">逐项填写</button>
-        <button type="button" :class="{ active: manualMode === 'materials' }" :aria-pressed="manualMode === 'materials'" @click="manualMode = 'materials'">文本或图片</button>
-      </div>
-      <form v-if="manualMode === 'single'" class="manual-form" @submit.prevent="saveManual">
-        <label><span>日期</span><input v-model="manual.date" type="date" required /></label>
-        <label><span>名称</span><input v-model="manual.name" type="text" maxlength="30" placeholder="例如：球场往返跑" required /></label>
-        <label><span>时长（分钟）</span><input v-model.number="manual.minutes" type="number" min="1" max="240" required /></label>
-        <span class="manual-tip">手工录入的项目标注为“不参与自动推荐”，保存会生成新版本。</span>
-        <div class="manual-actions">
-          <BaseButton size="sm" :icon="Plus" type="submit">保存为新版本</BaseButton>
-          <BaseButton variant="ghost" size="sm" type="button" @click="manualOpen = false">取消</BaseButton>
-        </div>
-        <p v-if="manualError" class="manual-error" role="alert">{{ manualError }}</p>
-      </form>
-      <form v-else class="manual-form" @submit.prevent="generateFromMaterials" @paste="pastePlanImage">
-        <div class="manual-target">
-          <div class="tabs" role="group" aria-label="录入范围">
-            <button type="button" :class="{ active: materialScope === 'day' }" :aria-pressed="materialScope === 'day'" @click="materialScope = 'day'">按天</button>
-            <button type="button" :class="{ active: materialScope === 'week' }" :aria-pressed="materialScope === 'week'" @click="materialScope = 'week'">按周</button>
-          </div>
-          <label>
-            <span>{{ materialScope === 'day' ? '训练日期' : '目标周（选择周内任一天）' }}</span>
-            <input v-model="materialDate" type="date" required />
-          </label>
-          <p v-if="materialTarget" class="manual-tip" role="status">
-            {{ materialScope === 'day' ? `追加到 ${materialDate}。` : `目标周为 ${materialWeek[0]} 至 ${materialWeek[6]}（周一至周日）。` }}
-          </p>
-        </div>
-        <label>
-          <span>{{ planImage ? '补充训练日期（可选）' : '训练安排或要求' }}</span>
-          <textarea v-model="materialText" rows="4" maxlength="2000" :placeholder="materialPlaceholder" />
-        </label>
-        <label>
-          <span>训练表截图或照片（可选，也可粘贴）</span>
-          <input type="file" accept="image/*" @change="choosePlanImage" />
-        </label>
-        <p v-if="imageLoading" class="manual-tip" role="status">正在读取图片…</p>
-        <div v-if="planImage || imageLoading || imageError" class="manual-preview">
-          <img v-if="planImage" :src="planImage" alt="待用于生成计划的图片" />
-          <BaseButton variant="secondary" size="sm" type="button" @click="clearPlanImage">移除图片</BaseButton>
-        </div>
-        <p v-if="imageError" class="manual-error" role="alert">{{ imageError }}</p>
-        <p v-if="planImage" class="manual-tip">图片按原文导入。未标日期的项目会放在 {{ materialTarget ? materialDate : '所选日期' }}。提交时会发送图片和日期补充给当前模型。</p>
-        <p v-else class="manual-tip">点击生成会把填写的文本及已有档案发送给当前模型。导入图片需要模型支持图片输入。</p>
-        <p v-if="!store.planLlmReady" class="manual-tip">请先在 <RouterLink to="/settings">设置</RouterLink> 中启用可用模型。</p>
-        <div class="manual-actions">
-          <BaseButton size="sm" type="submit" :disabled="!materialTarget || !store.planLlmReady || imageLoading || !!imageError || (!materialText.trim() && !planImage)">{{ planImage ? '识别并导入草稿' : '生成计划草稿' }}</BaseButton>
-          <BaseButton variant="ghost" size="sm" type="button" @click="manualOpen = false">取消</BaseButton>
-        </div>
-      </form>
-    </section>
-
     <div v-if="view === 'week'" class="layout">
       <div class="plan-sidebar">
         <BaseCard class="calendar animate-slide-in-up">
@@ -230,11 +175,65 @@
       </BaseCard>
       <p v-if="!cycleStart" class="cycle-note">四周周期以档案里的"周期开始"日期为起点。没填时这里只说明阶段划分，负荷一律标为"未记录"——不用示例数字冒充你的数据。</p>
     </div>
+
+    <section ref="manualSection" v-if="manualOpen" class="manual animate-scale-in" aria-label="手工录入计划">
+      <div class="tabs manual-mode" role="group" aria-label="录入方式">
+        <button type="button" :class="{ active: manualMode === 'single' }" :aria-pressed="manualMode === 'single'" @click="manualMode = 'single'">逐项填写</button>
+        <button type="button" :class="{ active: manualMode === 'materials' }" :aria-pressed="manualMode === 'materials'" @click="manualMode = 'materials'">文本或图片</button>
+      </div>
+      <form v-if="manualMode === 'single'" class="manual-form" @submit.prevent="saveManual">
+        <label><span>日期</span><input v-model="manual.date" type="date" required /></label>
+        <label><span>名称</span><input v-model="manual.name" type="text" maxlength="30" placeholder="例如：球场往返跑" required /></label>
+        <label><span>时长（分钟）</span><input v-model.number="manual.minutes" type="number" min="1" max="240" required /></label>
+        <span class="manual-tip">手工录入的项目标注为“不参与自动推荐”，保存会生成新版本。</span>
+        <div class="manual-actions">
+          <BaseButton size="sm" :icon="Plus" type="submit">保存为新版本</BaseButton>
+          <BaseButton variant="ghost" size="sm" type="button" @click="manualOpen = false">取消</BaseButton>
+        </div>
+        <p v-if="manualError" class="manual-error" role="alert">{{ manualError }}</p>
+      </form>
+      <form v-else class="manual-form" @submit.prevent="generateFromMaterials" @paste="pastePlanImage">
+        <div class="manual-target">
+          <div class="tabs" role="group" aria-label="录入范围">
+            <button type="button" :class="{ active: materialScope === 'day' }" :aria-pressed="materialScope === 'day'" @click="materialScope = 'day'">按天</button>
+            <button type="button" :class="{ active: materialScope === 'week' }" :aria-pressed="materialScope === 'week'" @click="materialScope = 'week'">按周</button>
+          </div>
+          <label>
+            <span>{{ materialScope === 'day' ? '训练日期' : '目标周（选择周内任一天）' }}</span>
+            <input v-model="materialDate" type="date" required />
+          </label>
+          <p v-if="materialTarget" class="manual-tip" role="status">
+            {{ materialScope === 'day' ? `追加到 ${materialDate}。` : `目标周为 ${materialWeek[0]} 至 ${materialWeek[6]}（周一至周日）。` }}
+          </p>
+        </div>
+        <label>
+          <span>{{ planImage ? '补充训练日期（可选）' : '训练安排或要求' }}</span>
+          <textarea v-model="materialText" rows="4" maxlength="2000" :placeholder="materialPlaceholder" />
+        </label>
+        <label>
+          <span>训练表截图或照片（可选，也可粘贴）</span>
+          <input type="file" accept="image/*" @change="choosePlanImage" />
+        </label>
+        <p v-if="imageLoading" class="manual-tip" role="status">正在读取图片…</p>
+        <div v-if="planImage || imageLoading || imageError" class="manual-preview">
+          <img v-if="planImage" :src="planImage" alt="待用于生成计划的图片" />
+          <BaseButton variant="secondary" size="sm" type="button" @click="clearPlanImage">移除图片</BaseButton>
+        </div>
+        <p v-if="imageError" class="manual-error" role="alert">{{ imageError }}</p>
+        <p v-if="planImage" class="manual-tip">图片按原文导入。未标日期的项目会放在 {{ materialTarget ? materialDate : '所选日期' }}。提交时会发送图片和日期补充给当前模型。</p>
+        <p v-else class="manual-tip">点击生成会把填写的文本及已有档案发送给当前模型。导入图片需要模型支持图片输入。</p>
+        <p v-if="!store.planLlmReady" class="manual-tip">请先在 <RouterLink to="/settings">设置</RouterLink> 中启用可用模型。</p>
+        <div class="manual-actions">
+          <BaseButton size="sm" type="submit" :disabled="!materialTarget || !store.planLlmReady || imageLoading || !!imageError || (!materialText.trim() && !planImage)">{{ planImage ? '识别并导入草稿' : '生成计划草稿' }}</BaseButton>
+          <BaseButton variant="ghost" size="sm" type="button" @click="manualOpen = false">取消</BaseButton>
+        </div>
+      </form>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Plus, History, ChevronLeft, ChevronRight, Dumbbell, Play,
@@ -263,6 +262,12 @@ const view = ref<'week' | 'cycle'>('week')
 const cursor = ref({ year: now.getFullYear(), month: now.getMonth() })
 const selected = ref(toISODate(now))
 const manualOpen = ref(false)
+/** 手工录入排在页面底部；展开时把视线带过去，避免点了没反应 */
+const manualSection = ref<HTMLElement | null>(null)
+watch(manualOpen, open => {
+  if (!open) return
+  void nextTick(() => manualSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+})
 const manual = ref({ date: toISODate(now), name: '', minutes: 20 })
 const manualError = ref('')
 const showProfilePrompt = ref(false)

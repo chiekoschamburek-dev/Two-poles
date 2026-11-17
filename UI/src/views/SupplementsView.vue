@@ -69,7 +69,7 @@
       </div>
 
       <div v-if="reminders.length" class="sup-list">
-        <article v-for="reminder in reminders" :key="reminder.id" class="sup-item" :class="{ off: !reminder.enabled }">
+        <article v-for="reminder in reminders" :key="reminder.id" class="sup-item" :class="{ off: !reminder.enabled, focus: focusedId === reminder.id }" :data-reminder-id="reminder.id">
           <div class="sup-item-top">
             <span class="sup-item-ic"><Pill :size="15" /></span>
             <div class="sup-item-id">
@@ -173,6 +173,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Pill, Plus, X } from 'lucide-vue-next'
 import PoleMark from '@/components/poles/PoleMark.vue'
 import { useAppStore } from '@/stores/app'
@@ -196,6 +197,7 @@ const timePresets = [
   { label: '睡前', time: '22:00' }
 ]
 const store = useAppStore()
+const route = useRoute()
 const {
   reminders,
   permission,
@@ -230,14 +232,27 @@ let formScrollLock: symbol | null = null
 const nowTick = ref(Date.now())
 /** 测试提醒的计划送达时刻，用于在页面上倒计时，用户不必猜「约 30 秒」到底是多久 */
 const pendingTestAt = ref<number | null>(null)
+/** 从通知点进来时要高亮的那条提醒；非空期间加一圈提示框 */
+const focusedId = ref<string | null>(null)
 let clockTimer: number | undefined
+let focusTimer: number | undefined
 
 onMounted(() => {
   clockTimer = window.setInterval(() => { nowTick.value = Date.now() }, 1_000)
   void refreshNotificationDiagnostics()
+  const target = typeof route.query.focus === 'string' ? route.query.focus : ''
+  if (target) {
+    focusedId.value = target
+    window.setTimeout(() => {
+      document.querySelector(`[data-reminder-id="${CSS.escape(target)}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 150)
+    focusTimer = window.setTimeout(() => { focusedId.value = null }, 5_000)
+  }
 })
 onBeforeUnmount(() => {
   if (clockTimer !== undefined) window.clearInterval(clockTimer)
+  if (focusTimer !== undefined) window.clearTimeout(focusTimer)
 })
 
 const testCountdown = computed(() => {
@@ -522,8 +537,8 @@ async function testNotification() {
     })
     return
   }
-  const title = '补剂提醒 · 测试'
-  const message = '这是一条用于检查系统通知的测试提醒。'
+  const title = '补剂通知测试'
+  const message = '看到这条，说明后台提醒正常。'
   if (isNativeSupplements) {
     try {
       const at = await scheduleSupplementTest(title, message)
@@ -725,6 +740,8 @@ async function testNotification() {
 .sup-item:first-child { padding-top: 1px; }
 .sup-item:last-child { border-bottom: 0; padding-bottom: 2px; }
 .sup-item.off { opacity: .62; }
+/* 从通知点进来时，圈出对应的那一条，几秒后自动褪去 */
+.sup-item.focus { background: var(--pole-nutrition-soft); box-shadow: inset 3px 0 0 var(--pole-nutrition); padding-left: 9px; border-radius: var(--radius-sm); }
 .sup-item-top { display: flex; align-items: center; gap: 8px; }
 .sup-item-ic { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border: 1px solid var(--pole-nutrition-line); border-radius: var(--radius-base); background: var(--pole-nutrition-soft); color: var(--pole-nutrition-strong); }
 .sup-item-id { flex: 1; min-width: 0; }
