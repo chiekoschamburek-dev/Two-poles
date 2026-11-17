@@ -4,7 +4,7 @@ diff --git a/src/main/kotlin/com/capacitorjs/plugins/localnotifications/LocalNot
 @@ -147,11 +147,11 @@ class LocalNotificationManager(
          val channelId = localNotification.channelId ?: soundChannelId(localNotification) ?: DEFAULT_NOTIFICATION_CHANNEL_ID
 -        val foreground = localNotification.foreground == true
-+        val alertOnEveryDelivery = channelId == "supplement-reminders"
++        val alertOnEveryDelivery = channelId.startsWith("supplement-reminders")
          val mBuilder = NotificationCompat.Builder(context, channelId)
              .setContentTitle(localNotification.title)
              .setContentText(localNotification.body)

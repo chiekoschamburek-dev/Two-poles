@@ -25,7 +25,7 @@
       <p v-else class="sup-copy">浏览器页面停止运行后，提醒可能无法送达。安卓 App 支持系统后台提醒。</p>
       <p v-if="isNativeSupplements && (scheduleStatus.error || permission === 'granted')" class="sup-hint" role="status">
         <template v-if="scheduleStatus.error">系统提醒预约失败：{{ scheduleStatus.error }}</template>
-        <template v-else-if="scheduleStatus.count">已预约 {{ scheduleStatus.count }} 条每日提醒<span v-if="scheduleStatus.exact === false">，系统可能延后送达</span>。</template>
+        <template v-else-if="scheduleStatus.count">已预约 {{ scheduleStatus.count }} 条每日提醒<span v-if="nextFireLabel">，下次 {{ nextFireLabel }}</span><span v-if="scheduleStatus.exact === false">，系统可能延后送达</span>。</template>
         <template v-else>暂无已预约的每日提醒。</template>
       </p>
       <p v-if="scheduleStatus.channelImportance !== null && scheduleStatus.channelImportance > 0 && scheduleStatus.channelImportance < ANDROID_HIGH_IMPORTANCE" class="sup-hint warn">
@@ -245,6 +245,33 @@ const testCountdown = computed(() => {
   if (at === null) return null
   const rest = Math.ceil((at - nowTick.value) / 1000)
   return rest > 0 ? rest : 0
+})
+
+/** 系统里下一次会响的时刻：用户不必猜「到底排上了没有」 */
+const nextReminderAt = computed(() => {
+  if (!isNativeSupplements || permission.value !== 'granted') return null
+  const now = nowTick.value
+  let best: number | null = null
+  for (const reminder of reminders.value) {
+    if (!reminder.enabled) continue
+    for (const time of reminder.times) {
+      const [hours, minutes] = time.split(':').map(Number)
+      const due = new Date()
+      due.setHours(hours, minutes, 0, 0)
+      if (due.getTime() <= now) due.setDate(due.getDate() + 1)
+      if (best === null || due.getTime() < best) best = due.getTime()
+    }
+  }
+  return best
+})
+
+const nextFireLabel = computed(() => {
+  const at = nextReminderAt.value
+  if (at === null) return null
+  const date = new Date(at)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const sameDay = date.toDateString() === new Date().toDateString()
+  return `${sameDay ? '今天' : '明天'} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 })
 
 /** 自检逐项：任一环不满足都不会有横幅，所以分开报告，不合成一个「正常」 */
