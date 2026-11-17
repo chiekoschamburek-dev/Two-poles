@@ -335,6 +335,16 @@
       </div>
     </BaseCard>
 
+    <!-- 安装 App：把本站装到手机；安卓下载 APK 直链，iOS 走添加到主屏幕 -->
+    <BaseCard class="section animate-slide-in-up">
+      <h2>安装 App</h2>
+      <p class="sub">把两仪装到手机，后台提醒与摄像头跟练更稳。安卓下载安装包，iPhone / iPad 用 Safari 添加到主屏幕；网页与 App 数据可在登录同一账号后同步。</p>
+      <div class="actions">
+        <BaseButton :icon="Smartphone" @click="installOpen = true">安装到手机</BaseButton>
+      </div>
+      <p class="fine">点开后是本站的弹窗，里面说明各平台怎么装；真正的文件下载或系统安装确认由浏览器 / 手机系统完成。</p>
+    </BaseCard>
+
     <BaseCard class="section animate-slide-in-up">
       <h2>我的数据</h2>
       <div class="stats">
@@ -386,15 +396,18 @@
     </BaseCard>
 
     <p class="foot">版本 {{ RULE_VERSION }} · 记录规则与报告口径见记录报告页底部的数据质量说明。</p>
+
+    <InstallAppDialog :open="installOpen" @close="installOpen = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ArrowRight, Download, Trash2 } from 'lucide-vue-next'
+import { ArrowRight, Download, Smartphone, Trash2 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import InstallAppDialog from '@/components/common/InstallAppDialog.vue'
 import { useAppStore } from '@/stores/app'
 import { useSpeech } from '@/composables/useSpeech'
 import { useDietFeedback, type DietFeedbackSettings } from '@/composables/useDietFeedback'
@@ -439,6 +452,7 @@ const deleteConfirming = ref(false)
 const accountError = ref('')
 const bindBusy = ref(false)
 const bindError = ref('')
+const installOpen = ref(false)
 
 const localRecordCount = computed(() => store.sessions.length + store.meals.length + store.plans.length)
 const syncing = computed(() => syncState.status === 'syncing')
