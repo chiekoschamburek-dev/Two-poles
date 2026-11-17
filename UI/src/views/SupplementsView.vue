@@ -31,6 +31,17 @@
       <p v-if="scheduleStatus.channelImportance !== null && scheduleStatus.channelImportance > 0 && scheduleStatus.channelImportance < ANDROID_HIGH_IMPORTANCE" class="sup-hint warn">
         「补剂提醒」当前只会显示在通知栏。请在通知设置中开启横幅或悬浮通知。
       </p>
+      <ul v-if="checks.length" class="sup-checks">
+        <li v-for="check in checks" :key="check.key" :class="{ bad: !check.ok }">
+          <i aria-hidden="true"></i>
+          <strong>{{ check.label }}</strong>
+          <em>{{ check.detail }}</em>
+        </li>
+      </ul>
+      <p v-if="testCountdown !== null" class="sup-hint" role="status">
+        <template v-if="testCountdown > 0">测试提醒将在 {{ testCountdown }} 秒后送达，请现在按 Home 键回到桌面。</template>
+        <template v-else>测试提醒应已送达：顶部横幅才算通过；只在通知栏说明横幅被系统关掉了。</template>
+      </p>
       <div class="sup-actions">
         <button
           v-if="permission !== 'granted' && permission !== 'unsupported'"
@@ -41,6 +52,7 @@
         <button type="button" class="sup-btn ghost" @click="testNotification">{{ isNativeSupplements ? '测试后台提醒' : '发送测试提醒' }}</button>
         <button v-if="isAndroidSupplements && scheduleStatus.exact === false" type="button" class="sup-btn ghost" @click="enableExactAlarms">开启准时提醒</button>
         <button v-if="isAndroidSupplements" type="button" class="sup-btn ghost" @click="openNotificationSettings">通知设置</button>
+        <button v-if="isAndroidSupplements && diagnostics && !diagnostics.batteryUnrestricted" type="button" class="sup-btn ghost" @click="allowBattery">允许后台运行</button>
         <button v-if="isNativeSupplements && permission === 'granted'" type="button" class="sup-btn ghost" @click="syncNativeSchedule(true)">重建系统提醒</button>
       </div>
       <p v-if="permission === 'denied'" class="sup-hint warn">{{ permissionSettingsHint }}</p>
@@ -188,6 +200,9 @@ const {
   reminders,
   permission,
   scheduleStatus,
+  diagnostics,
+  refreshNotificationDiagnostics,
+  requestBatteryExemption,
   syncNativeSchedule,
   enableExactSupplementReminders,
   openSupplementNotificationSettings,
@@ -213,13 +228,51 @@ const pendingDelete = ref<string | null>(null)
 const formOpen = ref(false)
 let formScrollLock: symbol | null = null
 const nowTick = ref(Date.now())
+/** 测试提醒的计划送达时刻，用于在页面上倒计时，用户不必猜「约 30 秒」到底是多久 */
+const pendingTestAt = ref<number | null>(null)
 let clockTimer: number | undefined
 
 onMounted(() => {
-  clockTimer = window.setInterval(() => { nowTick.value = Date.now() }, 30_000)
+  clockTimer = window.setInterval(() => { nowTick.value = Date.now() }, 1_000)
+  void refreshNotificationDiagnostics()
 })
 onBeforeUnmount(() => {
   if (clockTimer !== undefined) window.clearInterval(clockTimer)
+})
+
+const testCountdown = computed(() => {
+  const at = pendingTestAt.value
+  if (at === null) return null
+  const rest = Math.ceil((at - nowTick.value) / 1000)
+  return rest > 0 ? rest : 0
+})
+
+/** 自检逐项：任一环不满足都不会有横幅，所以分开报告，不合成一个「正常」 */
+const checks = computed(() => {
+  if (!isNativeSupplements || !diagnostics.value) return []
+  const state = diagnostics.value
+  const list: { key: string; label: string; detail: string; ok: boolean }[] = []
+  list.push({
+    key: 'permission',
+    label: '通知权限',
+    detail: state.notificationsEnabled ? '已允许' : '被系统关闭',
+    ok: state.notificationsEnabled
+  })
+  if (state.importance >= ANDROID_HIGH_IMPORTANCE) {
+    list.push({ key: 'channel', label: '横幅通知', detail: '已开启', ok: true })
+  } else if (state.importance === 0) {
+    list.push({ key: 'channel', label: '横幅通知', detail: '「补剂提醒」类别被关闭', ok: false })
+  } else if (state.importance < 0) {
+    list.push({ key: 'channel', label: '横幅通知', detail: '类别尚未创建', ok: false })
+  } else {
+    list.push({ key: 'channel', label: '横幅通知', detail: '只显示在通知栏', ok: false })
+  }
+  if (state.batteryUnrestricted) {
+    list.push({ key: 'battery', label: '后台不受限', detail: '已在电池白名单', ok: true })
+  } else {
+    list.push({ key: 'battery', label: '后台不受限', detail: '系统可能冻结闹钟', ok: false })
+  }
+  return list
 })
 
 const permissionLabel = computed(() => {
@@ -394,6 +447,24 @@ async function openNotificationSettings() {
   }
 }
 
+async function allowBattery() {
+  try {
+    await requestBatteryExemption()
+    store.showToast({
+      type: 'info',
+      title: '把「两仪」加入电池白名单',
+      message: '在打开的页面里选择「不限制」或「允许后台运行」，国产 ROM 冻结闹钟时靠这一步。',
+      duration: 6000
+    })
+  } catch {
+    store.showToast({
+      type: 'warning',
+      title: '未能打开电池优化设置',
+      message: '请到手机设置的「应用 → 两仪 → 电池」里选择不限制。'
+    })
+  }
+}
+
 async function testNotification() {
   let state = permission.value
   if (state === 'default') state = await requestSupplementPermission()
@@ -428,21 +499,23 @@ async function testNotification() {
   const message = '这是一条用于检查系统通知的测试提醒。'
   if (isNativeSupplements) {
     try {
-      await scheduleSupplementTest(title, message)
+      const at = await scheduleSupplementTest(title, message)
+      pendingTestAt.value = at
       store.showToast({
         type: 'success',
         title: '测试提醒已预约',
-        message: '请返回手机桌面，约 30 秒后查看顶部横幅或通知栏。',
-        duration: 5000
+        message: '按下 Home 键回到桌面或锁屏，约 12 秒后应出现顶部横幅；只出现在通知栏说明横幅被系统关掉了。',
+        duration: 6000
       })
     } catch (error) {
       store.showToast({
         type: 'warning',
         title: '未能预约测试提醒',
         message: error instanceof Error ? error.message : String(error),
-        duration: 5500
+        duration: 6000
       })
     }
+    void refreshNotificationDiagnostics()
     return
   }
 
@@ -522,6 +595,14 @@ async function testNotification() {
 .sup-btn.small { height: 29px; padding: 0 9px; font-size: 9.5px; }
 .sup-hint { margin: 9px 0 0; font-size: 9.5px; line-height: 1.6; color: var(--color-text-muted); }
 .sup-hint.warn { color: var(--color-caution); }
+/* 通知自检：逐环列出，缺席的环用文字说明而不是只靠颜色 */
+.sup-checks { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 5px; }
+.sup-checks li { display: flex; align-items: baseline; gap: 7px; font-size: 9.5px; line-height: 1.6; color: var(--color-text-secondary); }
+.sup-checks li i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--pole-movement); transform: translateY(-1px); }
+.sup-checks li.bad i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--color-caution); }
+.sup-checks li strong { flex: none; font-weight: 600; color: var(--color-ink); }
+.sup-checks li em { font-style: normal; color: var(--color-text-muted); }
+.sup-checks li.bad em { color: var(--color-caution); }
 
 .sup-field { display: block; margin-top: 10px; }
 .sup-label { display: block; margin-bottom: 6px; font-size: 9px; color: var(--color-text-muted); }

@@ -1,18 +1,67 @@
 import { ref } from 'vue'
 import { Capacitor, registerPlugin } from '@capacitor/core'
-import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications'
+import { LocalNotifications, type Channel, type LocalNotificationSchema } from '@capacitor/local-notifications'
 import { newId } from '@/utils/id'
 
 const isNative = Capacitor.isNativePlatform()
 const isAndroid = Capacitor.getPlatform() === 'android'
-const SUPPLEMENT_CHANNEL = 'supplement-reminders'
-const SCHEDULE_VERSION = 2
+/**
+ * 通道 ID 带 v2 前缀：Android 只在通道第一次创建时接受 importance，
+ * 之后 createNotificationChannel 不会更新它。旧版安装留下的通道若被降级过，
+ * 复用同一个 ID 无论传多少次 HIGH 都不会有横幅，只能换新 ID 重建。
+ */
+const SUPPLEMENT_CHANNEL = 'supplement-reminders-v2'
+const SCHEDULE_VERSION = 3
 const ANDROID_HIGH_IMPORTANCE = 4
 const SupplementNotificationSettings = registerPlugin<{
   open(options: { channel: boolean }): Promise<void>
+  status(): Promise<{
+    channelId: string
+    notificationsEnabled: boolean
+    importance: number
+    batteryUnrestricted: boolean
+    sdk: number
+  }>
+  requestBatteryExemption(): Promise<void>
 }>('SupplementNotificationSettings')
 
-async function ensureChannel() {
+/** 通知链路的真实状态；任一环不满足都不会有横幅，界面据此逐项提示 */
+export interface SupplementNotificationDiagnostics {
+  notificationsEnabled: boolean
+  /** >=4 才会横幅；0 = 用户关闭了该通道；-1 = 通道尚未创建 */
+  importance: number
+  batteryUnrestricted: boolean
+  checkedAt: number | null
+}
+
+const diagnostics = ref<SupplementNotificationDiagnostics | null>(null)
+
+async function refreshNotificationDiagnostics(): Promise<SupplementNotificationDiagnostics | null> {
+  if (!isAndroid) return null
+  try {
+    const state = await SupplementNotificationSettings.status()
+    diagnostics.value = {
+      notificationsEnabled: state.notificationsEnabled,
+      importance: state.importance,
+      batteryUnrestricted: state.batteryUnrestricted,
+      checkedAt: Date.now()
+    }
+    return diagnostics.value
+  } catch {
+    // 旧版 APK 没有这个插件方法：保留上一次结果，不把「读不到」当成「已关闭」
+    return diagnostics.value
+  }
+}
+
+async function requestBatteryExemption(): Promise<void> {
+  try {
+    await SupplementNotificationSettings.requestBatteryExemption()
+  } finally {
+    void refreshNotificationDiagnostics()
+  }
+}
+
+async function ensureChannel(): Promise<Channel | undefined> {
   if (!isAndroid) return
   try {
     await LocalNotifications.createChannel({
@@ -20,7 +69,8 @@ async function ensureChannel() {
       name: '补剂提醒',
       description: '每日补剂到点提醒',
       importance: ANDROID_HIGH_IMPORTANCE,
-      visibility: 1
+      visibility: 1,
+      vibration: true
     })
   } catch (error) {
     // Android 7 使用应用级通知权限，没有通知渠道。
@@ -229,6 +279,8 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
       channelImportance,
       error: err instanceof Error ? err.message : String(err)
     }
+  } finally {
+    void refreshNotificationDiagnostics()
   }
 }
 
@@ -386,29 +438,33 @@ async function requestSupplementPermission(): Promise<SupplementPermission> {
   return permission.value
 }
 
-async function scheduleSupplementTest(title: string, body: string): Promise<void> {
+async function scheduleSupplementTest(title: string, body: string, delayMs = 12_000): Promise<number> {
   if (await refreshNativePermission() !== 'granted') throw new Error('请先允许「两仪」发送通知。')
   const channel = await ensureChannel()
-  if (channel?.importance === 0) throw new Error('请在通知设置中开启「补剂提醒」类别。')
-  if (isAndroid && (await LocalNotifications.checkExactNotificationSetting()).exact_alarm !== 'granted') {
-    await syncNativeSchedule()
-    throw new Error('请先点「开启准时提醒」，允许「两仪」设置闹钟和提醒，再运行测试。')
-  }
-  const id = -nativeNotificationId('test', 'now')
+  const importance = channel?.importance ?? -1
+  if (importance === 0) throw new Error('「补剂提醒」类别被关闭了，请在通知设置里打开。')
+  const exact = isAndroid
+    ? (await LocalNotifications.checkExactNotificationSetting()).exact_alarm === 'granted'
+    : false
+  const at = new Date(Date.now() + delayMs)
+  const id = -nativeNotificationId('test', String(at.getTime()))
+  // 这里刻意不传 isExactMandatory：没有「闹钟和提醒」权限时，
+  // mandatory 会让整个预约被系统拒绝，连粗略提醒都拿不到。
   const result = await LocalNotifications.schedule({
     notifications: [{
       id,
       title,
       body,
       channelId: isAndroid ? SUPPLEMENT_CHANNEL : undefined,
-      isExactNotification: isAndroid,
-      isExactMandatory: isAndroid,
-      schedule: { at: new Date(Date.now() + 30_000), allowWhileIdle: true }
+      isExactNotification: exact,
+      schedule: { at, allowWhileIdle: true }
     }]
   })
-  if (result.warning || !result.notifications.some(notification => notification.id === id)) {
-    throw new Error('系统未接受测试预约，请检查通知和闹钟权限。')
+  void refreshNotificationDiagnostics()
+  if (!result.notifications.some(notification => notification.id === id)) {
+    throw new Error('系统未接受测试预约，请检查通知权限。')
   }
+  return at.getTime()
 }
 
 async function sendSupplementNotification(title: string, body: string, tag = 'supplement'): Promise<boolean> {
@@ -541,6 +597,9 @@ export function useSupplementReminders() {
     reminders,
     permission,
     scheduleStatus,
+    diagnostics,
+    refreshNotificationDiagnostics,
+    requestBatteryExemption,
     syncNativeSchedule,
     enableExactSupplementReminders,
     openSupplementNotificationSettings,

@@ -77,7 +77,10 @@ npm run typecheck
 ### 安卓 App（Capacitor）
 
 - `capacitor.config.ts`：WebView 直接加载线上站点（`server.url`），网页更新 App 零发版；原生能力目前是补剂提醒的**系统本地通知**（App 被杀也由系统闹钟弹出，代码分流见 `useSupplementReminders.ts` 的 `isNative` 分支，浏览器路径不变）。
-- 安卓 1.0.2 起，补剂提醒使用高重要性通知通道，并在每次重复提醒时重新触发横幅；若用户曾在系统设置里把「补剂提醒」通道调低，补剂页会提示，可点「通知设置」打开横幅/悬浮通知开关。通知权限、精确闹钟权限和通知通道三者缺一都不会出现横幅。
+- 安卓 1.0.3 起，补剂提醒使用 **`supplement-reminders-v2`** 通道（`IMPORTANCE_HIGH`），并把旧版同名通道删掉：Android 只在通道首次创建时接受 importance，旧通道一旦被降级过，复用同一 ID 传多少次 HIGH 都不会有横幅，只能换新 ID 重建。
+- 每次重复提醒会重新触发横幅（关闭 `setOnlyAlertOnce`）；`isExactMandatory` 已移除，没有「闹钟和提醒」权限时退化为粗略提醒，而不是整单被系统拒绝。
+- 补剂页有逐环自检：通知权限 / 横幅通知（通道重要性）/ 后台不受限（电池优化白名单）。任一项不通过都不会出现横幅，界面直接点名是哪一环，并给出「通知设置」「允许后台运行」入口。
+- 测试提醒改为 12 秒后送达，页面上倒计时，避免用户在 App 内空等；必须按 Home 键回桌面或锁屏才能看到横幅。
 - 出新 APK 的固定顺序（本机已配好 JDK 21 + SDK，见 `D:\android-tools` 与 `~/.gradle/init.gradle` 镜像）：
   ```bash
   npm run build && npm run cap:prepare   # 构建并生成精简 dist-lite（剔除 App 用不到的端侧模型/演示视频）
