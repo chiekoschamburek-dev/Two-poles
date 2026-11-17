@@ -403,6 +403,10 @@
 
     <p class="foot">版本 {{ RULE_VERSION }} · 记录规则与报告口径见记录报告页底部的数据质量说明。</p>
 
+    <footer v-if="SITE_INFO.icp.number" class="site-beian" aria-label="站点备案信息">
+      <a :href="SITE_INFO.icp.href" target="_blank" rel="noopener noreferrer">{{ SITE_INFO.icp.number }}</a>
+    </footer>
+
     <InstallAppDialog :open="installOpen" @close="installOpen = false" />
   </div>
 </template>
@@ -414,6 +418,7 @@ import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import InstallAppDialog from '@/components/common/InstallAppDialog.vue'
+import { SITE_INFO } from '@/config/site'
 import { useAppStore } from '@/stores/app'
 import { useSpeech } from '@/composables/useSpeech'
 import { useDietFeedback, type DietFeedbackSettings } from '@/composables/useDietFeedback'
@@ -870,6 +875,9 @@ async function wipe() {
 .confirm p{font-size:13px;color:var(--color-danger);margin:0 0 12px;line-height:1.7}
 .section.danger h2{color:var(--color-danger)}
 .foot{font-size:11px;color:var(--color-text-muted);text-align:center;margin:16px 0 0}
+.site-beian{font-size:11px;color:var(--color-text-muted);text-align:center;margin:6px 0 2px;letter-spacing:.02em}
+.site-beian a{color:inherit;text-decoration:none;border-bottom:1px solid transparent;transition:color var(--motion-fast) var(--easing-ease-out),border-color var(--motion-fast) var(--easing-ease-out)}
+.site-beian a:hover,.site-beian a:focus-visible{color:var(--color-accent);border-bottom-color:var(--color-accent-line);outline:none}
 @media(max-width:767px){.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-head{flex-direction:column;align-items:flex-start}.actions :deep(button){width:100%}}
 .llm-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px}
 .llm-pick button{padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:600;min-height:38px;color:var(--color-text-secondary);background:var(--color-neutral-soft);border:1px solid transparent}

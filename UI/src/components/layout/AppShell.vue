@@ -12,7 +12,6 @@
         </Transition>
       </RouterView>
     </main>
-    <SiteFooter />
     <MobileNav />
     <WellnessDock />
     <PlanDraftDialog />
@@ -26,7 +25,6 @@ import { useRoute } from 'vue-router'
 import TopBar from './TopBar.vue'
 import SidebarNav from './SidebarNav.vue'
 import MobileNav from './MobileNav.vue'
-import SiteFooter from './SiteFooter.vue'
 import ToastRegion from '../common/ToastRegion.vue'
 import PlanDraftDialog from '../common/PlanDraftDialog.vue'
 import WellnessDock from '@/components/wellness/WellnessDock.vue'
@@ -75,13 +73,13 @@ onBeforeUnmount(() => {
 .shell { min-height: 100vh; }
 /* 导航脊是 fixed 且贯穿整屏，主区只让出它的宽度；页头自己负责吸顶（含 PWA 刘海让位，见 TopBar） */
 .main-content {
-  min-height: calc(100vh - var(--topbar-height) - var(--safe-top) - var(--site-footer-height));
+  min-height: calc(100vh - var(--topbar-height) - var(--safe-top));
   margin-left: var(--sidebar-width);
   padding: var(--space-2) var(--gutter) var(--space-6) var(--space-7);
 }
-/* 工作台：主区固定为视口高度减去页头与页脚，内部两栏各自滚动 */
+/* 工作台：主区固定为视口高度减去页头，内部两栏各自滚动 */
 .main-content.main-workspace {
-  height: calc(100dvh - var(--topbar-height) - var(--safe-top) - var(--site-footer-height));
+  height: calc(100dvh - var(--topbar-height) - var(--safe-top));
   min-height: 0;
   display: flex;
   overflow: hidden;
@@ -103,10 +101,13 @@ onBeforeUnmount(() => {
   .main-content.main-workspace { padding: 8px 12px; }
 }
 @media (max-width: 767px) {
-  /* 底栏胶囊与页脚都在视口底部：让位改由页脚统一负责（见 SiteFooter），主区只留普通留白 */
-  .main-content { padding: var(--space-2) var(--space-4) var(--space-5); }
+  /* 底栏胶囊浮在视口底部：主区自己让出高度，页面内容不会被压住 */
+  .main-content {
+    padding: var(--space-2) var(--space-4)
+      calc(var(--mobile-nav-height) + var(--safe-bottom) + var(--space-3));
+  }
   .main-content.main-workspace {
-    height: calc(100dvh - var(--topbar-height) - var(--safe-top) - var(--site-footer-height-mobile));
+    height: calc(100dvh - var(--topbar-height) - var(--safe-top) - var(--mobile-nav-height) - var(--safe-bottom));
     padding: 6px 10px 8px;
   }
 }

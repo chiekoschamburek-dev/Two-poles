@@ -1,5 +1,5 @@
 <template>
-  <div class="page-wrap">
+  <div class="page-wrap" :class="{ 'cycle-view': view === 'cycle' }">
     <div class="page-head animate-slide-in-up">
       <div><span class="eyebrow">TRAINING PLAN</span><h1>训练计划</h1><p>把每一次完成，变成下一次更好的安排。</p></div>
       <BaseButton :icon="Plus" @click="manualOpen = !manualOpen">{{ manualOpen ? '收起手工录入' : '手工录入' }}</BaseButton>
@@ -767,4 +767,13 @@ watch(
 .page-wrap button:focus-visible,.page-wrap a:focus-visible,.page-wrap input:focus-visible,.page-wrap select:focus-visible,.page-wrap textarea:focus-visible{outline-color:var(--pole-movement)}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:767px){.page-head{flex-direction:column;align-items:stretch;gap:12px;padding:14px 0 12px}.page-head h1{font-size:28px}.toolbar{align-items:center;gap:10px;flex-wrap:wrap}.version{margin-left:auto}.calendar-grid button,.calendar-grid .blank{height:42px}.legend{gap:10px;font-size:10px;margin:10px 14px 0}.pending-row{flex-direction:column;align-items:stretch}.pending-actions :deep(button){width:100%}.cycle{grid-template-columns:1fr}}
+/* 单列布局（手机与窄平板）：今日训练 → 反馈/待确认 → 手工录入 → 日期表 */
+@media(max-width:900px){
+  .page-wrap{display:flex;flex-direction:column}
+  .layout,.plan-sidebar{display:contents}
+  .page-head{order:1}.toolbar{order:2}.gate-note,.ver-reason,.conflicts{order:3}
+  .detail{order:4}.plan-feedback{order:5}.pending{order:6}.manual{order:7}.calendar{order:8}.cycle{order:4}
+  .page-wrap.cycle-view .pending{order:3}
+  .detail,.pending,.plan-feedback,.manual,.calendar,.cycle{margin-bottom:14px}
+}
 </style>
