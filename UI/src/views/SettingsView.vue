@@ -401,7 +401,7 @@
       </div>
     </BaseCard>
 
-    <p class="foot">版本 {{ RULE_VERSION }} · 记录规则与报告口径见记录报告页底部的数据质量说明。</p>
+    <p class="foot">记录规则与报告口径见记录报告页底部的数据质量说明。</p>
 
     <footer v-if="SITE_INFO.icp.number" class="site-beian" aria-label="站点备案信息">
       <a :href="SITE_INFO.icp.href" target="_blank" rel="noopener noreferrer">{{ SITE_INFO.icp.number }}</a>
@@ -426,7 +426,6 @@ import { DIET_THRESHOLDS } from '@/services/dietFeedbackRules'
 import type { Plan, PlanCompletionStyle, PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
 import { goalSummary } from '@/services/profileRules'
-import { RULE_VERSION } from '@/services/mealRules'
 import { canUseLlm, isLlmReady, testLlmConfig, usingDefault } from '@/services/llm'
 import type { LlmConfig } from '@/services/llm'
 import {
@@ -652,13 +651,13 @@ function toCsv(): string {
     ...store.plans.flatMap(p => p.items.map(i => [
       '计划', i.date, '', i.exerciseName, i.type,
       i.plannedDuration ?? '', i.plannedDistance ?? '', i.plannedReps ?? '', i.plannedSets ?? '', '',
-      '', '', '', i.completed ? '已完成' : '待完成', `v${p.version}｜${p.reason}`
+      '', '', '', i.completed ? '已完成' : '待完成', p.reason
     ])),
     ...store.analyses.map(a => [
       '分析', a.date, '', a.exerciseName, a.action,
       '', '', '', '', '', '', '', '',
       a.status === 'low-confidence' ? '低置信度' : '完成',
-      `视角 ${a.view === 'side' ? '侧面' : '正面'}｜${a.findings.length} 项关注｜${a.ruleVersion}`
+      `视角 ${a.view === 'side' ? '侧面' : '正面'}｜${a.findings.length} 项关注`
     ])
   ]
   return '\ufeff' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n')

@@ -121,12 +121,11 @@
       <ul class="lims">
         <li v-for="q in report.dataQuality" :key="q">{{ q }}</li>
       </ul>
-      <p class="ver">{{ report.ruleVersion }} · {{ syncState.user ? '账号同步已启用，本机保留离线缓存' : '数据保存在本机浏览器' }}（{{ store.sessions.length }} 条训练 / {{ store.meals.length }} 条餐食）</p>
+      <p class="ver">{{ syncState.user ? '账号同步已启用，本机保留离线缓存' : '数据保存在本机浏览器' }}（{{ store.sessions.length }} 条训练 / {{ store.meals.length }} 条餐食）</p>
     </InsightCard>
 
     <footer class="footnote">
       <span>负荷为自评口径（RPE × 时长），只用于自己和自己比。</span>
-      <span class="micro">{{ report.ruleVersion }}</span>
     </footer>
   </div>
 </template>

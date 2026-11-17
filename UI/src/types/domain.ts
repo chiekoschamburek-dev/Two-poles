@@ -279,7 +279,10 @@ export interface Plan {
   userId: string
   version: number
   createdAt: string
+  /** 给用户看的一句话说明；技术版本号放在 ruleVersion，不拼进这里 */
   reason: string
+  /** 生成/调整该计划所用的规则版本；只在数据层使用，界面不展示代号 */
+  ruleVersion?: string
   weekStartDate: string
   weekEndDate: string
   items: PlanItem[]

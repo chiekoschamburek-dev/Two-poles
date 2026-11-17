@@ -555,8 +555,10 @@ export const useAppStore = defineStore('app', () => {
       version: 1,
       createdAt: new Date().toISOString(),
       reason: userProfile.value
-        ? `按器材、时间与"需要避开的"条件生成（${PLAN_RULES_VERSION}）`
-        : `未建档，使用不过滤的基础一周模板（${PLAN_RULES_VERSION}）`,
+        ? '按你的器材、可用时间与「需要避开的」条件排的一周'
+        : '还没建档，先用一份不筛选的一周模板',
+      // 规则版本只留在数据层：界面不展示 plan-rules-v4 这类代号
+      ruleVersion: PLAN_RULES_VERSION,
       weekStartDate: iso,
       weekEndDate: toISODate(end),
       items: items.map(i => ({ ...i, planId: id }))
@@ -582,7 +584,12 @@ export const useAppStore = defineStore('app', () => {
       conflicts: generated.conflicts,
       auto: generated.auto,
       gateNote: generated.gateNote,
-      stale: !!p && p.source !== 'llm' && p.source !== 'image' && !p.reason.includes(PLAN_RULES_VERSION)
+      stale: !!p && p.source !== 'llm' && p.source !== 'image' &&
+        // 新计划把版本放在 ruleVersion；旧计划只能从 reason 里的代号判断。
+        // 服务器不回传 ruleVersion，跨设备同步回来的新计划 reason 已经干净，按「不陈旧」处理，避免误报。
+        (p.ruleVersion
+          ? p.ruleVersion !== PLAN_RULES_VERSION
+          : /plan-rules-v\d+/i.test(p.reason) && !p.reason.includes(PLAN_RULES_VERSION))
     }
   }
 
@@ -600,7 +607,7 @@ export const useAppStore = defineStore('app', () => {
     showToast({
       type: 'success',
       title: '本周计划已按新条件重生成',
-      message: old ? `旧版本 v${old.version} 已存为历史，可回看` : '已生成 v1',
+      message: old ? '上一次的计划已存为历史，可回看' : '已生成第一份计划',
       duration: 3000
     })
     return fresh
@@ -902,10 +909,10 @@ export const useAppStore = defineStore('app', () => {
         items.push({ ...after, id: newId(), planId: plan.id, exerciseId: findExercise(after.exerciseName)?.id, completed: false })
       }
     }
-    const updated = bumpVersion(plan, items, `根据反馈调整 · ${adjustment.reason}（${PLAN_RULES_VERSION}）`)
+    const updated = bumpVersion(plan, items, `根据你的反馈调整：${adjustment.reason}`)
     if (planFeedbackText.value.trim() === lastDraftRequest?.feedback) planFeedbackText.value = ''
     resetPlanDraft()
-    showToast({ type: 'success', title: '已启用调整后的计划', message: `v${updated.version} · 原计划已保留在版本历史中`, duration: 3500 })
+    showToast({ type: 'success', title: '已启用调整后的计划', message: '上一次的计划已保留在历史中', duration: 3500 })
     return updated
   }
 
@@ -946,7 +953,8 @@ export const useAppStore = defineStore('app', () => {
       userId: userProfile.value?.id || 'demo-user',
       version: (old?.version ?? 0) + 1,
       createdAt: new Date().toISOString(),
-      reason: `${draft.reason}（模型：${draft.model || '未命名'}，已由你确认 · ${PLAN_RULES_VERSION}）`,
+      reason: draft.reason || '按你确认的草稿整理的一周',
+      ruleVersion: PLAN_RULES_VERSION,
       weekStartDate: dates[0],
       weekEndDate: dates[6],
       items: [...carried, ...items],
@@ -960,8 +968,8 @@ export const useAppStore = defineStore('app', () => {
       type: 'success',
       title: '计划已录入',
       message: draft.dayDate
-        ? `${draft.dayDate} · 已追加 ${items.length} 项，计划更新为 v${plan.version}`
-        : `${plan.weekStartDate} 至 ${plan.weekEndDate} · v${plan.version} · ${draft.days.length} 个训练日`,
+        ? `${draft.dayDate} · 已追加 ${items.length} 项`
+        : `${plan.weekStartDate} 至 ${plan.weekEndDate} · ${draft.days.length} 个训练日`,
       duration: 3500
     })
     return plan
@@ -974,6 +982,7 @@ export const useAppStore = defineStore('app', () => {
     plan.version += 1
     plan.clientId = `${plan.id}:v${plan.version}`
     plan.reason = reason
+    plan.ruleVersion = PLAN_RULES_VERSION
     plan.createdAt = new Date().toISOString()
     plan.updatedAt = plan.createdAt
     plan._sync = 'pending'
@@ -1012,7 +1021,7 @@ export const useAppStore = defineStore('app', () => {
   function rejectAdjustment(planId: string) {
     const plan = plans.value.find(p => p.id === planId)
     if (!plan) return
-    showToast({ type: 'info', title: '已保持原计划', message: `v${plan.version} 未改动`, duration: 2500 })
+    showToast({ type: 'info', title: '已保持原计划', message: '计划本身没有需要改动的地方', duration: 2500 })
   }
 
   /** 记录一条建议已处理：accepted = 已接受并生成新版本；dismissed = 暂不调整 */

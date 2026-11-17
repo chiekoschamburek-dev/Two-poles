@@ -9,22 +9,13 @@
         <button role="tab" :aria-selected="view === 'week'" :class="{ active: view === 'week' }" @click="view = 'week'">本周</button>
         <button role="tab" :aria-selected="view === 'cycle'" :class="{ active: view === 'cycle' }" @click="view = 'cycle'">四周周期</button>
       </div>
-      <div class="version">
-        <History :size="16" /> 当前版本 <strong>{{ plan ? `v${plan.version}` : '未生成' }}</strong>
-        <button
-          class="regen ai"
-          :disabled="!store.planLlmReady"
-          :title="store.planLlmReady ? '先由模型询问关键信息，再生成可修改的计划' : '未配置可用模型，请先到设置页填写'"
-          @click="openModelPlan"
-        >用模型规划</button>
-      </div>
     </div>
 
     <p v-if="showProfilePrompt && !store.hasProfile" class="gate-note" role="status">
       请先填写并保存个人档案。 <RouterLink to="/onboarding">填写档案</RouterLink>
     </p>
     <p v-if="notice.gateNote" class="gate-note" role="status">{{ notice.gateNote }}</p>
-    <p v-if="plan" class="ver-reason">v{{ plan.version }} 原因：{{ plan.reason }}<em v-if="planHistoryCount">· 本机另存 {{ planHistoryCount }} 个历史版本</em></p>
+    <p v-if="plan" class="ver-reason">{{ cleanReason(plan.reason) }}<em v-if="planHistoryCount">· 本机另存 {{ planHistoryCount }} 个历史版本</em></p>
     <ul v-if="notice.conflicts.length" class="conflicts" role="status">
       <li v-for="c in notice.conflicts" :key="c">{{ c }}</li>
     </ul>
@@ -88,7 +79,7 @@
         <BaseCard class="plan-feedback">
           <h2 id="plan-feedback-title">训练反馈</h2>
           <form aria-labelledby="plan-feedback-title" @submit.prevent="submitPlanFeedback">
-            <p v-if="plan">调整 {{ plan.weekStartDate }} 至 {{ plan.weekEndDate }} 的计划 · v{{ plan.version }}</p>
+            <p v-if="plan">调整 {{ plan.weekStartDate }} 至 {{ plan.weekEndDate }} 的计划</p>
             <p v-else>所选周需要先有一份计划。</p>
             <label>
               <span>想调整什么？</span>
@@ -178,10 +169,18 @@
     <section ref="manualSection" class="manual-block" aria-label="手工录入计划">
       <div v-if="!manualOpen" class="manual-entry">
         <div class="manual-entry-copy">
-          <strong>手动添加训练</strong>
-          <small>自己排进来的项目会标注「不参与自动推荐」，保存时生成新版本；也可以粘一段训练表或截图让模型整理。</small>
+          <strong>自己安排这一周</strong>
+          <small>让模型先问几个问题再排，或者直接手动加项目；两种方式都会生成新版本。</small>
         </div>
-        <BaseButton :icon="Plus" variant="secondary" @click="manualOpen = true">手工录入</BaseButton>
+        <div class="manual-entry-actions">
+          <BaseButton
+            variant="secondary"
+            :disabled="!store.planLlmReady"
+            :title="store.planLlmReady ? '先由模型询问关键信息，再生成可修改的计划' : '未配置可用模型，请先到设置页填写'"
+            @click="openModelPlan"
+          >用模型规划</BaseButton>
+          <BaseButton :icon="Plus" variant="secondary" @click="manualOpen = true">手工录入</BaseButton>
+        </div>
       </div>
       <div v-else class="manual animate-scale-in">
       <div class="tabs manual-mode" role="group" aria-label="录入方式">
@@ -244,7 +243,7 @@
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Plus, History, ChevronLeft, ChevronRight, Dumbbell, Play,
+  Plus, ChevronLeft, ChevronRight, Dumbbell, Play,
   ArrowRight, Moon, Flame, Wind, PersonStanding, StretchHorizontal, Activity
 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
@@ -367,6 +366,18 @@ const eyebrow = computed(() => eyebrowDate(selectedDate.value).toUpperCase())
 const isPast = computed(() => selected.value < toISODate(now))
 const planTitle = computed(() => (planForSelected.value.some(i => i.type === '坐站训练') ? '无器械基础体能' : '今日安排'))
 const hasPendingItems = computed(() => planForSelected.value.some(item => !item.completed))
+
+/**
+ * 旧计划把规则代号拼在 reason 里（如「…生成（plan-rules-v4）」）。
+ * 那是给开发者看的，不该出现在界面上；这里在展示时剥掉，数据本身不动。
+ */
+function cleanReason(raw: string): string {
+  return raw
+    .replace(/[（(][^（）()]*plan-rules[^（）()]*[）)]/gi, '')
+    .replace(/plan-rules-v?\d*/gi, '')
+    .replace(/[（(]\s*[）)]/g, '')
+    .trim()
+}
 
 /** 计划条目的组数/次数/保持/目标分钟；旧计划缺字段时回退动作库与 demo 默认 */
 function planSpec(item: PlanItem): string {
@@ -670,6 +681,7 @@ watch(
 .manual-entry-copy{min-width:0;flex:1}
 .manual-entry-copy strong{display:block;font-size:12.5px;font-weight:600;color:var(--color-ink)}
 .manual-entry-copy small{display:block;margin-top:3px;font-size:10.5px;line-height:1.6;color:var(--color-text-muted)}
+.manual-entry-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .manual-form{display:grid;gap:12px;min-width:0}
 .manual-target{display:grid;gap:8px}
 .manual-target .tabs{justify-self:start}

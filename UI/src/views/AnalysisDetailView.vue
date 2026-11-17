@@ -5,7 +5,7 @@
         <div class="bar-copy">
           <RouterLink to="/analysis" class="back">← 返回分析</RouterLink>
           <h1>{{ record.exerciseName }} · {{ viewLabel(record.view) }}视角</h1>
-          <p>{{ record.date }} · 规则版本 {{ record.ruleVersion }}</p>
+          <p>{{ record.date }} · 分析口径见页底说明</p>
         </div>
         <StatusBadge :variant="record.status === 'low-confidence' ? 'warning' : 'success'">
           {{ record.status === 'low-confidence' ? '低置信度结果' : '分析完成' }}
