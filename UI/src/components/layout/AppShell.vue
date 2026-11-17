@@ -33,6 +33,7 @@ import { useWellnessDock } from '@/composables/useWellnessDock'
 import { startSupplementScheduler } from '@/composables/useSupplementReminders'
 import { initDietFeedback, stopDietFeedback } from '@/composables/useDietFeedback'
 import { resetBodyScroll } from '@/services/scrollLock'
+import { checkAppUpdate, dismissUpdate, isUpdateDismissed } from '@/services/appUpdate'
 
 const mobileOpen = ref(false)
 const route = useRoute()
@@ -50,10 +51,25 @@ watch(() => route.fullPath, () => {
 
 let stopSupplements: (() => void) | null = null
 
+/** 网页随服务器自动更新，只有原生壳要换包；让 App 自己发现新版，不必靠用户问 */
+async function noticeAppUpdate() {
+  const status = await checkAppUpdate()
+  if (!status?.hasUpdate) return
+  if (isUpdateDismissed(status.latest.versionCode)) return
+  dismissUpdate(status.latest.versionCode)
+  store.showToast({
+    type: 'info',
+    title: `发现新版本 ${status.latest.versionName}`,
+    message: '网页内容已自动更新；只有 App 壳（通知等原生能力）需要换包。到「设置 → 安装 App」可一键更新。',
+    duration: 9000
+  })
+}
+
 onMounted(() => {
   store.init()
   // 放在 store.init() 之后：弹窗里的卡片能读到持久化的内容
   initWellnessDock()
+  void noticeAppUpdate()
   stopSupplements = startSupplementScheduler(({ title, message }) => {
     // 页面在前台时用站内 Toast；切到后台时由 Service Worker 补一条系统通知
     store.showToast({ type: 'info', title, message, duration: 10000 })

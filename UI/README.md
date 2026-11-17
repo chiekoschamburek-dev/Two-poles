@@ -90,6 +90,9 @@ npm run typecheck
   # 核验签名后，将 app/build/outputs/apk/debug/app-debug.apk 复制到 ../public/apk/twopoles-debug.apk
   ```
 - 下载直链：`/apk/twopoles-debug.apk`。网站构建从 `public/apk/` 复制安装包，由 ESA Pages 静态分发；打 APK 时 `cap:prepare` 会排除该目录。每次更新 APK 时同步修改 `InstallAppDialog.vue` 的 `APK_VERSION`，并随网站一起发布新版签名包。纯网页更新沿用现有 APK。
+- **更新边界**：App 的 WebView 加载 `server.url` 指向的线上站点，所以页面、规则、文案、布局这类改动**发版网页即生效，不用重装**。只有原生壳（通知通道、权限、插件、Manifest）变了才必须换包——这是 Android 的硬约束，侧载应用也无法静默自安装。
+- **应用内更新**：构建时 `scripts/write-apk-version.mjs` 从 `build.gradle` 与 `public/apk/*.apk` 生成 `public/apk/version.json`（versionCode/versionName/size/sha256）。App 启动时把线上清单与本机 `PackageManager` 版本比对，发现新版就弹一条 Toast，并在「设置 → 安装 App」里显示「当前 / 线上」两个版本与「更新到 x.y.z」。点更新由原生 `installApk` 用 `DownloadManager` 下载到 `getExternalFilesDir(DOWNLOADS)`，完成后经 FileProvider 拉起系统安装器；用户只需点一次系统「安装」，数据与登录态都保留。
+- 拿不到 `PackageManager` 版本（旧版 APK 没有 `appVersion` 方法）时，更新提示自动降级为不显示，不会误报「已是最新」。
 
 ## 📁 项目结构
 

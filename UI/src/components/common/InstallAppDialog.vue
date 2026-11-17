@@ -16,6 +16,35 @@
             <p>你已经在两仪 App 里运行，不需要再装一次。</p>
           </div>
 
+          <!-- App 内更新：网页随服务器自动生效，只有原生壳需要换包 -->
+          <section v-if="isNative" class="plat update">
+            <div class="plat-head"><Download :size="16" /> 版本与更新</div>
+            <dl class="ver-rows">
+              <div>
+                <dt>当前版本</dt>
+                <dd>{{ installedLabel }}</dd>
+              </div>
+              <div>
+                <dt>线上版本</dt>
+                <dd>{{ latestLabel }}</dd>
+              </div>
+            </dl>
+            <p v-if="updateState === 'checking'" class="fine">正在检查更新…</p>
+            <template v-else-if="status?.hasUpdate">
+              <p class="fine">网页部分已经是最新的，只有 App 壳（通知、权限这类手机原生能力）需要更新到 {{ status.latest.versionName }}（{{ sizeLabel }}）。</p>
+              <button type="button" class="dl-btn" :disabled="updating" @click="runUpdate">
+                <Download :size="16" /> {{ updating ? '正在下载…' : `更新到 ${status.latest.versionName}` }}
+              </button>
+              <p class="fine">下载完会直接弹出系统安装确认框，点「安装」即可覆盖，不需要卸载；登录状态和本机数据都保留。</p>
+            </template>
+            <p v-else-if="status" class="fine">已是最新版本，不需要更新。网页内容会随服务器自动更新，不必重装。</p>
+            <p v-else class="fine">暂时读不到线上版本清单，请稍后再试。</p>
+            <p v-if="updateError" class="fine apk-error" role="alert">{{ updateError }}</p>
+            <div class="actions">
+              <BaseButton size="sm" variant="secondary" :disabled="updateState === 'checking'" @click="refreshVersion">重新检查</BaseButton>
+            </div>
+          </section>
+
           <template v-else>
             <p class="intro">
               装到手机上后，系统后台提醒和摄像头跟练更稳。网页版本地数据不会自动搬到 App；登录同一账号后才会补传。
@@ -66,10 +95,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Capacitor } from '@capacitor/core'
 import { Download, Monitor, Smartphone } from 'lucide-vue-next'
 import BaseButton from './BaseButton.vue'
+import { checkAppUpdate, downloadAndInstall, formatSize, type UpdateStatus } from '@/services/appUpdate'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -88,10 +118,52 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 const deferredPrompt = ref<BeforeInstallPromptEvent | null>(null)
-const APK_VERSION = '1.0.4'
+const APK_VERSION = '1.0.5'
 const APK_MIME_TYPE = 'application/vnd.android.package-archive'
 const downloadingApk = ref(false)
 const apkDownloadError = ref('')
+
+const updateState = ref<'idle' | 'checking' | 'ready'>('idle')
+const updateStatus = ref<UpdateStatus | null>(null)
+const updating = ref(false)
+const updateError = ref('')
+const status = computed(() => updateStatus.value)
+const installedLabel = computed(() => updateStatus.value
+  ? `${updateStatus.value.installed.versionName}（${updateStatus.value.installed.versionCode}）`
+  : '读取中…')
+const latestLabel = computed(() => updateStatus.value
+  ? `${updateStatus.value.latest.versionName}（${updateStatus.value.latest.versionCode}）`
+  : '读取中…')
+const sizeLabel = computed(() => updateStatus.value ? formatSize(updateStatus.value.latest.size) : '—')
+
+async function refreshVersion() {
+  if (!isNative) return
+  updateState.value = 'checking'
+  updateError.value = ''
+  try {
+    updateStatus.value = await checkAppUpdate()
+  } finally {
+    updateState.value = 'ready'
+  }
+}
+
+async function runUpdate() {
+  const current = updateStatus.value
+  if (!current?.hasUpdate || updating.value) return
+  updating.value = true
+  updateError.value = ''
+  try {
+    await downloadAndInstall(current.latest)
+  } catch (error) {
+    updateError.value = error instanceof Error ? `更新失败：${error.message}` : '更新失败，请稍后重试。'
+  } finally {
+    updating.value = false
+  }
+}
+
+watch(() => props.open, (open) => {
+  if (open && isNative && updateState.value === 'idle') void refreshVersion()
+}, { immediate: true })
 
 async function downloadApk() {
   if (downloadingApk.value) return
@@ -182,6 +254,10 @@ onUnmounted(() => {
 .plat p { font-size: 12.5px; line-height: 1.75; color: var(--color-text-secondary); margin: 0 0 10px; }
 .plat p strong { color: var(--color-ink); }
 .plat .fine { font-size: 11px; color: var(--color-text-muted); margin: 10px 0 0; }
+.ver-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 0 0 10px; }
+.ver-rows div { padding: 9px 11px; border-radius: var(--radius-sm); background: var(--color-neutral-soft); }
+.ver-rows dt { font-size: 10.5px; color: var(--color-text-muted); }
+.ver-rows dd { margin: 3px 0 0; font-family: var(--font-num); font-size: 14px; font-weight: 700; color: var(--color-ink); }
 .steps { margin: 0 0 10px; padding-left: 20px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.9; }
 .dl-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;

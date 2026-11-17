@@ -10,7 +10,7 @@
     "dev": "vite",
     "camera:assets": "node scripts/fetch-camera-assets.mjs",
     "icons:generate": "node scripts/generate-icons.mjs",
-    "build": "vue-tsc && vite build",
+    "build": "node scripts/write-apk-version.mjs && vue-tsc && vite build",
     "cap:prepare": "node scripts/prepare-capacitor-dist.mjs",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
