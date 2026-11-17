@@ -77,6 +77,7 @@ npm run typecheck
 ### 安卓 App（Capacitor）
 
 - `capacitor.config.ts`：WebView 直接加载线上站点（`server.url`），网页更新 App 零发版；原生能力目前是补剂提醒的**系统本地通知**（App 被杀也由系统闹钟弹出，代码分流见 `useSupplementReminders.ts` 的 `isNative` 分支，浏览器路径不变）。
+- 安卓 1.0.2 起，补剂提醒使用高重要性通知通道，并在每次重复提醒时重新触发横幅；若用户曾在系统设置里把「补剂提醒」通道调低，补剂页会提示，可点「通知设置」打开横幅/悬浮通知开关。通知权限、精确闹钟权限和通知通道三者缺一都不会出现横幅。
 - 出新 APK 的固定顺序（本机已配好 JDK 21 + SDK，见 `D:\android-tools` 与 `~/.gradle/init.gradle` 镜像）：
   ```bash
   npm run build && npm run cap:prepare   # 构建并生成精简 dist-lite（剔除 App 用不到的端侧模型/演示视频）
