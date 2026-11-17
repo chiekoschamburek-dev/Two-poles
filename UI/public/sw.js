@@ -61,11 +61,15 @@ async function networkFirst(request) {
 }
 
 async function cacheFirst(request) {
-  const cached = await caches.match(request)
-  if (cached) return cached
+  const cache = await caches.open(RUNTIME_CACHE)
+  const cached = await cache.match(request)
+  const isBundle = ['script', 'style'].includes(request.destination)
+  const usable = (response) => !isBundle || !/^text\/html\b/i.test(response.headers.get('content-type') || '')
+  if (cached && usable(cached)) return cached
+  if (cached) await cache.delete(request)
   const response = await fetch(request)
-  // 只缓存完整成功响应；失败/部分内容不入缓存，且不打断正常返回
-  if (response.ok) await putInCache(request, response.clone())
+  // 旧版页面代码请求可能收到 HTML 回退，避免缓存后一直重复加载这个响应。
+  if (response.status === 200 && usable(response)) await putInCache(request, response.clone())
   return response
 }
 

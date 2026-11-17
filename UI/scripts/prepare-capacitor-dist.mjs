@@ -11,7 +11,7 @@ const src = join(root, 'dist')
 const out = join(root, 'dist-lite')
 
 /** 打进 APK 无用的重资源目录（Vite 把 public/* 平铺到 dist 根；线上站点会正常下发） */
-const EXCLUDE_TOP = ['mediapipe', 'demo-videos']
+const EXCLUDE_TOP = ['mediapipe', 'demo-videos', 'apk']
 
 if (!existsSync(src)) {
   console.error('dist 不存在，请先 npm run build')

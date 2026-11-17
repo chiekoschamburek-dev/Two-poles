@@ -62,10 +62,14 @@ export interface MotionAnalysisResult {
   repCount: number | null
   gaitCycles: number | null
   usableRatio: number
+  /** 本次分析的实际采样帧率；曲线断线判定与缺口阈值都依赖它 */
+  fps: number
   /** 逐次摘要；此前算完即丢，现在留给一致性规则、曲线与留存用 */
   reps?: RepAnalysisRecord[]
   /** 逐帧角度序列；曲线与关键帧定位用 */
   angles?: MotionAngleSample[]
+  /** 由逐帧角度/髋部位置派生的运动学序列；只在本机会话与可选留存里使用 */
+  kinematics?: MotionKinematics
 }
 
 /** 与 motionAnalysis.RepAnalysis 同形，放这里避免 types 反向依赖 services */
@@ -97,6 +101,70 @@ export interface MotionAngleSample {
   kneeAngle: number | null
   hipAngle: number | null
   trunkAngle: number | null
+}
+
+// === Motion Kinematics ===
+// 只存派生序列，不存视频/画面。角量单位 °/s、°/s²；线量按躯干长归一化，
+// 单位「躯干长/秒」，不是 m/s——单目世界坐标以髋为原点，给不出对地速度。
+
+export interface MotionKinematicsSample {
+  timeMs: number
+  /** 平滑后的角度，度 */
+  angle: number | null
+  /** 角速度，度/秒；正=角度增大（伸展），负=角度减小（屈曲） */
+  angularVelocity: number | null
+  /** 角加速度，度/秒² */
+  angularAcceleration: number | null
+}
+
+export interface MotionKinematicsJoint {
+  joint: 'knee' | 'hip' | 'trunk'
+  side: 'left' | 'right' | null
+  samples: MotionKinematicsSample[]
+  /** 有效角速度样本 / 总帧数 */
+  validRatio: number
+}
+
+export interface MotionKinematicsLinearSample {
+  timeMs: number
+  /** 向上为正，单位：躯干长/秒 */
+  velocity: number | null
+  acceleration: number | null
+}
+
+export interface MotionKinematicsLinear {
+  unit: '躯干长/秒'
+  /** 归一化用的躯干长度（2D 归一化单位），仅供诊断 */
+  scaleLength: number
+  samples: MotionKinematicsLinearSample[]
+  validRatio: number
+}
+
+export interface MotionKinematicsRep {
+  index: number
+  startMs: number
+  bottomMs: number
+  endMs: number
+  /** 离心段（角度减小）峰值速度，正值 */
+  peakFlexionVelocity: number | null
+  /** 向心段（角度增大）峰值速度，正值 */
+  peakExtensionVelocity: number | null
+  peakAngularAcceleration: number | null
+  peakAccelerationTimeMs: number | null
+}
+
+export interface MotionKinematics {
+  version: string
+  primaryJoint: 'knee' | 'hip'
+  joints: MotionKinematicsJoint[]
+  linear: MotionKinematicsLinear | null
+  reps: MotionKinematicsRep[]
+  quality: {
+    smoothing: 'savitzky-golay'
+    windowSec: number
+    order: number
+    validRatio: number
+  }
 }
 
 export interface MotionPrecheckResult {

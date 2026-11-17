@@ -25,7 +25,8 @@ import { MOTION_RULES_VERSION } from '@/services/motionRules'
 import type { RepMachineSnapshot } from '@/composables/repMachine'
 import { analyzeMotion, analyzeGait, classifyAction, detectView, precheckMotion, extractMotionFrame, analyzeRep, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
 import { rulesFor } from '@/services/motionRules'
-import { angleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
+import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
+import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, normalizeProfile, parseResult } from '@/services/profileRules'
@@ -37,7 +38,7 @@ import { clearOutbox, enqueue, listOutbox } from '@/services/outbox'
 import { clearStoredState, loadStoredState, saveStoredState, STORAGE_KEYS } from '@/services/storage'
 import { clearAnalysisKeyframes, deleteAnalysisKeyframes, getAnalysisKeyframe, saveAnalysisKeyframe } from '@/services/analysisKeyframes'
 import { toISODate } from '@/utils/time'
-import type { FoodCategory, Meal, MealItem, MotionAnalysis, MotionAnalysisFinding, MotionAnalysisMetric, PersonalBest, Plan, PlanItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
+import type { FoodCategory, Meal, MealItem, MotionAnalysis, MotionAnalysisFinding, MotionAnalysisMetric, MotionKinematicsSample, PersonalBest, Plan, PlanItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
 
 let failed = 0
 let passed = 0
@@ -2199,6 +2200,174 @@ console.log('\n50. 解读层集成：规则先出、模型只替换、失败静�
   globalThis.fetch = originalFetch
   store.llmConfig = originalLlm
 }
+
+console.log('\n51. 运动学：SG 求导、固定侧别与指标')
+const maxAbs = (values: number[]) => values.length ? Math.max(...values.map(value => Math.abs(value))) : NaN
+
+// 线性斜坡：理想一阶导 50，二阶导 0
+const rampSamples = Array.from({ length: 40 }, (_, index) => ({
+  timeMs: Math.round(index * (1000 / 15)),
+  value: 100 + 50 * (index / 15)
+}))
+const rampDerived = savitzkyGolay(rampSamples, { windowSec: 0.5, order: 2, minPoints: 5, maxGapMs: 200 })
+const rampVelocities = rampDerived.map(row => row.velocity).filter((value): value is number => value !== null)
+const rampAccelerations = rampDerived.map(row => row.acceleration).filter((value): value is number => value !== null)
+ok('线性斜坡一阶导 ≈ 50°/s', rampVelocities.length > 20
+  && maxAbs(rampVelocities.map(value => value - 50)) < 3,
+  `n=${rampVelocities.length} maxErr=${maxAbs(rampVelocities.map(value => value - 50))}`)
+ok('线性斜坡二阶导 ≈ 0', rampAccelerations.length > 10 && maxAbs(rampAccelerations) < 8,
+  `n=${rampAccelerations.length} max=${maxAbs(rampAccelerations)}`)
+
+// 0.5Hz 正弦：理论峰值 20π ≈ 62.8°/s、20π² ≈ 197.4°/s²
+const sineSamples = Array.from({ length: 61 }, (_, index) => {
+  const seconds = index / 15
+  return {
+    timeMs: Math.round(index * (1000 / 15)),
+    value: 100 + 20 * Math.sin(2 * Math.PI * 0.5 * seconds)
+  }
+})
+const sineDerived = savitzkyGolay(sineSamples, { windowSec: 0.5, order: 2, minPoints: 5, maxGapMs: 200 })
+const sineVelocityPeak = maxAbs(sineDerived.map(row => row.velocity ?? 0))
+const sineAccelerationPeak = maxAbs(sineDerived.map(row => row.acceleration ?? 0))
+const expectedVelocity = 20 * Math.PI
+const expectedAcceleration = 20 * Math.PI * Math.PI
+ok('正弦峰值角速度在 ±25% 内', Math.abs(sineVelocityPeak - expectedVelocity) / expectedVelocity < 0.25,
+  `${sineVelocityPeak.toFixed(1)} vs ${expectedVelocity.toFixed(1)}`)
+ok('正弦峰值角加速度在 ±30% 内', Math.abs(sineAccelerationPeak - expectedAcceleration) / expectedAcceleration < 0.3,
+  `${sineAccelerationPeak.toFixed(1)} vs ${expectedAcceleration.toFixed(1)}`)
+
+// 缺口：不插值、不跨段
+const gapSamples = Array.from({ length: 30 }, (_, index) => ({
+  timeMs: index * 67,
+  value: 100 + index
+}))
+for (let index = 12; index < 18; index++) gapSamples[index].value = null
+const gapDerived = savitzkyGolay(gapSamples, { windowSec: 0.5, order: 2, minPoints: 5, maxGapMs: 200 })
+ok('缺口内没有速度/加速度', gapDerived.slice(12, 18).every(row => row.velocity === null && row.acceleration === null))
+ok('缺口两侧仍能求导', gapDerived[10].velocity !== null && gapDerived[21].velocity !== null)
+
+// 精确角度：运动学不能吃取整后的 1° 量化
+const exactTarget = 100.4
+const exactRadians = exactTarget * Math.PI / 180
+const exactPoint = { x: Math.cos(exactRadians), y: Math.sin(exactRadians) }
+const exactValue = angleAtExact({ x: 1, y: 0 }, { x: 0, y: 0 }, exactPoint)
+ok('精确角度不取整', exactValue !== null && Math.abs(exactValue - exactTarget) < 1e-6, String(exactValue))
+ok('展示角度仍取整', angleAt({ x: 1, y: 0 }, { x: 0, y: 0 }, exactPoint) === Math.round(exactTarget))
+const exactTrunk = trunkAngleAt(
+  { x: Math.sin(Math.PI / 6), y: -Math.cos(Math.PI / 6), visibility: 0.9 },
+  { x: 0, y: 0, visibility: 0.9 }
+)
+ok('精确躯干角不取整', exactTrunk !== null && Math.abs(exactTrunk - 30) < 1e-6, String(exactTrunk))
+
+// 深蹲合成序列：符号、逐次峰值与归一化线运动学
+const kinematics = computeKinematics({
+  frames: goodSquat.frames,
+  action: 'squat',
+  fps: goodSquat.fps,
+  reps: goodResult.reps ?? []
+})
+ok('深蹲序列产出运动学', kinematics !== null)
+ok('三个关节都有序列', kinematics?.joints.length === 3)
+ok('主关节为膝', kinematics?.primaryJoint === 'knee')
+const kneeKinematics = kinematics?.joints.find(joint => joint.joint === 'knee') ?? null
+ok('固定一侧而不是逐帧切换', kneeKinematics?.side === 'left' || kneeKinematics?.side === 'right')
+ok('运动学版本写入', kinematics?.version === MOTION_KINEMATICS_VERSION)
+ok('平滑窗口与配置一致', kinematics?.quality.windowSec === KINEMATICS_CONFIG.windowSec)
+ok('analyzeMotion 带回实际 fps', goodResult.fps === goodSquat.fps)
+ok('analyzeMotion 带回运动学', goodResult.kinematics?.version === MOTION_KINEMATICS_VERSION)
+
+const nearestKneeSample = (timeMs: number): MotionKinematicsSample | null =>
+  (kneeKinematics?.samples ?? []).reduce<MotionKinematicsSample | null>(
+    (best, sample) => Math.abs(sample.timeMs - timeMs) < Math.abs((best?.timeMs ?? Infinity) - timeMs) ? sample : best,
+    null
+  )
+const firstRep = goodResult.reps?.[0]
+const descentSample = firstRep ? nearestKneeSample((firstRep.startMs + firstRep.bottomMs) / 2) : null
+const ascentSample = firstRep ? nearestKneeSample((firstRep.bottomMs + firstRep.endMs) / 2) : null
+ok('下降段角速度为负（屈曲）', descentSample !== null && descentSample.angularVelocity !== null
+  && descentSample.angularVelocity < 0, String(descentSample?.angularVelocity))
+ok('上升段角速度为正（伸展）', ascentSample !== null && ascentSample.angularVelocity !== null
+  && ascentSample.angularVelocity > 0, String(ascentSample?.angularVelocity))
+ok('逐次运动学与 repCount 对得上', kinematics?.reps.length === goodResult.repCount,
+  `${kinematics?.reps.length} vs ${goodResult.repCount}`)
+ok('每次重复都有起身峰值角速度', (kinematics?.reps ?? []).every(rep => rep.peakExtensionVelocity !== null))
+ok('髋部归一化线运动学可用', kinematics?.linear !== null && kinematics?.linear?.unit === '躯干长/秒'
+  && kinematics?.linear?.samples.some(sample => sample.velocity !== null))
+
+const kinMetrics = kinematicsMetrics(kinematics, 'squat')
+ok('运动学指标带峰值角速度', kinMetrics.some(metric => metric.id === 'kin-peak-angular-velocity'))
+ok('运动学指标带起身峰值角速度', kinMetrics.some(metric => metric.id === 'kin-concentric-peak-angular-velocity'))
+ok('两次以上出现组内峰值变化', kinMetrics.some(metric => metric.id === 'kin-rep-peak-change'))
+ok('运动学指标带归一化线速度', kinMetrics.some(metric => metric.id === 'kin-linear-peak-velocity'))
+ok('运动学指标统一前缀', kinMetrics.every(metric => isKinematicsMetric(metric)))
+ok('运动学不产生关注项', goodResult.findings.length === 0)
+ok('分析结果里的运动学指标可被过滤出来', goodResult.metrics.some(metric => isKinematicsMetric(metric))
+  && goodResult.metrics.filter(isKinematicsMetric).every(metric => metric.id.startsWith('kin-')))
+
+// 左右可见度交替时仍然整段固定一侧
+const flippedFrames: MotionFrame[] = goodSquat.frames.map((frame, index) => {
+  const leftVisibility = index % 2 === 0 ? 0.95 : 0.55
+  const rightVisibility = index % 2 === 0 ? 0.55 : 0.95
+  const withVisibility = (point: { x: number; y: number; visibility: number } | null, visibility: number) =>
+    point ? { ...point, visibility } : null
+  return {
+    ...frame,
+    points: {
+      shoulder: {
+        left: withVisibility(frame.points.shoulder.left, leftVisibility),
+        right: withVisibility(frame.points.shoulder.right, rightVisibility)
+      },
+      hip: {
+        left: withVisibility(frame.points.hip.left, leftVisibility),
+        right: withVisibility(frame.points.hip.right, rightVisibility)
+      },
+      knee: {
+        left: withVisibility(frame.points.knee.left, leftVisibility),
+        right: withVisibility(frame.points.knee.right, rightVisibility)
+      },
+      ankle: {
+        left: withVisibility(frame.points.ankle.left, leftVisibility),
+        right: withVisibility(frame.points.ankle.right, rightVisibility)
+      },
+      heel: frame.points.heel,
+      toe: frame.points.toe
+    }
+  }
+})
+const flippedKinematics = computeKinematics({ frames: flippedFrames, action: 'squat', fps: goodSquat.fps, reps: [] })
+const flippedKnee = flippedKinematics?.joints.find(joint => joint.joint === 'knee') ?? null
+ok('可见度左右交替时仍固定一侧', flippedKnee?.side === 'left' || flippedKnee?.side === 'right')
+ok('固定侧别后仍有有效角速度', flippedKnee?.samples.some(sample => sample.angularVelocity !== null) === true)
+
+// 跑姿：只出全程角量，不生成逐次峰值
+const runningKinematics = computeKinematics({ frames: runningFrames, action: 'running', fps: 30, reps: [] })
+ok('跑姿也能算角速度', runningKinematics !== null
+  && runningKinematics.joints.some(joint => joint.samples.some(sample => sample.angularVelocity !== null)))
+ok('跑姿不生成逐次峰值', runningKinematics?.reps.length === 0)
+
+// 短序列与空输入：不编造
+ok('过短序列不编造运动学', computeKinematics({
+  frames: goodSquat.frames.slice(0, 3), action: 'squat', fps: goodSquat.fps, reps: []
+}) === null)
+ok('空输入不抛错', computeKinematics({ frames: [], action: 'squat', fps: 15, reps: [] }) === null)
+ok('无运动学时指标为空', kinematicsMetrics(null, 'squat').length === 0)
+
+// 留存：可选 kinematics 字段向后兼容
+const kinematicSeriesRecord = buildSeriesRecord({
+  key: 'kin-series',
+  savedAt: new Date().toISOString(),
+  fps: goodSquat.fps,
+  action: 'squat',
+  view: 'side',
+  ruleVersion: MOTION_RULES_VERSION,
+  usableRatio: 0.9,
+  frames: goodSquat.frames.slice(0, 3),
+  angles: [],
+  reps: [],
+  events: [],
+  ...(goodResult.kinematics ? { kinematics: goodResult.kinematics } : {})
+})
+ok('序列留存带运动学版本', kinematicSeriesRecord.kinematics?.version === MOTION_KINEMATICS_VERSION)
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

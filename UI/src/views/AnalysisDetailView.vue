@@ -44,10 +44,21 @@
         </article>
       </BaseCard>
 
-      <BaseCard class="panel">
+      <KinematicsPanel
+        v-if="kinMetrics.length || series?.kinematics"
+        :kinematics="series?.kinematics ?? null"
+        :angles="series?.angles ?? []"
+        :metrics="record.metrics ?? []"
+        :action="record.action"
+        :fps="series?.fps ?? 15"
+        :marker-times="markerTimes"
+        :interactive="false"
+      />
+
+      <BaseCard v-if="otherMetrics.length" class="panel">
         <h2>测量值</h2>
         <dl class="metrics">
-          <div v-for="metric in record.metrics" :key="metric.id">
+          <div v-for="metric in otherMetrics" :key="metric.id">
             <dt>{{ metric.label }}</dt>
             <dd>{{ metric.value }}<small v-if="metric.unit"> {{ metric.unit }}</small></dd>
           </div>
@@ -106,8 +117,11 @@ import { useRoute, useRouter } from 'vue-router'
 import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import KinematicsPanel from '@/components/analysis/KinematicsPanel.vue'
 import { useAppStore } from '@/stores/app'
 import { getAnalysisKeyframe } from '@/services/analysisKeyframes'
+import { getMotionSeries, type MotionSeriesRecord } from '@/services/motionSeries'
+import { isKinematicsMetric } from '@/services/motionKinematics'
 import type { AnalysisView, MotionAnalysisFinding } from '@/types/domain'
 
 const route = useRoute()
@@ -116,8 +130,14 @@ const store = useAppStore()
 
 const record = computed(() => store.analyses.find(item => item.id === route.params.id) ?? null)
 const keyframeUrls = ref<Record<string, string>>({})
+const series = ref<MotionSeriesRecord | null>(null)
 const linkDate = ref('')
 const selectedSessionId = ref('')
+const kinMetrics = computed(() => (record.value?.metrics ?? []).filter(isKinematicsMetric))
+const otherMetrics = computed(() => (record.value?.metrics ?? []).filter(metric => !isKinematicsMetric(metric)))
+const markerTimes = computed(() => (record.value?.findings ?? [])
+  .map(finding => finding.timeMs)
+  .filter((time): time is number => time !== null))
 const sessionsForDate = computed(() => store.sessions.filter(session => session.date === linkDate.value))
 const linkedSession = computed(() => {
   const id = record.value?.sessionId
@@ -161,6 +181,17 @@ async function loadKeyframes() {
   }
 }
 
+async function loadSeries(id: string) {
+  series.value = null
+  try {
+    const loaded = await getMotionSeries(id)
+    if (record.value?.id === id) series.value = loaded
+  } catch {
+    // IndexedDB 不可用或记录已删：按无曲线处理，不影响结构化指标
+    if (record.value?.id === id) series.value = null
+  }
+}
+
 function remove() {
   const current = record.value
   if (!current) return
@@ -187,6 +218,10 @@ watch(record, (current) => {
     selectedSessionId.value = current.sessionId ?? ''
   }
   void loadKeyframes()
+}, { immediate: true })
+watch(() => record.value?.id, (id) => {
+  if (id) void loadSeries(id)
+  else series.value = null
 }, { immediate: true })
 onUnmounted(revokeKeyframeUrls)
 </script>

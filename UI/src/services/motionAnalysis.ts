@@ -10,10 +10,11 @@ import type {
 } from '@/types/domain'
 import { createRepMachine } from '@/composables/repMachine'
 import type { RepInterval } from '@/composables/repMachine'
-import { angleAt, clampVisibility, frameVisibility, jointScore, jointVisibility } from '@/composables/poseMath'
+import { angleAt, clampVisibility, frameVisibility, jointScore, jointVisibility, trunkAngleAt } from '@/composables/poseMath'
 import { configForAction, repRuleFor } from '@/services/motionConfig'
 import { rulesFor } from '@/services/motionRules'
 import { consistencyRulesFor } from '@/services/motionConsistency'
+import { computeKinematics, kinematicsMetrics } from '@/services/motionKinematics'
 
 export interface MotionPoint {
   x: number
@@ -125,12 +126,8 @@ export function measureTrunkAngle(shoulder: MotionPoint | null, hip: MotionPoint
 }
 
 function trunkAngle(shoulder: MotionPoint | null, hip: MotionPoint | null): number | null {
-  if (!shoulder || !hip) return null
-  const dx = shoulder.x - hip.x
-  const dy = hip.y - shoulder.y
-  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null
-  if (dx === 0 && dy === 0) return null
-  return Math.round((Math.atan2(Math.abs(dx), Math.max(0, dy)) * 180) / Math.PI)
+  const exact = trunkAngleAt(shoulder, hip)
+  return exact === null ? null : Math.round(exact)
 }
 
 /**
@@ -448,6 +445,7 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   const reps = segmented.intervals.map((interval, index) =>
     analyzeRep(series.frames, interval, index + 1, series.fps, series.action)
   )
+  const kinematics = computeKinematics({ frames: series.frames, action: series.action, fps: series.fps, reps })
   const gait = series.action === 'running' ? analyzeGait(series.frames, series.fps) : undefined
   const viewConfidence = detectView(series.frames).confidence
   const context = { action: series.action, view: series.view, reps, fps: series.fps, gait, viewConfidence }
@@ -458,6 +456,7 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     if (rule.output === 'finding') findings.push(...(output as MotionAnalysisFinding[]))
     else metrics.push(...(output as MotionAnalysisMetric[]))
   }
+  metrics.push(...kinematicsMetrics(kinematics, series.action))
   const angles = series.frames.map(frame => {
     const knee = jointAngle(frame, 'knee')
     const hip = jointAngle(frame, 'hip')
@@ -476,8 +475,10 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     repCount: series.action === 'running' ? null : segmented.count,
     gaitCycles: gait?.cycles ?? null,
     usableRatio,
+    fps: series.fps,
     reps,
-    angles
+    angles,
+    ...(kinematics ? { kinematics } : {})
   }
 }
 

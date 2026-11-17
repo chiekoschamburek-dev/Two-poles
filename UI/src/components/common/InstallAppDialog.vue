@@ -21,16 +21,13 @@
               装到手机上后，系统后台提醒和摄像头跟练更稳。网页版本地数据不会自动搬到 App；登录同一账号后才会补传。
             </p>
 
-            <!-- 安卓：APK 直链由浏览器直接下载，安装确认由系统弹出 -->
             <section v-if="platform === 'android'" class="plat">
               <div class="plat-head"><Smartphone :size="16" /> 安卓</div>
-              <p>
-                点下面的按钮，浏览器会把安装包<strong>直接下载</strong>到下载目录（约 5 MB），不会弹网页弹窗；
-                下载完打开它，按提示允许"安装未知来源"即可。安装确认框是手机系统弹的，网页控制不了样式。
-              </p>
-              <a class="dl-btn" href="/apk/twopoles-debug.apk" download="twopoles-debug.apk">
-                <Download :size="16" /> 下载 APK 安装包
-              </a>
+              <p>下载约 5 MB 的安卓安装包。下载完成后打开 APK，按手机的提示安装。</p>
+              <button type="button" class="dl-btn" :disabled="downloadingApk" @click="downloadApk">
+                <Download :size="16" /> {{ downloadingApk ? '正在获取安装包…' : '下载 APK 安装包' }}
+              </button>
+              <p v-if="apkDownloadError" class="fine apk-error" role="alert">{{ apkDownloadError }}</p>
               <p class="fine">不想装包也可以：用浏览器把本站"添加到主屏幕"，功能一样，只是没有系统后台提醒。</p>
             </section>
 
@@ -91,6 +88,44 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 const deferredPrompt = ref<BeforeInstallPromptEvent | null>(null)
+const APK_VERSION = '1.0.1'
+const APK_MIME_TYPE = 'application/vnd.android.package-archive'
+const downloadingApk = ref(false)
+const apkDownloadError = ref('')
+
+async function downloadApk() {
+  if (downloadingApk.value) return
+  downloadingApk.value = true
+  apkDownloadError.value = ''
+  try {
+    const response = await fetch(`${import.meta.env.BASE_URL}apk/twopoles-debug.apk?v=${APK_VERSION}`, {
+      cache: 'no-store',
+      headers: { Accept: `${APK_MIME_TYPE}, application/octet-stream` }
+    })
+    if (!response.ok) throw new Error('暂时无法下载安装包，请稍后重试。')
+
+    const file = await response.blob()
+    const signature = new DataView(await file.slice(0, 4).arrayBuffer())
+    if (signature.byteLength !== 4 || signature.getUint32(0) !== 0x504b0304) {
+      throw new Error('下载地址没有返回 APK 安装包，请稍后重试。')
+    }
+
+    const downloadUrl = URL.createObjectURL(new Blob([file], { type: APK_MIME_TYPE }))
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = `TwoPoles-${APK_VERSION}.apk`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 60_000)
+  } catch (error) {
+    apkDownloadError.value = error instanceof TypeError || !(error instanceof Error)
+      ? '下载安装包失败，请检查网络后重试。'
+      : error.message
+  } finally {
+    downloadingApk.value = false
+  }
+}
 
 function captureInstallPrompt(e: Event) {
   e.preventDefault() // 拦下浏览器的默认安装提示，等用户点我们自己的按钮再触发
@@ -155,6 +190,8 @@ onUnmounted(() => {
   font-size: 13px; font-weight: 600; text-decoration: none;
 }
 .dl-btn:hover { filter: brightness(1.06); }
+.dl-btn:disabled { opacity: .65; }
+.plat .apk-error { color: var(--color-danger); }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .actions :deep(button) { width: auto; padding: 0 20px; }
 .pwa { background: var(--color-neutral-soft); border-radius: var(--radius-sm); padding: 14px; border-top: 0; }

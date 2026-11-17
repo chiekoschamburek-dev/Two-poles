@@ -202,7 +202,7 @@
 
     <BaseCard class="section animate-slide-in-up">
       <h2>隐私</h2>
-      <p class="sub">当前实现里，摄像头画面只在本机做姿态推理，不上传、也不落盘。下面的开关记录的是你的偏好。开启「保存动作数据」后，跟练与动作分析产生的关节角度、关键点坐标等测量数据会保存在本机 IndexedDB，用于回看角度曲线；画面与视频本身始终不保存。</p>
+      <p class="sub">当前实现里，摄像头画面只在本机做姿态推理，不上传、也不落盘。下面的开关记录的是你的偏好。开启「保存动作数据」后，动作分析产生的关节角度、角速度、角加速度、归一化线速度与关键点坐标等派生数据会保存在本机 IndexedDB，用于回看角度与运动学曲线；画面与视频本身始终不保存。</p>
 
       <label class="toggle">
         <input type="checkbox" role="switch" :checked="store.privacy.cameraEnabled" @change="setPrivacy('cameraEnabled', ($event.target as HTMLInputElement).checked)" />
@@ -225,7 +225,7 @@
       <label class="toggle">
         <input type="checkbox" role="switch" :checked="store.privacy.saveMotionSeriesLocally" @change="setPrivacy('saveMotionSeriesLocally', ($event.target as HTMLInputElement).checked)" />
         <span class="tg"><i></i></span>
-        <span class="tlabel"><strong>保存动作数据（仅本机）</strong><small>默认关闭。开启后保存关节角度与关键点坐标，用于回看角度曲线与长期对比；只存本机 IndexedDB，不同步、不进导出，删除分析记录时一起删除，最多保留 30 条或 90 天。画面与视频始终不保存。关闭后曲线只在当次会话内存中可用。</small></span>
+        <span class="tlabel"><strong>保存动作数据（仅本机）</strong><small>默认关闭。开启后保存关节角度、角速度、角加速度、归一化线速度与关键点坐标，用于回看角度/运动学曲线与长期对比；只存本机 IndexedDB，不同步、不进导出，删除分析记录时一起删除，最多保留 30 条或 90 天。画面与视频始终不保存。关闭后曲线只在当次会话内存中可用。</small></span>
       </label>
 
       <p class="fine">

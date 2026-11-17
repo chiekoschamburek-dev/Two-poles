@@ -3,7 +3,7 @@
 // 视频与摄像头画面始终不落盘；这里存的是派生几何数据（角度、关键点坐标），仍需用户显式同意。
 import type { RepAnalysis, MotionFrame } from '@/services/motionAnalysis'
 import type { MotionEvent } from '@/services/motionEvents'
-import type { AnalysisAction, AnalysisView } from '@/types/domain'
+import type { AnalysisAction, AnalysisView, MotionKinematics } from '@/types/domain'
 
 const DB_NAME = 'twopoles_motion_series'
 const STORE_NAME = 'series'
@@ -36,6 +36,8 @@ export interface MotionSeriesRecord {
   angles: AngleSample[]
   /** 仅 12 关节并集，坐标保留 4 位小数；便于日后修几何 bug 后无需视频重算 */
   landmarks: { timeMs: number; points: { x: number; y: number; v: number }[] }[]
+  /** 运动学派生序列；旧记录没有该字段，详情页按无曲线处理 */
+  kinematics?: MotionKinematics
   reps: RepAnalysis[]
   events: MotionEvent[]
 }
@@ -90,6 +92,7 @@ export function buildSeriesRecord(input: {
   angles: AngleSample[]
   reps: RepAnalysis[]
   events: MotionEvent[]
+  kinematics?: MotionKinematics
 }): MotionSeriesRecord {
   const order = [
     ['shoulder', 'left'], ['shoulder', 'right'],
@@ -119,7 +122,8 @@ export function buildSeriesRecord(input: {
       })
     })),
     reps: input.reps,
-    events: input.events
+    events: input.events,
+    ...(input.kinematics ? { kinematics: input.kinematics } : {})
   }
 }
 

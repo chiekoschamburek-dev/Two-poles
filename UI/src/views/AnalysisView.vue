@@ -209,27 +209,19 @@
         </article>
       </BaseCard>
 
-      <AngleCurve
-        v-if="angleSamples.length"
-        :samples="angleSamples"
-        :joint="curveJoint"
-        :fps="15"
+      <KinematicsPanel
+        v-if="hasKinematicsCard"
+        :kinematics="result.kinematics ?? null"
+        :angles="angleSamples"
+        :metrics="result.metrics"
+        :action="action"
+        :fps="result.fps"
         :marker-times="markerTimes"
-        :title="`${actionLabel} · ${curveJoint === 'hip' ? '髋' : curveJoint === 'trunk' ? '躯干' : '膝'}角曲线`"
         @seek="seekToFinding"
       />
-      <div v-if="angleSamples.length" class="curve-switch" role="group" aria-label="切换曲线关节">
-        <button
-          v-for="item in curveJoints"
-          :key="item.id"
-          type="button"
-          class="switch-chip"
-          :class="{ on: curveJoint === item.id }"
-          :aria-pressed="curveJoint === item.id"
-          @click="curveJoint = item.id"
-        >{{ item.label }}</button>
-        <span class="curve-note">{{ seriesSaved ? '角度数据已保存在本机，可在设置关闭。' : '角度数据仅在本次会话内存中，未落盘。' }}</span>
-      </div>
+      <p v-if="hasKinematicsCard" class="curve-note">
+        {{ seriesSaved ? '角度与运动学数据已保存在本机，可在设置关闭。' : '角度与运动学曲线仅在本次会话内存中，未落盘。' }}
+      </p>
 
       <BaseCard v-if="report" class="panel">
         <div class="explain-head">
@@ -253,15 +245,16 @@
         <p class="disclaimer">{{ report.disclaimer }}</p>
       </BaseCard>
 
-      <BaseCard class="panel">
+      <BaseCard v-if="nonKinematicsMetrics.length" class="panel">
         <h2>测量值</h2>
         <dl class="metrics">
-          <div v-for="metric in result.metrics" :key="metric.id">
+          <div v-for="metric in nonKinematicsMetrics" :key="metric.id">
             <dt>{{ metric.label }}</dt>
             <dd>{{ metric.value }}<small v-if="metric.unit"> {{ metric.unit }}</small></dd>
           </div>
         </dl>
       </BaseCard>
+      <p v-else class="curve-note">运动学指标见上方。</p>
 
       <p class="disclaimer">{{ disclaimer }}</p>
       <div class="actions">
@@ -285,13 +278,14 @@ import { useAppStore } from '@/stores/app'
 import { useVideoAnalysis, VideoAnalysisError } from '@/composables/useVideoAnalysis'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
 import { saveAnalysisKeyframe } from '@/services/analysisKeyframes'
-import AngleCurve from '@/components/analysis/AngleCurve.vue'
+import KinematicsPanel from '@/components/analysis/KinematicsPanel.vue'
 import MotionTrendCard from '@/components/reports/MotionTrendCard.vue'
 import { buildAllTrends } from '@/services/motionTrends'
 import { useMotionExplanation } from '@/composables/useMotionExplanation'
 import { buildSeriesRecord, saveMotionSeries } from '@/services/motionSeries'
 import { eventsFromFrames } from '@/services/motionEvents'
 import { configForAction, repRuleFor } from '@/services/motionConfig'
+import { isKinematicsMetric } from '@/services/motionKinematics'
 import type { MotionAngleSample } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { toISODate } from '@/utils/time'
@@ -318,15 +312,9 @@ const switchableActions: { id: AnalysisAction; label: string }[] = [
   { id: 'deadlift', label: '硬拉' }
 ]
 
-const curveJoints: { id: 'knee' | 'hip' | 'trunk'; label: string }[] = [
-  { id: 'knee', label: '膝角' },
-  { id: 'hip', label: '髋角' },
-  { id: 'trunk', label: '躯干角' }
-]
-
 const disclaimer = '规则参考各关注项所列文献，阈值由本项目自行翻译，未经运动医学或体能专业人士审核；结果仅供复盘参考，不构成诊断或训练处方。'
 
-const { phase, progress, statusText, duration, prepare, precheck, analyze, captureKeyframes, cancel, dispose, capturedFrames, capturedFps } = useVideoAnalysis()
+const { phase, progress, statusText, duration, prepare, precheck, analyze, captureKeyframes, cancel, dispose, capturedFrames } = useVideoAnalysis()
 const store = useAppStore()
 
 const step = ref<Step>('pick')
@@ -342,13 +330,14 @@ const keyframeUrls = ref<Record<string, string>>({})
 /** 本次分析已保存的记录 id；改判重跑时先删掉它，避免同一段视频留两条结果 */
 const savedRecordId = ref<string | null>(null)
 const angleSamples = ref<MotionAngleSample[]>([])
-const curveJoint = ref<'knee' | 'hip' | 'trunk'>('knee')
 const seriesSaved = ref(false)
 const explanation = useMotionExplanation()
 const motionTrends = computed(() => buildAllTrends(store.analyses, store.sessions))
 
-/** 曲线关节默认跟随动作：硬拉看髋，其余看膝 */
-const defaultCurveJoint = computed(() => action.value === 'deadlift' ? 'hip' : 'knee')
+const nonKinematicsMetrics = computed(() => (result.value?.metrics ?? []).filter(metric => !isKinematicsMetric(metric)))
+const hasKinematicsCard = computed(() => Boolean(result.value?.kinematics)
+  || angleSamples.value.length > 0
+  || (result.value?.metrics ?? []).some(isKinematicsMetric))
 const markerTimes = computed(() => (result.value?.findings ?? [])
   .map(finding => finding.timeMs)
   .filter((time): time is number => time !== null))
@@ -527,7 +516,7 @@ async function persistSeries(analysisResult: MotionAnalysisResult, view: Analysi
   const id = savedRecordId.value
   if (!id) return
   const frames = capturedFrames()
-  const fps = capturedFps()
+  const fps = analysisResult.fps
   if (!frames.length || !fps) return
   const config = configForAction(action.value)
   const events = config
@@ -545,7 +534,8 @@ async function persistSeries(analysisResult: MotionAnalysisResult, view: Analysi
       frames,
       angles: analysisResult.angles ?? [],
       reps: analysisResult.reps ?? [],
-      events
+      events,
+      ...(analysisResult.kinematics ? { kinematics: analysisResult.kinematics } : {})
     }))
   } catch {
     // 配额不足或隐私模式：曲线仍可用内存数据渲染，不影响分析结果
@@ -584,7 +574,6 @@ async function startAnalysis() {
     const analysisResult = await analyze(action.value, view)
     reconcilePrecheck(analysisResult)
     angleSamples.value = analysisResult.angles ?? []
-    curveJoint.value = defaultCurveJoint.value
     saving.value = true
     result.value = await persistResult(analysisResult, view)
     await persistSeries(analysisResult, view)
@@ -764,7 +753,6 @@ onUnmounted(revokeKeyframeUrls)
 .keyframe { display: block; width: min(100%, 360px); margin: 8px 0 10px; border-radius: var(--radius-md); border: 1px solid var(--color-border); }
 .conf { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 600; color: var(--pole-movement-strong); }
 .conf.low { color: var(--color-text-muted); font-weight: 500; }
-.curve-switch { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0 2px; }
 .curve-note { font-size: 9.5px; color: var(--color-text-muted); margin-left: auto; }
 .explain-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .explain-head h2 { margin: 0; font-size: 16px; }

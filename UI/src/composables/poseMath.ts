@@ -60,7 +60,11 @@ export const EMPTY_POSE_METRICS: PoseMetrics = {
   kneeSide: null, elbowSide: null, hipSide: null
 }
 
-export function angleAt(a: GeometryPoint, vertex: GeometryPoint, b: GeometryPoint): number | null {
+/**
+ * 未取整的关节角。运动学求导不能吃取整后的角度：15fps 下 1° 的量化误差
+ * 一阶差分就是 15°/s，二阶会放大到 225°/s²，足以让曲线完全失真。
+ */
+export function angleAtExact(a: GeometryPoint, vertex: GeometryPoint, b: GeometryPoint): number | null {
   if (![a.x, a.y, vertex.x, vertex.y, b.x, b.y].every(Number.isFinite)) return null
   const v1x = a.x - vertex.x
   const v1y = a.y - vertex.y
@@ -69,7 +73,22 @@ export function angleAt(a: GeometryPoint, vertex: GeometryPoint, b: GeometryPoin
   const magnitude = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y)
   if (!magnitude) return null
   const cos = Math.min(1, Math.max(-1, (v1x * v2x + v1y * v2y) / magnitude))
-  return Math.round((Math.acos(cos) * 180) / Math.PI)
+  return (Math.acos(cos) * 180) / Math.PI
+}
+
+export function angleAt(a: GeometryPoint, vertex: GeometryPoint, b: GeometryPoint): number | null {
+  const exact = angleAtExact(a, vertex, b)
+  return exact === null ? null : Math.round(exact)
+}
+
+/** 躯干与竖直方向的夹角，未取整；肩在髋下时按 90° 处理，与既有口径一致。 */
+export function trunkAngleAt(shoulder: GeometryPoint | null, hip: GeometryPoint | null): number | null {
+  if (!shoulder || !hip) return null
+  if (![shoulder.x, shoulder.y, hip.x, hip.y].every(Number.isFinite)) return null
+  const dx = shoulder.x - hip.x
+  const dy = hip.y - shoulder.y
+  if (dx === 0 && dy === 0) return null
+  return (Math.atan2(Math.abs(dx), Math.max(0, dy)) * 180) / Math.PI
 }
 
 /** 构成角的 3 点可见度最小值：喂状态机的可见度口径 */

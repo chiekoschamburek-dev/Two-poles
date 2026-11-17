@@ -30,7 +30,7 @@ location /api/v1/ {
 实测结论：本站以「函数和 Pages」接入，**函数路由覆盖整个主机名，ESA 的「DNS 记录（源站改写）」等回源规则对函数路由的流量不生效**——`/api/v1/*` 会先被 `llm.js` 的 `/api/*` 兜底拦成 404。因此转发做在函数里：
 
 - `server/llm.js` 在 `/api/*` 兜底之前，把 `GET/POST/PATCH/DELETE /api/v1/*` 原样（方法、头、体、Cookie）转发到函数变量 `API_ORIGIN`（默认 `http://origin.bupt-empty-classrom.top`），响应连同 Set-Cookie 原样返回。**ESA 运行时禁止 fetch 裸 IP（防 SSRF）**，源站必须用域名：`origin.bupt-empty-classrom.top` 是一条 A 记录直指 Node 主机、**代理加速关闭**（DNS 仅解析）的记录；换服务器时改这条记录的值，或改 `API_ORIGIN` 函数变量，无需重新发版。
-- `/apk/twopoles-debug.apk`（安卓 App 安装包）走同一转发；Node 主机 nginx 以 `location /apk/ { alias /opt/twopoles/apk/; }` 提供。注意两个坑：**边缘函数转发大文件约 9MB 处断流**（首次 53MB 的包手机上必失败，APK 精简到 5MB 后才可靠）；且**手机端 SW 会把失败的下载兜底成缓存的首页**（`sw.js` 已对 `/apk/` 直连放行）。该地址是 App 的固定更新直链。
+- `/apk/twopoles-debug.apk` 由 ESA Pages 作为静态资源分发。签名 APK 放在 `UI/public/apk/`，构建后应出现在 `UI/dist/apk/`。这样直接点击链接会命中安装包，避免缺失资源被 SPA 回退为 `index.html`。边缘函数仍保留原有 nginx 源站转发，`sw.js` 对 `/apk/` 直连放行。发布后应实际下载文件并核对大小或 SHA-256，避免把 `200 OK` 的网页回退误判为成功。
 - Node 主机侧：systemd 常驻 `npm run server`，nginx :80 反代 `127.0.0.1:8787`；SQLite 在 `/opt/twopoles/data/`，每日 `VACUUM INTO` 快照备份（保留 7 份）。
 - 试用期内 `COOKIE_SECURE=false`（与 http 直连 IP 的调试入口共用一套环境）；IP 入口退役后切 `true`。
 - 安卓 App（Capacitor）的构建顺序与镜像配置见 [README.md](README.md) 的「安卓 App（Capacitor）」一节；改原生代码/图标才需要重出 APK，纯网页更新对 App 零发版。
