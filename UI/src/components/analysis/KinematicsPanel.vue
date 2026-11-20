@@ -327,7 +327,7 @@ const note = computed(() => {
 .curve-head span { font-family: var(--font-num); font-size: 10px; color: var(--color-text-muted); }
 .switch-rows { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 8px; }
 .switch-group { display: flex; flex-wrap: wrap; gap: 5px; }
-.switch-chip { padding: 3px 10px; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-card); color: var(--color-text-secondary); font-family: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: border-color var(--motion-fast), background var(--motion-fast); }
+.switch-chip { padding: 3px 10px; min-height: var(--target-size); border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-card); color: var(--color-text-secondary); font-family: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: border-color var(--motion-fast), background var(--motion-fast); }
 .switch-chip:hover { border-color: var(--pole-movement-line); }
 .switch-chip.on { border-color: var(--pole-movement-line); background: var(--pole-movement-soft); color: var(--pole-movement-strong); }
 .muted { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.7; }

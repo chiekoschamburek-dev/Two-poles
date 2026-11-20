@@ -193,12 +193,23 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --content-max-width: 1440px;
   --gutter: clamp(16px, 2.4vw, 34px);
+  /* 交互目标最小尺寸：鼠标 24px（WCAG 2.5.8），触屏 44px（WCAG 2.5.5）。
+     只有确实偏小的控件显式引用它，不做全局兜底——这套版面密度高，
+     一刀切会把紧凑的 chip 行撑开。 */
+  --target-size: 24px;
 
   /* === Breakpoints (used in media queries) === */
   --breakpoint-sm: 640px;
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1280px;
+}
+
+/* 触屏上把最小交互目标抬到 44px */
+@media (pointer: coarse) {
+  :root {
+    --target-size: 44px;
+  }
 }
 
 /* Reduced motion preferences */

@@ -5,13 +5,15 @@
     <Transition name="fade">
       <div v-if="mobileOpen" class="scrim" @click="mobileOpen = false"></div>
     </Transition>
-    <main class="main-content" :class="{ 'main-workspace': isWorkspace }">
+    <main ref="mainRef" class="main-content" :class="{ 'main-workspace': isWorkspace }" tabindex="-1">
       <RouterView v-slot="{ Component }">
         <Transition name="page" mode="out-in">
           <component :is="Component" />
         </Transition>
       </RouterView>
     </main>
+    <!-- 路由切换后用读屏播报页面名：SPA 换页不会触发浏览器默认的"已加载"提示 -->
+    <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ pageAnnouncement }}</p>
     <MobileNav />
     <WellnessDock />
     <PlanDraftDialog />
@@ -20,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from './TopBar.vue'
 import SidebarNav from './SidebarNav.vue'
@@ -38,6 +40,8 @@ import { checkAppUpdate, dismissUpdate, isUpdateDismissed } from '@/services/app
 const mobileOpen = ref(false)
 const route = useRoute()
 const store = useAppStore()
+const mainRef = ref<HTMLElement | null>(null)
+const pageAnnouncement = ref('')
 const { init: initWellnessDock, modalOpen: wellnessModalOpen } = useWellnessDock()
 /** 双极工作台自己管理两栏的滚动，外壳不再让整页滚动 */
 const isWorkspace = computed(() => route.meta.workspace === true)
@@ -47,6 +51,18 @@ watch(() => route.fullPath, () => {
   // 页面级弹层随路由卸载；兜底清掉可能残留的 body 锁，避免整页划不动。
   // 进站 Tips 弹窗是全局的，仍开着时不能替它解锁。
   if (!wellnessModalOpen.value) resetBodyScroll()
+})
+
+/**
+ * 路由切换后把焦点交给主区：键盘用户的焦点原本停在侧栏链接上，
+ * 新页面内容却已换掉，继续 Tab 会从旧位置开始。焦点落到 main（tabindex="-1"）
+ * 既能立刻接上阅读顺序，也不会抢走表单的焦点。
+ */
+watch(() => route.path, async () => {
+  const title = (route.meta.title as string | undefined) ?? ''
+  pageAnnouncement.value = title ? `已进入${title}` : ''
+  await nextTick()
+  mainRef.value?.focus({ preventScroll: true })
 })
 
 let stopSupplements: (() => void) | null = null
@@ -86,10 +102,13 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* 背景由 body 的固定纸面 + 颗粒层承担：这里若再画一遍会盖掉噪点并让渐变随滚动重复 */
-.shell { min-height: 100vh; }
+/* 整页最小高度用 dvh：手机地址栏收放时 vh 会按最大视口算，页面底部会多出一段空白。
+   先写一行 vh 兜底，不认识 dvh 的浏览器会忽略后一条。 */
+.shell { min-height: 100vh; min-height: 100dvh; }
 /* 导航脊是 fixed 且贯穿整屏，主区只让出它的宽度；页头自己负责吸顶（含 PWA 刘海让位，见 TopBar） */
 .main-content {
   min-height: calc(100vh - var(--topbar-height) - var(--safe-top));
+  min-height: calc(100dvh - var(--topbar-height) - var(--safe-top));
   margin-left: var(--sidebar-width);
   padding: var(--space-2) var(--gutter) var(--space-6) var(--space-7);
 }
@@ -106,12 +125,19 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
 }
+.main-content > * { min-width: 0; }
+/* 程序化聚焦（路由切换）不该画出一圈焦点环，只有键盘 Tab 过来时才显示 */
+.main-content:focus { outline: none; }
+.main-content:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .scrim { position: fixed; inset: 0; background: var(--overlay); z-index: calc(var(--z-sticky) + 1); }
 .fade-enter-active, .fade-leave-active { transition: opacity var(--motion-base); }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-.page-enter-active, .page-leave-active { transition: opacity var(--motion-base) var(--easing-ease-out), transform var(--motion-base) var(--easing-ease-out); }
+/* out-in 的总时长 = 离场 + 入场。离场只做淡化，缩到 120ms：
+   新页面挂载早 130ms，察觉不到"离场被缩短"，但切页整体快四分之一。 */
+.page-enter-active { transition: opacity var(--motion-base) var(--easing-ease-out), transform var(--motion-base) var(--easing-ease-out); }
+.page-leave-active { transition: opacity 120ms var(--easing-ease-out); }
 .page-enter-from { opacity: 0; transform: translateY(10px); }
-.page-leave-to { opacity: 0; transform: translateY(-6px); }
+.page-leave-to { opacity: 0; }
 @media (max-width: 1099px) {
   .main-content { margin-left: 0; padding: var(--space-3) var(--space-6) var(--space-8); }
   .main-content.main-workspace { padding: 8px 12px; }

@@ -21,7 +21,9 @@
     "eval:synthetic": "esbuild scripts/motion-eval/synthetic.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.eval-synthetic.mjs && node .eval-synthetic.mjs",
     "eval:motion": "node scripts/motion-eval/run-eval.mjs",
     "eval:replay": "esbuild scripts/motion-eval/replay.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.eval-replay.mjs && node .eval-replay.mjs",
-    "eval:ui": "node scripts/motion-eval/verify-ui.mjs"
+    "eval:ui": "node scripts/motion-eval/verify-ui.mjs",
+    "verify:web": "node scripts/motion-eval/verify-web.mjs",
+    "verify:execution": "node scripts/motion-eval/verify-execution.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",

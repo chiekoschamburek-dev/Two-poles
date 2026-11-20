@@ -62,49 +62,34 @@
   50% { opacity: 0.7; }
 }
 
-/* 演示回放边框上的流动扫光（仅在演示进行中显示） */
-@keyframes shimmerGradient {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+/* 演示回放边框上的流动扫光：只动 transform，交给合成器，不再逐帧重绘 background-position */
+@keyframes shimmerSweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }
 
-/* fill-mode 让入场在首帧即保持起始状态，避免先闪一下再动 */
-.animate-fade-in {
-  animation: fadeIn var(--motion-base) var(--easing-ease-out) both;
-}
-
-.animate-slide-in-up {
-  animation: slideInUp var(--motion-slow) var(--easing-spring) both;
-}
-
-.animate-scale-in {
-  animation: scaleIn var(--motion-base) var(--easing-ease-out) both;
-}
-
-.animate-bounce-in {
-  animation: bounceIn var(--motion-slow) var(--easing-spring) both;
-}
-
-.animate-pulse {
-  animation: pulse var(--motion-slow) var(--easing-ease-in-out) infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+/* 入场/循环动效一律「默认静态、按需选入」：
+   prefers-reduced-motion 下这些类不声明 animation，元素直接以最终状态呈现。
+   刻意不采用「全局 animation-duration:.01ms」的写法——那会让部分动画更刺眼，
+   也会把纯颜色过渡一并压掉。 */
+@media (prefers-reduced-motion: no-preference) {
+  .animate-fade-in {
+    animation: fadeIn var(--motion-base) var(--easing-ease-out) both;
   }
 
-  .animate-fade-in,
-  .animate-slide-in-up,
-  .animate-scale-in,
-  .animate-bounce-in,
-  .animate-pulse,
-  .gradient-shimmer {
-    animation: none;
+  .animate-slide-in-up {
+    animation: slideInUp var(--motion-slow) var(--easing-spring) both;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn var(--motion-base) var(--easing-ease-out) both;
+  }
+
+  .animate-bounce-in {
+    animation: bounceIn var(--motion-slow) var(--easing-spring) both;
+  }
+
+  .animate-pulse {
+    animation: pulse var(--motion-slow) var(--easing-ease-in-out) infinite;
   }
 }

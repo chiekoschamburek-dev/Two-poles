@@ -136,6 +136,8 @@ const cycleWeek = computed(() => {
 .avatar {
   width: 30px;
   height: 30px;
+  min-width: var(--target-size);
+  min-height: var(--target-size);
   overflow: hidden;
   border-radius: 50%;
   background: var(--color-ink);
@@ -151,12 +153,14 @@ const cycleWeek = computed(() => {
 .avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .avatar:hover { transform: scale(1.06); }
 
-.menu-btn { display: none; color: var(--color-ink); }
+.menu-btn { display: none; color: var(--color-ink); min-width: var(--target-size); min-height: var(--target-size); }
 
 .gear-btn {
   display: none;
   width: 32px;
   height: 32px;
+  min-width: var(--target-size);
+  min-height: var(--target-size);
   place-items: center;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);

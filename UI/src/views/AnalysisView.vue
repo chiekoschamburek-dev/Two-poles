@@ -667,6 +667,7 @@ onUnmounted(revokeKeyframeUrls)
 .switch-group { display: inline-flex; gap: 5px; margin-left: 8px; vertical-align: middle; }
 .switch-chip {
   padding: 3px 10px;
+  min-height: var(--target-size);
   border: 1px solid var(--color-border);
   border-radius: 999px;
   background: var(--color-card);
@@ -684,7 +685,7 @@ onUnmounted(revokeKeyframeUrls)
 .an-upload-copy { flex: 1; min-width: 0; }
 .an-upload-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; font-weight: 600; }
 .an-upload-copy span { display: block; margin-top: 2px; font-size: 8.5px; color: var(--color-text-muted); }
-.an-pick { flex: none; height: 29px; padding: 0 10px; border: 0; border-radius: var(--radius-base); background: var(--color-ink); color: var(--color-on-accent); font-family: inherit; font-size: 10px; font-weight: 600; cursor: pointer; }
+.an-pick { flex: none; min-height: var(--target-size); padding: 0 12px; border: 0; border-radius: var(--radius-base); background: var(--color-ink); color: var(--color-on-accent); font-family: inherit; font-size: 10px; font-weight: 600; cursor: pointer; }
 .an-pick:disabled { opacity: .55; cursor: default; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
 .an-progress { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; font-size: 10px; color: var(--color-text-muted); }

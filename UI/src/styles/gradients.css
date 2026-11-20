@@ -3,14 +3,30 @@
    .text-gradient-* 等工具类经 grep 确认没有任何模板引用，且它们依赖的装饰渐变
    令牌已随"单一强调色"改造删除，故整批移除，只留下确实在用的一条。 */
 
-/* 演示回放边框上流动的扫光：ExecutionView 的 .frame-sheen 使用 */
+/* 演示回放边框上流动的扫光（ExecutionView 的 .frame-sheen 使用）。
+   旧实现动 background-position，等于每帧重绘整个覆盖层；现在改为伪元素做
+   transform 位移，动画留在合成器上，训练全程的持续开销降到可忽略。 */
 .gradient-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.gradient-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     90deg,
     transparent 0%,
     rgba(255, 255, 255, 0.3) 50%,
     transparent 100%
   );
-  background-size: 200% 100%;
-  animation: shimmerGradient 2s ease-in-out infinite;
+  transform: translateX(-100%);
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .gradient-shimmer::after {
+    animation: shimmerSweep 2s ease-in-out infinite;
+  }
 }

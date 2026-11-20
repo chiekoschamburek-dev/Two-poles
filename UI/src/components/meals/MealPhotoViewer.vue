@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <Teleport to="body">
     <div v-if="open" class="photo-scrim" @click.self="close">
       <div class="photo-dialog" role="dialog" aria-modal="true" aria-labelledby="meal-photo-title">
@@ -149,9 +149,16 @@ function close() {
 .photo-foot :deep(button){width:auto}
 @media(max-width:640px){
   .photo-scrim{padding:0}
-  .photo-dialog{width:100%;height:100vh;max-height:100vh;border-radius:0;border:0}
+  /* dvh 跟随浏览器地址栏收放；vh 会按"工具栏隐藏时"的最大视口算，把图片底部切掉 */
+  .photo-dialog{width:100%;height:100dvh;max-height:100dvh;border-radius:0;border:0}
   .photo-head{padding:14px 16px}
-  .photo-stage img{max-height:calc(100vh - 150px)}
+  .photo-stage img{max-height:calc(100dvh - 150px)}
   .photo-foot{padding:10px 16px}
+}
+@supports not (height:100dvh){
+  @media(max-width:640px){
+    .photo-dialog{height:100vh;max-height:100vh}
+    .photo-stage img{max-height:calc(100vh - 150px)}
+  }
 }
 </style>

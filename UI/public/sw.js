@@ -39,16 +39,16 @@ self.addEventListener('fetch', (event) => {
   if (request.headers.has('range')) return
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request))
+    event.respondWith(networkFirst(request, event))
     return
   }
-  event.respondWith(cacheFirst(request))
+  event.respondWith(cacheFirst(request, event))
 })
 
-async function networkFirst(request) {
+async function networkFirst(request, event) {
   try {
     const response = await fetch(request)
-    if (response.ok) await putInCache(request, response.clone())
+    if (response.ok) deferCacheWrite(event, request, response.clone())
     return response
   } catch {
     const cached = await caches.match(request)
@@ -60,7 +60,18 @@ async function networkFirst(request) {
   }
 }
 
-async function cacheFirst(request) {
+/**
+ * 写缓存不挡响应：cache.put() 要把 body 完整读一遍再落盘，
+ * 对 13 MB 的 wasm 这类大资源就是白白加在首访延迟上。
+ * 用 waitUntil 把写入排到响应返回之后，Service Worker 也不会因提前终止而丢写。
+ */
+function deferCacheWrite(event, request, response) {
+  const task = putInCache(request, response).catch(() => { /* 配额不足时放弃缓存，不影响本次请求 */ })
+  if (event && typeof event.waitUntil === 'function') event.waitUntil(task)
+  else void task
+}
+
+async function cacheFirst(request, event) {
   const cache = await caches.open(RUNTIME_CACHE)
   const cached = await cache.match(request)
   const isBundle = ['script', 'style'].includes(request.destination)
@@ -69,7 +80,7 @@ async function cacheFirst(request) {
   if (cached) await cache.delete(request)
   const response = await fetch(request)
   // 旧版页面代码请求可能收到 HTML 回退，避免缓存后一直重复加载这个响应。
-  if (response.status === 200 && usable(response)) await putInCache(request, response.clone())
+  if (response.status === 200 && usable(response)) deferCacheWrite(event, request, response.clone())
   return response
 }
 

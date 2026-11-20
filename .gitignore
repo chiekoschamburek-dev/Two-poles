@@ -65,7 +65,6 @@ media/
 # Local workflow scratch (spec/ticket drafts, not committed)
 .scratch/
 data_demo/
-UI\public\
 docs/
 .workbuddy/
 

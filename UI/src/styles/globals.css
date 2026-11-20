@@ -13,6 +13,17 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-size-adjust: 100%;
+  /* 吸顶页头与手机底部胶囊都是 fixed，键盘 Tab 到页面下半部分时
+     元素会被压在他们后面（WCAG 2.4.11）。用 scroll-padding 让浏览器
+     把聚焦元素滚到安全区内，而不是被遮挡。 */
+  scroll-padding-top: calc(var(--topbar-height) + var(--safe-top) + 8px);
+  scroll-padding-bottom: 16px;
+}
+
+@media (max-width: 767px) {
+  html {
+    scroll-padding-bottom: calc(var(--mobile-nav-height) + var(--safe-bottom) + 20px);
+  }
 }
 
 body {
@@ -27,6 +38,8 @@ body {
   background-repeat: no-repeat;
   background-size: cover;
   min-height: 100vh;
+  /* dvh 跟随浏览器地址栏收放；不支持的浏览器保留上面的 vh */
+  min-height: 100dvh;
   overflow-x: hidden;
 }
 

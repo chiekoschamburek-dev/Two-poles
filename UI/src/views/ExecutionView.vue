@@ -10,7 +10,7 @@
           第 {{ itemIndex + 1 }} / {{ trainingItems.length }} 项<template v-if="nextItem && !finished"> · 下一项 {{ nextItem.exerciseName }}</template>
         </p>
       </div>
-      <BaseButton variant="secondary" :icon="X" @click="leave">结束</BaseButton>
+      <BaseButton variant="secondary" :icon="X" @click="onFinishClick">{{ trainingMode ? '结束并记录' : '返回' }}</BaseButton>
     </div>
 
     <BaseCard v-if="!trainingMode" class="guide-picker">
@@ -40,7 +40,7 @@
       <div class="strip-cell">
         <span class="strip-label">组数进度</span>
         <div class="strip-num">{{ displaySet }}<i>/{{ exercise.sets }}</i></div>
-        <div class="strip-bar"><div class="strip-fill" :style="{ width: setProgress + '%' }"></div></div>
+        <div class="strip-bar"><div class="strip-fill" :style="{ transform: 'scaleX(' + setProgress / 100 + ')' }"></div></div>
         <p class="strip-sub" aria-live="polite">{{ setsDoneLine }}</p>
       </div>
       <div class="strip-cell primary">
@@ -55,7 +55,7 @@
         <template v-else-if="isTimeMode">
           <span class="strip-label">{{ openTimer ? '本组已用时' : '本组剩余时间' }}</span>
           <div class="strip-num">{{ holdLeft }}<i>秒</i></div>
-          <div v-if="!openTimer" class="strip-bar"><div class="strip-fill" :style="{ width: holdProgress + '%' }"></div></div>
+          <div v-if="!openTimer" class="strip-bar"><div class="strip-fill" :style="{ transform: 'scaleX(' + holdProgress / 100 + ')' }"></div></div>
         </template>
         <template v-else>
           <span class="strip-label">已计步数</span>
@@ -100,7 +100,7 @@
 
     <div class="stage-grid" :class="{ 'timer-only': trainingMode === 'timer' }">
       <!-- 左：本地真人动作演示。视频独立循环，训练计数仍由原有时间线或摄像头负责。 -->
-      <BaseCard class="pane pane-demo glass animate-slide-in-up">
+      <BaseCard class="pane pane-demo animate-slide-in-up">
         <div class="pane-head">
           <span class="pane-title">{{ trainingMode === 'timer' ? '本组计时' : '演示动作' }}</span>
           <span class="pane-note">{{ trainingMode === 'timer' ? nextSetSpec : '真人动作示范' }}</span>
@@ -171,7 +171,7 @@
       </BaseCard>
 
       <!-- 右：实时摄像头（独立开关，与演示同屏） -->
-      <BaseCard v-if="trainingMode === 'camera'" class="pane pane-cam glass animate-slide-in-up">
+      <BaseCard v-if="trainingMode === 'camera'" class="pane pane-cam animate-slide-in-up">
         <div class="pane-head">
           <span class="pane-title">实时摄像头</span>
           <span class="pane-note">{{ camNote }}</span>
@@ -189,7 +189,7 @@
               <small v-else>摄像头已在「设置 → 隐私」关闭</small>
             </div>
             <div v-else-if="cameraConnecting" class="cam-idle">
-              <p>{{ pose.startingStage.value === 'camera' ? '正在请求摄像头权限…' : '相机已连接，正在加载端侧姿态模型（首次约 5.5 MB）…' }}</p>
+              <p>{{ pose.startingStage.value === 'camera' ? '正在请求摄像头权限…' : '相机已连接，正在加载端侧姿态模型（首次需下载运行时与模型，之后走缓存）…' }}</p>
               <button type="button" class="cam-main-btn ghost" @click="switchToTimer">改用计时</button>
             </div>
             <div v-else-if="camErrored" class="cam-idle">
@@ -198,7 +198,7 @@
               <button type="button" class="cam-main-btn ghost" @click="switchToTimer">{{ status === 'idle' ? '改用计时' : '用计时重开当前动作' }}</button>
             </div>
             <template v-else-if="live">
-              <div class="cam-angles" aria-hidden="true">膝 {{ pose.kneeAngle.value ?? '—' }}° · 髋 {{ pose.hipAngle.value ?? '—' }}° · 肘 {{ pose.elbowAngle.value ?? '—' }}°</div>
+              <div class="cam-angles" aria-hidden="true">膝 {{ displayAngles.knee ?? '—' }}° · 髋 {{ displayAngles.hip ?? '—' }}° · 肘 {{ displayAngles.elbow ?? '—' }}°</div>
               <button
                 class="cam-calib"
                 :disabled="calibrating || !counter || finished || status !== 'playing'"
@@ -235,7 +235,7 @@
           <input v-model.number="editValue" type="number" min="0" :max="exercise.repsPerSet" aria-label="修正本组次数" />
           <BaseButton size="sm" @click="applyCorrection">确认</BaseButton>
         </div>
-        <BaseButton variant="ghost" size="sm" :icon="FileText" @click="leave">放弃本次记录</BaseButton>
+        <BaseButton variant="ghost" size="sm" :icon="FileText" @click="onDiscardClick">{{ discardArmed ? '再按一次确认丢弃' : '放弃本次记录' }}</BaseButton>
       </BaseCard>
 
       <BaseCard v-else class="actions-card summary animate-slide-in-up">
@@ -296,7 +296,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, watch, nextTick, onUnmounted } from 'vue'
+import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
@@ -309,6 +309,7 @@ import { useMotionSession } from '@/composables/useMotionSession'
 import { configForName } from '@/services/motionConfig'
 import { useSpeech } from '@/composables/useSpeech'
 import { useStepCounter } from '@/composables/useStepCounter'
+import { useWakeLock } from '@/composables/useWakeLock'
 import { findExercise } from '@/services/exercises'
 import type { ExercisePhase, MotionAnalysisFinding, PlanItem } from '@/types/domain'
 import { toISODate } from '@/utils/time'
@@ -380,6 +381,8 @@ const reasonText = ref('')
 const notesText = ref('')
 const feedbackSaved = ref(false)
 const pose = usePoseCamera()
+/** 运动中保持屏幕常亮；不支持时静默跳过 */
+const wakeLock = useWakeLock()
 const { speak: speakPrompt, stop: stopSpeech, degradeReason } = useSpeech()
 const speak = (text: string) => speakPrompt(text, trainingMode.value === 'timer')
 /** F18 计步：DeviceMotion 过峰检测；不支持/被拒/无传感器时如实降级为手动计时 */
@@ -465,14 +468,42 @@ async function calibratePose() {
   })
 }
 
-let setElapsed = 0
-let restElapsed = 0
-let lastTs = 0
-let rafId = 0
+// ——— 墙钟计时（A1）与显示节流（A4）———
+// 时长不再按 rAF 帧增量累加：所有计时都由「锚点 + 真实时间差」推导，
+// 切后台、锁屏、掉帧都不会丢时间；UI 数值只按 TICK_MS 刷新，
+// 与推理帧率（15–30 Hz）、屏幕刷新率（60–120 Hz）彻底解耦。
+type WallClock = { accum: number; anchor: number }
+const makeClock = (): WallClock => ({ accum: 0, anchor: 0 })
+const clockValue = (clock: WallClock, now: number) =>
+  clock.accum + (clock.anchor ? Math.max(0, now - clock.anchor) : 0)
+const clockStart = (clock: WallClock, now: number) => { if (!clock.anchor) clock.anchor = now }
+const clockStop = (clock: WallClock, now: number) => {
+  if (!clock.anchor) return
+  clock.accum = clockValue(clock, now)
+  clock.anchor = 0
+}
+const clockReset = (clock: WallClock) => { clock.accum = 0; clock.anchor = 0 }
+
+/** 整次跟练已用时长：playing 与 resting 都走 */
+const sessionClock = makeClock()
+/** 当前组的计时：只在 playing 走，换组时重置 */
+const setClock = makeClock()
+/** 组间休息：只在 resting 走 */
+const restClock = makeClock()
+const TICK_MS = 250
+let tickTimer = 0
 let tweenRaf = 0
 let confidenceSum = 0
 let confidenceCount = 0
 let recorded = false
+/** 最近一次采样的关节可见度，供 4 Hz 显示节流读取 */
+let lastJointVisibility = 0
+/** 姿态读数只在节流点落一次，避免每次推理都触发整页重渲染 */
+const displayAngles = ref<{ knee: number | null; hip: number | null; elbow: number | null; visibility: number }>({
+  knee: null, hip: null, elbow: null, visibility: 0
+})
+/** 页面是否在后台：后台时停 ticker 并暂停演示视频 */
+const documentHidden = ref(false)
 
 // ——— 整次跟练共用摄像头 ———
 const live = computed(() => camRequested.value && pose.status.value === 'live')
@@ -519,11 +550,14 @@ function stopCamera() {
 }
 
 // ——— F17 组间休息页 ———
-/** 休息剩余秒数（reactive）：tick 里只写 restElapsed，这里每秒刷新倒计时显示 */
+/** 休息剩余秒数（reactive）：由 restClock 按墙钟换算，tick 里刷新 */
 const restLeft = ref(0)
 /** 跳过休息的两步确认：第一下进入确认态，3 秒内不按自动回落继续等待 */
 const skipArmed = ref(false)
 let skipArmTimer = 0
+/** 「放弃本次记录」的两步确认：有进度时第一下只进入确认态 */
+const discardArmed = ref(false)
+let discardArmTimer = 0
 /** "组间剩 5 秒"只播一次 */
 let restFiveSaid = false
 
@@ -535,7 +569,7 @@ const isTimeMode = computed(() => exercise.value.mode === 'time')
 const isStepsMode = computed(() => exercise.value.mode === 'steps')
 const openTimer = computed(() => isTimeMode.value && exercise.value.holdSeconds === undefined)
 const targetMs = computed(() => (exercise.value.targetMinutes ?? 0) * 60_000)
-/** time 模式本组剩余秒（tick 里按 setElapsed 换算） */
+/** time 模式本组剩余秒（由 setClock 按墙钟换算） */
 const holdLeft = ref(0)
 /** "还剩 5 秒"每组只播一次 */
 let holdFiveSaid = false
@@ -637,11 +671,12 @@ const phaseLabel = computed(() => {
 })
 const demoVideo = computed(() => demoVideos[exercise.value.name])
 watch(() => exercise.value.name, () => { demoVideoFailed.value = false })
-watch([paused, status, finished, () => exercise.value.name], async () => {
+watch([paused, status, finished, documentHidden, () => exercise.value.name], async () => {
   await nextTick()
   const video = demoVideoRef.value
   if (!video) return
-  if (paused.value || status.value !== 'playing' || finished.value) video.pause()
+  // 页面切到后台时停掉演示视频：静音视频仍会持续解码，白耗电
+  if (paused.value || status.value !== 'playing' || finished.value || documentHidden.value) video.pause()
   else video.play().catch(() => { demoVideoFailed.value = true })
 }, { immediate: true })
 const totalReps = computed(() => repsBySet.value.reduce((sum, n) => sum + n, 0))
@@ -659,7 +694,7 @@ const durationLabel = computed(() => {
 const jointLabel = computed(() => (camJoint.value === 'knee' ? '膝角' : camJoint.value === 'hip' ? '髋角' : '肘角'))
 
 const stageMessage = computed(() => message.value)
-const shownConfidence = computed(() => (live.value ? pose.visibility.value : confidence.value))
+const shownConfidence = computed(() => (live.value ? displayAngles.value.visibility : confidence.value))
 const confidenceLevel = computed(() => getConfidenceLevel(shownConfidence.value))
 const confidenceClass = computed(() => confidenceLevel.value.level)
 const confidenceText = computed(() => countMode.value === 'manual' ? '手动录入次数'
@@ -708,6 +743,9 @@ function toggleMotionFeedback(enabled: boolean) {
 }
 
 const canCount = computed(() => status.value === 'playing' && canAdvance.value && !calibrating.value)
+/** 还什么都没做时，「放弃」等价于直接离开；有进度才需要二次确认 */
+const hasUnsavedProgress = computed(() => !finished.value
+  && (elapsedMs.value > 0 || closedSets.value > 0 || reps.value > 0))
 const countingSourceLabel = computed(() => modelReps.value ? (manualCorrections.value ? '摄像头识别 + 手动修正' : '摄像头识别 / 手动录入') : '手动计数')
 const countingHint = computed(() => {
   if (finished.value) return '本次计数已保存，可以查看下方记录或再练一遍。'
@@ -753,7 +791,9 @@ watch(pose.sample, sample => {
     : (c.feed(sampleJoint.angle, sampleJoint.visibility, sample.timestamp).counted)
   const sessionFindings = session.value?.findings.value ?? []
   liveFinding.value = sessionFindings.length ? sessionFindings[sessionFindings.length - 1] : null
-  confidence.value = sampleJoint.visibility
+  // 不在这里写响应式值：UI 由 syncPoseDisplay 按 4 Hz 统一落盘，
+  // 否则每次推理（15–30 Hz）都会触发一次整页重渲染
+  lastJointVisibility = sampleJoint.visibility
   confidenceSum += sampleJoint.visibility
   confidenceCount++
   phase.value = c.phase.value
@@ -773,25 +813,22 @@ watch(live, (now, before) => {
   message.value = '摄像头已中断，训练已暂停'
 }, { flush: 'sync' })
 
-function tick(ts: number) {
-  rafId = requestAnimationFrame(tick)
-  if (!lastTs) lastTs = ts
-  // 后台标签页回来时 ts 会一次性跳大，钳制增量以免事件被成批吞掉
-  const dt = Math.min(ts - lastTs, 250)
-  lastTs = ts
+/** 只负责把「时钟」映射成界面上的数字；不参与任何动作判定 */
+function syncClocks() {
+  const now = performance.now()
+  if (sessionClock.anchor) elapsedMs.value = clockValue(sessionClock, now)
 
-  if (!paused.value && status.value === 'playing') {
-    elapsedMs.value += dt
+  if (status.value === 'playing' && setClock.anchor) {
+    const setMs = clockValue(setClock, now)
     if (isTimeMode.value) {
-      setElapsed += dt
       if (openTimer.value) {
-        holdLeft.value = Math.floor(setElapsed / 1000)
+        holdLeft.value = Math.floor(setMs / 1000)
         message.value = '完成动作后，点「完成本组」'
       } else {
-        const remainMs = Math.max(exercise.value.setDuration - setElapsed, 0)
+        const remainMs = Math.max(exercise.value.setDuration - setMs, 0)
         holdLeft.value = Math.ceil(remainMs / 1000)
         message.value = `剩余 ${holdLeft.value} 秒`
-        if (!holdFiveSaid && remainMs <= 5000 && exercise.value.setDuration > 5000) {
+        if (!holdFiveSaid && remainMs > 0 && remainMs <= 5000 && exercise.value.setDuration > 5000) {
           holdFiveSaid = true
           speak('还剩 5 秒')
         }
@@ -810,17 +847,65 @@ function tick(ts: number) {
         complete(true)
       }
     }
-  } else if (!paused.value && status.value === 'resting') {
-    elapsedMs.value += dt
-    restElapsed += dt
-    const remaining = Math.max(Math.ceil((exercise.value.restDuration - restElapsed) / 1000), 0)
+  } else if (status.value === 'resting' && restClock.anchor) {
+    const restMs = clockValue(restClock, now)
+    const remaining = Math.max(Math.ceil((exercise.value.restDuration - restMs) / 1000), 0)
     restLeft.value = remaining
     message.value = `组间休息 ${remaining} 秒`
-    if (!restFiveSaid && remaining <= 5 && exercise.value.restDuration > 5000) {
+    if (!restFiveSaid && remaining > 0 && remaining <= 5 && exercise.value.restDuration > 5000) {
       restFiveSaid = true
       speak('组间剩 5 秒')
     }
-    if (restElapsed >= exercise.value.restDuration) startNextSet()
+    if (restMs >= exercise.value.restDuration) startNextSet()
+  }
+
+  syncPoseDisplay()
+}
+
+/** 骨架角度/可见度按 4 Hz 落到 UI；渲染不再跟着推理帧率走 */
+function syncPoseDisplay() {
+  const next = {
+    knee: pose.kneeAngle.value,
+    hip: pose.hipAngle.value,
+    elbow: pose.elbowAngle.value,
+    visibility: Math.round(pose.visibility.value * 100) / 100
+  }
+  const prev = displayAngles.value
+  if (prev.knee === next.knee && prev.hip === next.hip && prev.elbow === next.elbow && prev.visibility === next.visibility) return
+  displayAngles.value = next
+  if (confidence.value !== lastJointVisibility) confidence.value = lastJointVisibility
+}
+
+function tick() {
+  tickTimer = window.setTimeout(tick, TICK_MS)
+  syncClocks()
+}
+
+function startTicker() {
+  if (tickTimer) return
+  tickTimer = window.setTimeout(tick, TICK_MS)
+}
+
+function stopTicker() {
+  window.clearTimeout(tickTimer)
+  tickTimer = 0
+  const now = performance.now()
+  clockStop(sessionClock, now)
+  clockStop(setClock, now)
+  clockStop(restClock, now)
+}
+
+/** 后台时停掉 ticker（浏览器本来也会节流）；回前台立刻按墙钟追平再继续 */
+function onDocumentVisibilityChange() {
+  documentHidden.value = document.hidden
+  if (document.hidden) {
+    window.clearTimeout(tickTimer)
+    tickTimer = 0
+    return
+  }
+  if (status.value === 'playing' || status.value === 'resting') {
+    syncClocks()
+    startTicker()
   }
 }
 
@@ -834,8 +919,11 @@ function finishSet() {
   if (status.value !== 'playing' || !canAdvance.value) return
   closeCurrentSet()
   if (setIndex.value < exercise.value.sets) {
+    const now = performance.now()
+    clockStop(setClock, now)
+    clockReset(restClock)
+    clockStart(restClock, now)
     status.value = 'resting'
-    restElapsed = 0
     restFiveSaid = false
     holdFiveSaid = false
     restLeft.value = Math.ceil(exercise.value.restDuration / 1000)
@@ -847,9 +935,13 @@ function finishSet() {
 
 function startNextSet() {
   disarmSkip()
+  const now = performance.now()
+  clockStop(restClock, now)
+  clockReset(restClock)
+  clockReset(setClock)
+  clockStart(setClock, now)
   setIndex.value++
   reps.value = 0
-  setElapsed = 0
   cameraCountOffset = 0
   countingSide = null
   holdFiveSaid = false
@@ -886,7 +978,7 @@ function complete(advance: boolean) {
     restart()
     return
   }
-  cancelAnimationFrame(rafId)
+  stopTicker()
   finished.value = true
   status.value = 'idle'
   phase.value = 'complete'
@@ -894,6 +986,8 @@ function complete(advance: boolean) {
   counter.value?.interrupt()
   stopCamera()
   disarmSkip()
+  discardArmed.value = false
+  wakeLock.release()
   if (isStepsMode.value) {
     // 停监听但保留已计步数，摘要要用
     stepCounter.stop()
@@ -906,6 +1000,8 @@ function complete(advance: boolean) {
 function record() {
   if (recorded || (!elapsedMs.value && !closedSets.value && !repsBySet.value.some(Boolean))) return
   recorded = true
+  // 落记录前按墙钟补一次，避免用到上一个 tick（最多 250 ms 前）的读数
+  if (sessionClock.anchor) elapsedMs.value = clockValue(sessionClock, performance.now())
   const session = store.addSession(
     summarizeSession({
       exercise: exercise.value,
@@ -961,9 +1057,18 @@ function applyCorrection() {
 
 function togglePause() {
   if (!canPause.value) return
+  const now = performance.now()
   paused.value = !paused.value
+  if (paused.value) {
+    clockStop(sessionClock, now)
+    clockStop(setClock, now)
+    clockStop(restClock, now)
+  } else {
+    clockStart(sessionClock, now)
+    if (status.value === 'playing') clockStart(setClock, now)
+    else if (status.value === 'resting') clockStart(restClock, now)
+  }
   counter.value?.interrupt(paused.value ? '已暂停计数' : '请回到起始姿势后继续')
-  if (paused.value) lastTs = 0
   message.value = paused.value ? '已暂停' : '继续训练'
   speak(paused.value ? '已暂停' : '继续训练')
 }
@@ -1012,10 +1117,12 @@ function switchToTimer() {
 }
 
 function showModePicker() {
-  cancelAnimationFrame(rafId)
+  stopTicker()
   status.value = 'idle'
   stopCamera()
   stopSpeech()
+  wakeLock.release()
+  discardArmed.value = false
   trainingMode.value = null
   exercise.value = idleExercise
   emptyStartAttempted.value = false
@@ -1023,7 +1130,7 @@ function showModePicker() {
 }
 
 function restart() {
-  cancelAnimationFrame(rafId)
+  stopTicker()
   cancelAnimationFrame(tweenRaf)
   setIndex.value = 1
   reps.value = 0
@@ -1045,9 +1152,14 @@ function restart() {
   reasonText.value = ''
   notesText.value = ''
   feedbackSaved.value = false
-  setElapsed = 0
-  restElapsed = 0
-  lastTs = 0
+  const now = performance.now()
+  clockReset(sessionClock)
+  clockReset(setClock)
+  clockReset(restClock)
+  clockStart(sessionClock, now)
+  clockStart(setClock, now)
+  displayAngles.value = { knee: null, hip: null, elbow: null, visibility: 0 }
+  lastJointVisibility = 0
   confidenceSum = 0
   confidenceCount = 0
   recorded = false
@@ -1069,29 +1181,65 @@ function restart() {
   // 摄像头是独立开关：切动作/重开不关摄像头，只按新动作重建计数规则
   if (live.value) buildCounter()
   else { counter.value?.interrupt(); counter.value = null }
-  rafId = requestAnimationFrame(tick)
+  // 运动中系统锁屏会同时打断摄像头、计数与语音，进入跟练即申请常亮（不支持时静默跳过）
+  wakeLock.request()
+  startTicker()
   // 课次开始也是节奏的一部分；浏览器在没有用户激活时会把这句静默拒掉，不报错
   const spec = isStepsMode.value ? `目标 ${exercise.value.targetMinutes} 分钟` : nextSetSpec.value
   speak(`开始${exercise.value.name}，第 1 组，${spec}`)
 }
 
 function leave() {
-  cancelAnimationFrame(rafId)
+  stopTicker()
   status.value = 'idle'
   stopSpeech()
   stopCamera()
+  wakeLock.release()
+  disarmDiscard()
   router.push('/')
+}
+
+/** 头部按钮：有进度就「结束并记录」，没有进度就直接返回，绝不静默丢弃 */
+function onFinishClick() {
+  if (!trainingMode.value || status.value === 'idle' || finished.value) {
+    leave()
+    return
+  }
+  stopAndRecord()
+}
+
+/** 卡内「放弃本次记录」：有进度时连按两次才丢弃，避免运动中误触 */
+function onDiscardClick() {
+  if (!hasUnsavedProgress.value || discardArmed.value) {
+    leave()
+    return
+  }
+  discardArmed.value = true
+  window.clearTimeout(discardArmTimer)
+  discardArmTimer = window.setTimeout(() => { discardArmed.value = false }, 3000)
+}
+
+function disarmDiscard() {
+  window.clearTimeout(discardArmTimer)
+  discardArmed.value = false
 }
 
 onBeforeRouteUpdate((to, from) => {
   if (to.query.planDate !== from.query.planDate || to.query.planItemId !== from.query.planItemId) showModePicker()
 })
 
+onMounted(() => {
+  document.addEventListener('visibilitychange', onDocumentVisibilityChange)
+})
+
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onDocumentVisibilityChange)
   counter.value?.interrupt()
-  cancelAnimationFrame(rafId)
+  stopTicker()
   cancelAnimationFrame(tweenRaf)
   disarmSkip()
+  disarmDiscard()
+  wakeLock.release()
 })
 </script>
 
@@ -1107,7 +1255,7 @@ onUnmounted(() => {
 .guide-actions{display:flex;gap:10px;flex-wrap:wrap}
 .guide-picker p,.voice-status{font-size:13px;color:var(--color-text-muted);line-height:1.6}
 .voice-status{margin:0 0 12px}
-.chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);transition:all var(--motion-fast)}
+.chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);transition:background var(--motion-fast),color var(--motion-fast),transform var(--motion-fast),box-shadow var(--motion-fast)}
 .chip.active{background:var(--pole-movement);color:var(--color-on-accent)}
 .chip:hover:enabled{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
 .chip:disabled{opacity:.45;cursor:not-allowed}
@@ -1120,7 +1268,8 @@ onUnmounted(() => {
 .strip-num i{font-style:normal;font-size:15px;color:var(--color-text-muted);letter-spacing:0;margin-left:2px}
 .strip-cell.primary .strip-num{color:var(--pole-movement)}
 .strip-bar{height:5px;background:var(--color-divider);border-radius:6px;overflow:hidden;margin-top:8px}
-.strip-fill{height:100%;background:linear-gradient(90deg,var(--pole-movement),var(--pole-movement-strong));border-radius:6px;transition:width var(--motion-slow) var(--easing-ease-out)}
+/* 进度条走 scaleX：transform 在合成器上跑，不触发布局；4 Hz 更新下线性过渡足够顺 */
+.strip-fill{height:100%;width:100%;transform-origin:left center;background:linear-gradient(90deg,var(--pole-movement),var(--pole-movement-strong));border-radius:6px;transition:transform 250ms linear}
 .strip-dots{display:grid;gap:4px;margin-top:9px}
 .strip-dots span{height:4px;border-radius:2px;background:var(--color-divider)}
 .strip-dots span.done{background:var(--pole-movement);animation:scaleIn var(--motion-base) var(--easing-spring) both}
@@ -1156,14 +1305,16 @@ onUnmounted(() => {
 .badge-group{display:flex;gap:8px;flex-wrap:wrap}
 /* 常驻组数徽标：跟练时无论页面滚到哪里，画面里始终能看到"第几组、已完成几组" */
 .set-badge{color:var(--color-text-secondary);border-left-color:var(--color-divider)}
-.confidence-badge,.phase-badge{padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;background:var(--surface-glass-strong);backdrop-filter:blur(8px);box-shadow:var(--shadow-sm)}
+/* 视频之上的浮层：一律不用 backdrop-filter —— 背景每帧都在变，模糊要逐帧重算。
+   用提高不透明度的纯色替代，观感差别极小，GPU 开销降一个量级。 */
+.confidence-badge,.phase-badge{padding:8px 12px;border-radius:10px;font-size:12px;font-weight:600;background:var(--surface-glass-strong);box-shadow:var(--shadow-sm)}
 .confidence-badge.high{color:var(--color-success);border-left:3px solid var(--color-success)}
 .confidence-badge.medium{color:var(--color-caution);border-left:3px solid var(--color-caution)}
 .confidence-badge.low{color:var(--color-danger);border-left:3px solid var(--color-danger)}
 .phase-badge{color:var(--pole-movement-strong);border-left:3px solid var(--pole-movement)}
-.stage-live{position:absolute;left:16px;right:16px;bottom:16px;margin:0;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);font-size:13px;font-weight:600;color:#15181b;text-align:center;box-shadow:var(--shadow-sm)}
+.stage-live{position:absolute;left:16px;right:16px;bottom:16px;margin:0;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.95);font-size:13px;font-weight:600;color:#15181b;text-align:center;box-shadow:var(--shadow-sm)}
 /* F17 休息页：面板盖住画面但 pointer-events:none，点击只会落到按钮上；倒计时数字不做循环动画 */
-.rest-overlay{position:absolute;inset:0;display:grid;place-items:center;padding:20px;pointer-events:none;background:rgba(10,14,17,.58);backdrop-filter:blur(2px)}
+.rest-overlay{position:absolute;inset:0;display:grid;place-items:center;padding:20px;pointer-events:none;background:rgba(10,14,17,.68)}
 .rest-panel{width:min(360px,100%);text-align:center;color:#f2f4f6;display:grid;gap:12px}
 .rest-kick{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(242,244,246,.72)}
 .rest-count{font-family:var(--font-num);font-size:72px;font-weight:600;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
@@ -1172,7 +1323,7 @@ onUnmounted(() => {
 .rest-next strong{display:block;font-size:14px}
 .rest-next p{margin:6px 0 0;font-size:12px;line-height:1.65;color:rgba(242,244,246,.78);text-align:left}
 .rest-actions{display:flex;gap:10px;justify-content:center}
-.rest-actions button{pointer-events:auto;min-height:44px;padding:0 18px;border-radius:12px;font-size:13px;font-weight:700;transition:all var(--motion-fast)}
+.rest-actions button{pointer-events:auto;min-height:44px;padding:0 18px;border-radius:12px;font-size:13px;font-weight:700;transition:background var(--motion-fast),color var(--motion-fast),transform var(--motion-fast)}
 .rest-actions button:hover{transform:translateY(-1px)}
 .rest-skip{background:var(--pole-movement);color:var(--color-on-accent)}
 .rest-skip.armed{background:var(--color-caution)}
@@ -1196,16 +1347,16 @@ onUnmounted(() => {
 .cam-idle p{margin:0;font-size:13px;line-height:1.7;max-width:36ch}
 .cam-idle small{font-size:11px;color:rgba(242,244,246,.6);line-height:1.6}
 .cam-idle .cam-error{background:rgba(138,90,0,.28);color:#ffd9a8;border-radius:10px;padding:9px 12px;font-size:12px;max-width:40ch}
-.cam-main-btn{min-height:40px;padding:0 18px;border-radius:11px;font-size:13px;font-weight:700;background:var(--pole-movement);color:var(--color-on-accent);transition:all var(--motion-fast)}
+.cam-main-btn{min-height:var(--target-size);padding:0 18px;border-radius:11px;font-size:13px;font-weight:700;background:var(--pole-movement);color:var(--color-on-accent);transition:background var(--motion-fast),transform var(--motion-fast),box-shadow var(--motion-fast)}
 .cam-main-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
 .cam-main-btn.ghost{background:transparent;color:rgba(242,244,246,.85);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}
-.cam-angles{position:absolute;left:12px;right:12px;bottom:54px;margin:0;text-align:center;font-family:var(--font-num);font-size:12px;color:rgba(242,244,246,.88);background:rgba(13,31,44,.55);backdrop-filter:blur(6px);border-radius:9px;padding:7px 10px;pointer-events:none}
-.cam-calib{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;font-size:12px;font-weight:700;color:#fff;background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);padding:8px 14px;border-radius:999px;min-height:36px;transition:all var(--motion-fast)}
+.cam-angles{position:absolute;left:12px;right:12px;bottom:54px;margin:0;text-align:center;font-family:var(--font-num);font-size:12px;color:rgba(242,244,246,.88);background:rgba(13,31,44,.74);border-radius:9px;padding:7px 10px;pointer-events:none}
+.cam-calib{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;font-size:12px;font-weight:700;color:#fff;background:rgba(255,255,255,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.28);padding:8px 14px;border-radius:999px;min-height:var(--target-size);transition:background var(--motion-fast)}
 .cam-calib:hover:not(:disabled){background:rgba(255,255,255,.22)}
 .cam-calib:disabled{opacity:.5;cursor:not-allowed}
 
 .stage-controls{display:flex;justify-content:center;gap:12px;padding:16px 0}
-.ctrl-btn{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;transition:all var(--motion-fast)}
+.ctrl-btn{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;transition:background var(--motion-fast),color var(--motion-fast),transform var(--motion-fast)}
 .ctrl-btn.secondary{background:var(--pole-movement-soft);color:var(--pole-movement-strong)}
 .ctrl-btn.secondary:hover:enabled{background:var(--pole-movement);color:var(--color-on-accent);transform:scale(1.08)}
 .ctrl-btn.danger{background:var(--color-danger-soft);color:var(--color-danger)}
@@ -1220,7 +1371,8 @@ onUnmounted(() => {
 .correct-form input{flex:1;min-width:0;padding:0 12px;height:36px;border:1px solid var(--color-border);border-radius:11px;font-size:14px;color:var(--color-ink);background:var(--surface-field)}
 .correct-form :deep(button){width:auto;margin-bottom:0;padding:0 18px}
 .summary-list{display:grid;gap:9px;list-style:none;padding:0;margin:0 0 14px}
-.summary-list li{display:flex;justify-content:space-between;font-size:13px;color:var(--color-text-secondary);animation:slideInUp var(--motion-base) var(--easing-spring) both}
+.summary-list li{display:flex;justify-content:space-between;font-size:13px;color:var(--color-text-secondary)}
+@media (prefers-reduced-motion: no-preference){.summary-list li{animation:slideInUp var(--motion-base) var(--easing-spring) both}}
 .summary-list b{color:var(--color-ink)}
 .stored-note{font-size:12px;color:var(--pole-movement-strong)}
 .feedback{border-top:1px solid var(--color-divider);margin-top:14px;padding-top:14px;text-align:left}
@@ -1228,7 +1380,7 @@ onUnmounted(() => {
 .field{margin-bottom:12px}
 .field-label{display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px}
 .rpe-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
-.feedback .rpe-chip{width:auto;min-width:34px;height:34px;padding:0 8px;border-radius:10px;margin-bottom:0;background:var(--color-neutral-soft);color:var(--color-text-secondary);font-size:13px;font-weight:700;transition:all var(--motion-fast)}
+.feedback .rpe-chip{width:auto;min-width:var(--target-size);height:var(--target-size);padding:0 8px;border-radius:10px;margin-bottom:0;background:var(--color-neutral-soft);color:var(--color-text-secondary);font-size:13px;font-weight:700;transition:background var(--motion-fast),color var(--motion-fast),transform var(--motion-fast)}
 .feedback .rpe-chip:hover{background:var(--pole-movement-soft);color:var(--pole-movement-strong);transform:translateY(-1px)}
 .feedback .rpe-chip.active{background:var(--pole-movement);color:var(--color-on-accent)}
 .field small{display:block;font-size:11px;color:var(--color-text-muted);line-height:1.6}
@@ -1259,6 +1411,12 @@ onUnmounted(() => {
   /* 错误文案在小窗里压紧，别把按钮挤出 overflow:hidden 的取景框 */
   .pane-cam .cam-idle .cam-error{font-size:9.5px;line-height:1.5;padding:6px 8px;max-width:none}
   .pane-cam .cam-main-btn{min-height:28px;padding:0 8px;font-size:10.5px}
+  /* PiP 浮在演示画面右上角：给演示栏的表头让出等宽右内距，标题与说明不被压住 */
+  .pane-demo .pane-head{padding-right:calc(min(138px,40vw) + 20px)}
+  /* 手机端 .stage-overlay 是竖排两颗徽标（16 + 34 + 6 + 34 = 90px 高），
+     原先 .demo-video-count 固定在 top:72px 会压住第二颗徽标。
+     改挂到底部左侧，落在 .stage-live 上方，既避开徽标也避开右上角的 PiP。 */
+  .demo-video-count{top:auto;bottom:64px;left:16px;right:auto}
   .stage-overlay{flex-direction:column;align-items:flex-start;gap:6px}
   /* 三格都保留：压字号与内距换空间，手机端也要能看到已用时长与暂停状态 */
   .count-strip{grid-template-columns:1fr 1.3fr 1fr}

@@ -40,6 +40,9 @@ export function usePoseCamera() {
   let stream: MediaStream | null = null
   let video: HTMLVideoElement | null = null
   let canvas: HTMLCanvasElement | null = null
+  /** 2D 上下文与 DrawingUtils 只建一次：它俩都是无状态工具，每帧 new 会白付分配与 GC */
+  let ctx: CanvasRenderingContext2D | null = null
+  let drawUtils: DrawingUtils | null = null
   let rvfcHandle = 0
   let rafHandle = 0
   let lastTs = 0
@@ -50,20 +53,39 @@ export function usePoseCamera() {
   /** start/stop 竞态保护：切回演示或关闭页面后，晚到的相机/模型不能再把链路点亮 */
   let startSeq = 0
 
+  /**
+   * 画布位图尺寸跟随视频轨道的原生分辨率，两者都靠 object-fit: cover 裁切到同一个框，
+   * 骨架才能和画面对齐。设备转向或相机切换分辨率时 videoWidth 会变，必须重新同步，
+   * 否则位图宽高比和视频宽高比不一致，关键点会整体错位。
+   */
+  function syncCanvasToVideo() {
+    if (!canvas || !video) return
+    const width = video.videoWidth || 640
+    const height = video.videoHeight || 480
+    if (canvas.width === width && canvas.height === height) return
+    canvas.width = width
+    canvas.height = height
+  }
+
   function draw(landmarks: NormalizedLandmark[]) {
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (!canvas || !video) return
+    if (!ctx || !drawUtils) {
+      const context = canvas.getContext('2d')
+      if (!context) return
+      ctx = context
+      drawUtils = new DrawingUtils(context)
+    }
+    // 首帧与每次分辨率变化都要对齐一次；放在绘制前做，避免读到过期的位图尺寸
+    syncCanvasToVideo()
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     if (!landmarks.length) return
-    const utils = new DrawingUtils(ctx)
     // canvas 的 fillStyle/strokeStyle 不解析 CSS 变量，这里只能写字面色值。
     // 跟练属于运动侧：沿用运动陶土 #a34d28 与深底提亮值 #e6a17f。
-    utils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
+    drawUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
       color: 'rgba(230, 161, 127, 0.85)',
       lineWidth: 3
     })
-    utils.drawLandmarks(landmarks, {
+    drawUtils.drawLandmarks(landmarks, {
       color: '#ffffff',
       fillColor: '#a34d28',
       lineWidth: 1,
@@ -176,6 +198,11 @@ export function usePoseCamera() {
     engine?.close()
     engine = null
     stopStream()
+    // 上下文绑定在具体 canvas 元素上，停止时一并丢弃，避免下次启动拿到旧引用
+    ctx = null
+    drawUtils = null
+    canvas = null
+    video = null
     applyMetrics(EMPTY_POSE_METRICS)
     sample.value = null
     landmarks.value = null
