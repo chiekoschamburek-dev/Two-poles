@@ -196,6 +196,17 @@ try {
     .map(e => e.params?.exceptionDetails?.text ?? 'error')
   check(errors.length === 0, '无未捕获异常', errors.join(' | '))
 
+  // 深链硬导航：直接打开子路由必须由 SPA 回退成 index.html 并正常挂载
+  // （EdgeOne/ESA 这类边缘函数按 Accept: text/html 判定导航请求，用 curl 默认头会误判成 404）
+  await page.send('Page.navigate', { url: `${BASE}/analysis` })
+  await sleep(1800)
+  const deepLink = await page.evaluate(`({
+    path: location.pathname,
+    hasShell: !!document.querySelector('.shell'),
+    h1: (document.querySelector('h1') || {}).textContent || ''
+  })`)
+  check(deepLink.hasShell && deepLink.path === '/analysis', '深链硬导航由 SPA 回退正常挂载', JSON.stringify(deepLink))
+
   const consoleErrors = page.events
     .filter(e => e.method === 'Log.entryAdded' && e.params?.entry?.level === 'error')
     .map(e => e.params.entry.text)
