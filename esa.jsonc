@@ -1,7 +1,7 @@
 {
   "entry": "./UI/server/llm.js",
   "installCommand": "cd UI && npm install --include=dev",
-  "buildCommand": "cd UI && npm install --include=dev && npm run build",
+  "buildCommand": "cd UI && npm install --include=dev && VITE_API_BASE_URL=same-origin npm run build",
   "assets": {
     "directory": "./UI/dist",
     "notFoundStrategy": "singlePageApplication"
