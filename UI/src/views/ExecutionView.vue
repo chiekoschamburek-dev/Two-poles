@@ -472,12 +472,16 @@ async function calibratePose() {
 // 时长不再按 rAF 帧增量累加：所有计时都由「锚点 + 真实时间差」推导，
 // 切后台、锁屏、掉帧都不会丢时间；UI 数值只按 TICK_MS 刷新，
 // 与推理帧率（15–30 Hz）、屏幕刷新率（60–120 Hz）彻底解耦。
+// 锚点必须用 Date.now()，不能用 performance.now()：后者走 CLOCK_MONOTONIC，
+// 不含系统挂起（锁屏深睡眠）时长——WakeLock 被拒（低电量模式）时锁屏
+// 一会儿，时长就会少算。Date.now() 是真墙钟，挂起时间计入，
+// 与「训练负荷 = 时长 × RPE」的口径一致。
 type WallClock = { accum: number; anchor: number }
 const makeClock = (): WallClock => ({ accum: 0, anchor: 0 })
-const clockValue = (clock: WallClock, now: number) =>
+const clockValue = (clock: WallClock, now: number = Date.now()) =>
   clock.accum + (clock.anchor ? Math.max(0, now - clock.anchor) : 0)
-const clockStart = (clock: WallClock, now: number) => { if (!clock.anchor) clock.anchor = now }
-const clockStop = (clock: WallClock, now: number) => {
+const clockStart = (clock: WallClock, now: number = Date.now()) => { if (!clock.anchor) clock.anchor = now }
+const clockStop = (clock: WallClock, now: number = Date.now()) => {
   if (!clock.anchor) return
   clock.accum = clockValue(clock, now)
   clock.anchor = 0
@@ -815,11 +819,10 @@ watch(live, (now, before) => {
 
 /** 只负责把「时钟」映射成界面上的数字；不参与任何动作判定 */
 function syncClocks() {
-  const now = performance.now()
-  if (sessionClock.anchor) elapsedMs.value = clockValue(sessionClock, now)
+  if (sessionClock.anchor) elapsedMs.value = clockValue(sessionClock)
 
   if (status.value === 'playing' && setClock.anchor) {
-    const setMs = clockValue(setClock, now)
+    const setMs = clockValue(setClock)
     if (isTimeMode.value) {
       if (openTimer.value) {
         holdLeft.value = Math.floor(setMs / 1000)
@@ -848,7 +851,7 @@ function syncClocks() {
       }
     }
   } else if (status.value === 'resting' && restClock.anchor) {
-    const restMs = clockValue(restClock, now)
+    const restMs = clockValue(restClock)
     const remaining = Math.max(Math.ceil((exercise.value.restDuration - restMs) / 1000), 0)
     restLeft.value = remaining
     message.value = `组间休息 ${remaining} 秒`
@@ -889,10 +892,9 @@ function startTicker() {
 function stopTicker() {
   window.clearTimeout(tickTimer)
   tickTimer = 0
-  const now = performance.now()
-  clockStop(sessionClock, now)
-  clockStop(setClock, now)
-  clockStop(restClock, now)
+  clockStop(sessionClock)
+  clockStop(setClock)
+  clockStop(restClock)
 }
 
 /** 后台时停掉 ticker（浏览器本来也会节流）；回前台立刻按墙钟追平再继续 */
@@ -919,10 +921,9 @@ function finishSet() {
   if (status.value !== 'playing' || !canAdvance.value) return
   closeCurrentSet()
   if (setIndex.value < exercise.value.sets) {
-    const now = performance.now()
-    clockStop(setClock, now)
+    clockStop(setClock)
     clockReset(restClock)
-    clockStart(restClock, now)
+    clockStart(restClock)
     status.value = 'resting'
     restFiveSaid = false
     holdFiveSaid = false
@@ -935,11 +936,10 @@ function finishSet() {
 
 function startNextSet() {
   disarmSkip()
-  const now = performance.now()
-  clockStop(restClock, now)
+  clockStop(restClock)
   clockReset(restClock)
   clockReset(setClock)
-  clockStart(setClock, now)
+  clockStart(setClock)
   setIndex.value++
   reps.value = 0
   cameraCountOffset = 0
@@ -1001,7 +1001,7 @@ function record() {
   if (recorded || (!elapsedMs.value && !closedSets.value && !repsBySet.value.some(Boolean))) return
   recorded = true
   // 落记录前按墙钟补一次，避免用到上一个 tick（最多 250 ms 前）的读数
-  if (sessionClock.anchor) elapsedMs.value = clockValue(sessionClock, performance.now())
+  if (sessionClock.anchor) elapsedMs.value = clockValue(sessionClock)
   const session = store.addSession(
     summarizeSession({
       exercise: exercise.value,
@@ -1057,16 +1057,15 @@ function applyCorrection() {
 
 function togglePause() {
   if (!canPause.value) return
-  const now = performance.now()
   paused.value = !paused.value
   if (paused.value) {
-    clockStop(sessionClock, now)
-    clockStop(setClock, now)
-    clockStop(restClock, now)
+    clockStop(sessionClock)
+    clockStop(setClock)
+    clockStop(restClock)
   } else {
-    clockStart(sessionClock, now)
-    if (status.value === 'playing') clockStart(setClock, now)
-    else if (status.value === 'resting') clockStart(restClock, now)
+    clockStart(sessionClock)
+    if (status.value === 'playing') clockStart(setClock)
+    else if (status.value === 'resting') clockStart(restClock)
   }
   counter.value?.interrupt(paused.value ? '已暂停计数' : '请回到起始姿势后继续')
   message.value = paused.value ? '已暂停' : '继续训练'
@@ -1152,12 +1151,11 @@ function restart() {
   reasonText.value = ''
   notesText.value = ''
   feedbackSaved.value = false
-  const now = performance.now()
   clockReset(sessionClock)
   clockReset(setClock)
   clockReset(restClock)
-  clockStart(sessionClock, now)
-  clockStart(setClock, now)
+  clockStart(sessionClock)
+  clockStart(setClock)
   displayAngles.value = { knee: null, hip: null, elbow: null, visibility: 0 }
   lastJointVisibility = 0
   confidenceSum = 0
