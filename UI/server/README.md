@@ -7,7 +7,7 @@ Node 24 + 内置 `node:sqlite` + 原生 HTTP，后端无额外依赖。已接通
 ```bash
 cd UI
 npm run server          # http://127.0.0.1:8787/api/v1
-npm run test:api        # 32 项端到端测试（内存 SQLite）
+npm run test:api        # 36 项端到端测试（内存 SQLite）
 ```
 
 前端默认仍是纯本机模式。要启用账号与同步：
@@ -77,7 +77,7 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 ```bash
 npm run typecheck
 npm run selfcheck   # 678 项：领域逻辑、存储、迁移、跟练计数
-npm run test:sync   # 8 项：MSW、401、重试、并发编辑、离线恢复、计划 v1→v5、换账号隔离
+npm run test:sync   # 11 项：MSW、401、重试、并发编辑、离线恢复、计划 v1→v5、换账号隔离、冲突恢复
 npm run test:api    # 36 项：认证、幂等、If-Match、并发409、隔离、周报、导出、清除、分页、保留期、缩略图
 npm run build
 ```
