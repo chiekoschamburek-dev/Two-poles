@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createApiServer, pruneHistory } from './app.mjs'
+import { resolveZone } from './report.mjs'
 
 const api = createApiServer({ dbPath: ':memory:', secret: 'test-secret', corsOrigins: ['http://localhost:5173'] })
 await new Promise((resolve) => api.server.listen(0, '127.0.0.1', resolve))
@@ -225,6 +226,9 @@ test('motion analyses are idempotent, linkable and soft-deleted', async () => {
   const linked = await request('/analyses/local-analysis-1', { method: 'PATCH', body: { sessionId } })
   assert.equal(linked.status, 200)
   assert.equal(linked.body.analysis.sessionId, sessionId)
+  const untouched = await request('/analyses/local-analysis-1', { method: 'PATCH', body: {} })
+  assert.equal(untouched.status, 200)
+  assert.equal(untouched.body.analysis.sessionId, sessionId, '没带 sessionId 不能把已有绑定清掉')
   const unlinked = await request('/analyses/local-analysis-1', { method: 'PATCH', body: { sessionId: null } })
   assert.equal(unlinked.status, 200)
   assert.equal(unlinked.body.analysis.sessionId, undefined)
@@ -315,6 +319,26 @@ test('meals store items and support update/delete', async () => {
 
   const list = await request(`/meals?date=${weekStart}`)
   assert.equal(list.body.meals.length, 1)
+})
+
+test('meal thumbnails are fetched separately and stay out of sync/export', async () => {
+  const photoThumb = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ=='
+  const created = await request('/meals', {
+    method: 'POST',
+    body: { clientId: 'thumb-meal', date: weekStart, mealType: 'lunch', photoThumb, photoId: 'photo-1', items: [] }
+  })
+  assert.equal(created.status, 201)
+  assert.equal(created.body.meal.photoThumb, undefined, '创建响应不再带缩略图')
+
+  const thumb = await request('/meals/thumb-meal/thumb')
+  assert.equal(thumb.status, 200)
+  assert.equal(thumb.body.photoThumb, photoThumb)
+  assert.equal((await request('/meals/not-a-meal/thumb')).status, 404)
+
+  const sync = await request('/sync')
+  const synced = sync.body.meals.find((meal) => meal.clientId === 'thumb-meal')
+  assert.ok(synced)
+  assert.equal('photoThumb' in synced, false, '同步不带缩略图')
 })
 
 test('plans are versioned and stale adjustments return 409', async () => {
@@ -474,6 +498,7 @@ test('export jobs produce JSON and spreadsheet-friendly CSV', async () => {
   assert.equal(parsed.profile.age, 24)
   assert.ok(Array.isArray(parsed.sessions))
   assert.ok(parsed.analyses.some((analysis) => analysis.clientId === 'local-analysis-2'))
+  assert.ok(!JSON.stringify(parsed).includes('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ=='), '导出不包含缩略图')
 })
 
 test('plan version writes honor If-Match and simultaneous accepts cannot both win', async () => {
@@ -710,6 +735,13 @@ test('a plan whose items are all invalid is rejected instead of returning an emp
   assert.equal(response.body.code, 'validation_failed')
 })
 
+test('an invalid timezone falls back to the system zone instead of throwing', async () => {
+  assert.equal(resolveZone('Asia/Shanghai'), 'Asia/Shanghai')
+  assert.equal(resolveZone(''), '')
+  assert.equal(resolveZone('   '), '')
+  assert.equal(resolveZone('Not/AZone'), '', '非法时区要退回系统时区，不能让请求 500')
+})
+
 test('login attempts are limited per account even when the IP changes', async () => {
   const statuses = []
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -722,6 +754,30 @@ test('login attempts are limited per account even when the IP changes', async ()
   }
   assert.ok(statuses.filter((status) => status === 401).length >= 5, '前几次正常返回认证失败')
   assert.equal(statuses.at(-1), 429, '同一账号的连续尝试必须被单独限流')
+})
+
+test('successful login resets the per-account failure counter', async () => {
+  const identifier = 'limit-reset@example.com'
+  const register = await fetch(`${base}/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.11.0.1' },
+    body: JSON.stringify({ identifier, password: 'correct-horse' })
+  })
+  assert.equal(register.status, 200)
+  const attempt = (password, ip) => fetch(`${base}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+    body: JSON.stringify({ identifier, password })
+  })
+  for (let index = 0; index < 3; index++) {
+    assert.equal((await attempt('wrong-password', `10.11.1.${index}`)).status, 401)
+  }
+  assert.equal((await attempt('correct-horse', '10.11.2.1')).status, 200, '失败几次后仍能正常登录')
+  // 成功会清零：再错 10 次仍是 401，第 11 次才 429
+  for (let index = 0; index < 10; index++) {
+    assert.equal((await attempt('wrong-password', `10.11.3.${index}`)).status, 401)
+  }
+  assert.equal((await attempt('wrong-password', '10.11.4.1')).status, 429)
 })
 
 test('list endpoints are paginated and report the next offset', async () => {
@@ -783,6 +839,20 @@ test('retention job prunes expired tokens, idempotency keys, audit rows and old 
   assert.ok(result.exportJobs >= 1)
   assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM export_jobs WHERE id = 'old-pending'").get().n, 1, '未完成的导出作业不能删')
   assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM export_jobs WHERE id = 'old-export'").get().n, 0)
+
+  // 空壳匿名账号：老且没有任何数据 → 清理；有训练记录的匿名账号保留
+  const staleAnonymous = randomUUID()
+  api.db.prepare("INSERT INTO users (id, type, identifier_hash, password_hash, created_at) VALUES (?, 'anonymous', ?, NULL, ?)")
+    .run(staleAnonymous, `stale-${staleAnonymous}`, old)
+  const activeAnonymous = randomUUID()
+  api.db.prepare("INSERT INTO users (id, type, identifier_hash, password_hash, created_at) VALUES (?, 'anonymous', ?, NULL, ?)")
+    .run(activeAnonymous, `active-${activeAnonymous}`, old)
+  api.db.prepare('INSERT INTO training_sessions (id, client_id, user_id, date, exercise_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(randomUUID(), 'keep-session', activeAnonymous, weekStart, '深蹲', old, old)
+  const prunedAgain = pruneHistory(api.db)
+  assert.ok(prunedAgain.users >= 1)
+  assert.equal(api.db.prepare('SELECT COUNT(*) AS n FROM users WHERE id = ?').get(staleAnonymous).n, 0)
+  assert.equal(api.db.prepare('SELECT COUNT(*) AS n FROM users WHERE id = ?').get(activeAnonymous).n, 1, '有数据的匿名账号不能删')
 })
 
 test('refresh with a bad cookie is a clean 401', async () => {
@@ -801,6 +871,9 @@ test('a new export supersedes the previous snapshot content', async () => {
   assert.equal(second.status, 202)
   const gone = await request(`/export/${first.body.jobId}/download`)
   assert.equal(gone.status, 404, '只保留最新一份导出内容')
+  const older = await request(`/export/${first.body.jobId}`)
+  assert.equal(older.body.status, 'completed')
+  assert.equal(older.body.downloadUrl, null, '内容被清掉后不再给下载地址')
 })
 
 test('rotating AUTH_SECRET does not lock existing accounts out', async () => {

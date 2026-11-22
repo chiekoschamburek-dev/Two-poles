@@ -12,8 +12,21 @@ export const isoLocal = iso
 /**
  * 服务端时区：客户端总会显式传日期，这里只影响“今天”的默认值、周界计算的入口和 CSV 时间列。
  * 默认跟随服务器系统时区；部署在 UTC 机器上时设 TWOPOLES_TIMEZONE=Asia/Shanghai 即可对齐用户。
+ * 配置值非法时退回系统时区并报一次错，而不是让每个请求在 Intl 里抛 RangeError。
  */
-const ZONE = (process.env.TWOPOLES_TIMEZONE ?? '').trim()
+export function resolveZone(raw) {
+  const zone = (raw ?? '').trim()
+  if (!zone) return ''
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: zone })
+    return zone
+  } catch {
+    console.error(`[report] TWOPOLES_TIMEZONE 不是合法 IANA 时区：${zone}，改用系统时区`)
+    return ''
+  }
+}
+
+const ZONE = resolveZone(process.env.TWOPOLES_TIMEZONE)
 
 function zoneParts(date, zone) {
   const formatter = new Intl.DateTimeFormat('en-CA', {

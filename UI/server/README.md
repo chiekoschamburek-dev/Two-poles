@@ -40,7 +40,7 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 - `POST /auth/device|register|login|refresh|logout`、`POST /auth/delete-account`（二次确认令牌）
 - `GET/PUT /profile`
 - `GET/POST /sessions`、`PATCH /sessions/:id/feedback`、`DELETE /sessions/:id`
-- `GET/POST /meals`、`PATCH/DELETE /meals/:id`
+- `GET/POST /meals`、`PATCH/DELETE /meals/:id`、`GET /meals/:id/thumb`（缩略图单独取）
 - `GET /plans/current`、`POST /plans`、`POST /plans/adjustments`（body 带 planId，也支持 `/plans/:id/adjustments`）、`POST /plans/adjustments/:id/accept`
 - `GET /reports/weekly`
 - `GET /sync?since=`
@@ -51,9 +51,11 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 
 约定：统一错误包体 `{ code, message, detail? }`；训练/餐食/计划/调整创建支持 `Idempotency-Key`（同一个 key 换了方法或路径视为新请求，不会回放上一个接口的响应）；access 只在内存，refresh 只在 HttpOnly cookie。普通资源按用户隔离；训练/餐食删除为软删并出现在 `/sync.deleted`，软删过的 clientId 不能重建，重试会拿到 `409 conflict` 而不是假成功。
 
-`PATCH /sessions/:id/feedback` 与 `PATCH /meals/:id` 只写请求体里真正出现的字段：没带 `notes` / `analyzed` 就保持原值，显式传 `null` 才是清空。登录限流分两层：`/auth/*` 按 IP 30 次/分钟，`/auth/login` 再按账号 10 次/分钟。
+`PATCH /sessions/:id/feedback`、`PATCH /meals/:id` 与 `PATCH /analyses/:id` 都只写请求体里真正出现的字段：没带的字段保持原值，显式传 `null` 才是清空（分析记录的 `sessionId` 省略即保持绑定）。登录按账号统计**失败次数**：连续 10 次密码错误后 60 秒内返回 429，成功登录会清零，所以正常反复登录不会被锁。
 
-列表接口（`GET /sessions`、`GET /meals`、`GET /analyses`）支持 `limit` 与 `offset`：默认 200 条、最多 500 条，响应里带 `nextOffset`（`null` 表示没有更多）。`/sync` 的 `plans` 也按 `since` 增量返回，只带这一轮变化过的计划版本；`since` 是服务端 `serverTime`，客户端直接回传即可。保留期清理在启动时与每 6 小时运行一次：过期的 refresh token（撤销后保留 7 天）、30 天前的幂等键、180 天前的审计日志、30 天前已完成的导出作业。
+餐食缩略图不随 `/sync`、列表和导出下发（单张最大 120KB 的 base64，会让首屏同步变成几十 MB）；需要时用 `GET /meals/:id/thumb` 单独取，客户端展示前按需拉一次并写回本机。列表接口（`GET /sessions`、`GET /meals`、`GET /analyses`）支持 `limit` 与 `offset`：默认 200 条、最多 500 条，响应里带 `nextOffset`（`null` 表示没有更多）。`/sync` 的 `plans` 也按 `since` 增量返回，只带这一轮变化过的计划版本；`since` 是服务端 `serverTime`，客户端直接回传即可。
+
+保留期清理在启动时与每 6 小时运行一次：过期的 refresh token（撤销后保留 7 天）、30 天前的幂等键、180 天前的审计日志、30 天前已完成的导出作业，以及 30 天前没有任何数据的匿名设备账号。`GET /export/:id` 在内容被新导出清空后返回 `downloadUrl: null`。
 
 计划写入示例：`If-Match: "2"`。已有周计划的新版本写入、创建调整、接受调整都读取此头；缺失返回 428，header 与 body.baseVersion 不一致返回 400。接受调整在同一个 `BEGIN IMMEDIATE` 事务中检查最新版本并生成下一版；过期返回 `409 conflict` + `detail.latest`。已接受建议的重放返回原结果。锁定与已完成项保持不变，旧版本不就地覆盖。设置页可比较本机与最新计划，用户主动采用服务端版本后再重新调整。
 
@@ -76,7 +78,7 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 npm run typecheck
 npm run selfcheck   # 678 项：领域逻辑、存储、迁移、跟练计数
 npm run test:sync   # 8 项：MSW、401、重试、并发编辑、离线恢复、计划 v1→v5、换账号隔离
-npm run test:api    # 32 项：认证、幂等、If-Match、并发409、隔离、周报、导出、清除、分页、保留期
+npm run test:api    # 36 项：认证、幂等、If-Match、并发409、隔离、周报、导出、清除、分页、保留期、缩略图
 npm run build
 ```
 

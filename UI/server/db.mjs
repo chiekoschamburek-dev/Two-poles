@@ -262,17 +262,21 @@ export function openDatabase(path = ':memory:') {
     })
   }
   migrateRemoveMode(db)
-  dropUnusedTables(db)
+  dropUnusedTablesOnce(db)
   return db
 }
 
 /**
  * 早期设计里的目录/模板/规则版本表从未接入接口：代码里没有任何读写，留着只会让备份和
- * “哪些数据是真的”变模糊。老库里如果存在，启动时直接删掉。
+ * “哪些数据是真的”变模糊。只在第一次升级时清理一次（用 user_version 标记），
+ * 避免将来重建同名表后被下一次启动静默删掉。
  */
 const UNUSED_TABLES = ['template_items', 'templates', 'exercises', 'foods', 'mixed_foods', 'rule_versions', 'analysis_records', 'meal_analyses']
+const DROP_UNUSED_TABLES_VERSION = 1
 
-function dropUnusedTables(db) {
+function dropUnusedTablesOnce(db) {
+  const current = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
+  if (current >= DROP_UNUSED_TABLES_VERSION) return
   db.exec('PRAGMA foreign_keys = OFF')
   try {
     transaction(db, () => {
@@ -281,6 +285,7 @@ function dropUnusedTables(db) {
   } finally {
     db.exec('PRAGMA foreign_keys = ON')
   }
+  db.exec(`PRAGMA user_version = ${DROP_UNUSED_TABLES_VERSION}`)
 }
 
 // 旧库去掉大众/运动员分类：档案与计划重建掉 mode 列，mode_changes 整表删除。

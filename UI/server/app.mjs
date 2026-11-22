@@ -275,6 +275,10 @@ function mealItemJson(row) {
   }
 }
 
+/**
+ * 餐食 JSON。缩略图不在这里返回：它是最大 120KB 的 base64，放进同步/导出/列表会让
+ * 首屏同步变成几十 MB。需要时用 GET /meals/:id/thumb 单独取。
+ */
 function mealJson(row, items) {
   if (!row) return null
   return {
@@ -290,7 +294,6 @@ function mealJson(row, items) {
     analyzed: !!row.analyzed,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    photoThumb: row.photo_thumb ?? undefined,
     photoId: row.photo_id ?? undefined,
     _sync: 'synced'
   }
@@ -686,17 +689,18 @@ const RETENTION_DAYS = {
   revokedRefreshToken: 7,
   idempotency: 30,
   audit: 180,
-  exportJob: 30
+  exportJob: 30,
+  anonymousUser: 30
 }
 
 /**
- * 保留期清理：令牌、幂等键、审计日志和旧的导出作业之前只增不删，会把主库与备份一起撑大。
- * 启动时跑一次、之后每 6 小时一次；返回值是各表实际删除的行数，测试直接调用。
+ * 保留期清理：令牌、幂等键、审计日志、旧的导出作业和空壳匿名账号之前只增不删，
+ * 会把主库与备份一起撑大。启动时跑一次、之后每 6 小时一次；返回值是各表实际删除的行数。
  */
 export function pruneHistory(db, now = Date.now()) {
   const daysAgo = (days) => new Date(now - days * 86_400_000).toISOString()
   const nowString = new Date(now).toISOString()
-  return {
+  const counts = {
     refreshTokens: Number(db.prepare('DELETE FROM refresh_tokens WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)')
       .run(nowString, daysAgo(RETENTION_DAYS.revokedRefreshToken)).changes),
     idempotencyKeys: Number(db.prepare('DELETE FROM idempotency_keys WHERE created_at < ?')
@@ -704,8 +708,33 @@ export function pruneHistory(db, now = Date.now()) {
     auditEvents: Number(db.prepare('DELETE FROM audit_events WHERE created_at < ?')
       .run(daysAgo(RETENTION_DAYS.audit)).changes),
     exportJobs: Number(db.prepare("DELETE FROM export_jobs WHERE created_at < ? AND status <> 'pending'")
-      .run(daysAgo(RETENTION_DAYS.exportJob)).changes)
+      .run(daysAgo(RETENTION_DAYS.exportJob)).changes),
+    users: 0
   }
+  // 只清理“没有任何数据”的匿名设备账号：/auth/device 每次调用都会建号，
+  // 重装/清缓存会不断留下空壳；有训练或餐食的账号一律不动。
+  const staleUsers = db.prepare(`
+    SELECT id FROM users
+    WHERE type = 'anonymous' AND deleted_at IS NULL AND created_at < ?
+      AND NOT EXISTS (SELECT 1 FROM profiles WHERE user_id = users.id)
+      AND NOT EXISTS (SELECT 1 FROM training_sessions WHERE user_id = users.id)
+      AND NOT EXISTS (SELECT 1 FROM meal_records WHERE user_id = users.id)
+      AND NOT EXISTS (SELECT 1 FROM plans WHERE user_id = users.id)
+      AND NOT EXISTS (SELECT 1 FROM plan_adjustments WHERE user_id = users.id)
+      AND NOT EXISTS (SELECT 1 FROM motion_analyses WHERE user_id = users.id)
+  `).all(daysAgo(RETENTION_DAYS.anonymousUser))
+  if (staleUsers.length) {
+    transaction(db, () => {
+      for (const { id } of staleUsers) {
+        for (const table of ['refresh_tokens', 'confirm_tokens', 'idempotency_keys', 'audit_events', 'sync_state', 'export_jobs']) {
+          db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(id)
+        }
+        db.prepare('DELETE FROM users WHERE id = ?').run(id)
+        counts.users += 1
+      }
+    })
+  }
+  return counts
 }
 
 const PAGE_LIMIT_DEFAULT = 200
@@ -773,6 +802,31 @@ export function createApiServer(options = {}) {
     ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
     : ['http://localhost:5173', 'http://127.0.0.1:5173'])
   const allow = createRateLimiter()
+  /**
+   * 登录失败计数：只统计失败、成功即清零。正常用户反复登录不会被锁，
+   * 攻击者也没法靠“成功登录”把别人挡在门外；窗口 60 秒，把定向锁死的代价限制在一分钟内。
+   */
+  const loginFailures = new Map()
+  const LOGIN_FAILURE_LIMIT = 10
+  const LOGIN_FAILURE_WINDOW_MS = 60_000
+  function loginBlocked(identifier) {
+    const row = loginFailures.get(identifier)
+    if (!row) return false
+    if (row.reset <= Date.now()) {
+      loginFailures.delete(identifier)
+      return false
+    }
+    return row.count >= LOGIN_FAILURE_LIMIT
+  }
+  function recordLoginFailure(identifier) {
+    const now = Date.now()
+    if (loginFailures.size > 1000) {
+      for (const [key, row] of loginFailures) if (row.reset <= now) loginFailures.delete(key)
+    }
+    const row = loginFailures.get(identifier)
+    if (!row || row.reset <= now) loginFailures.set(identifier, { count: 1, reset: now + LOGIN_FAILURE_WINDOW_MS })
+    else row.count += 1
+  }
   /**
    * 客户端 IP：默认沿用 X-Forwarded-For；部署在边缘函数/反代后面时用 TRUSTED_CLIENT_IP_HEADER
    * 指定由边缘写入的可信头（例如 ESA-Client-IP），此时不再回退到客户端能随便改的 XFF——
@@ -937,12 +991,15 @@ export function createApiServer(options = {}) {
         const identifier = normalizeIdentifier(body.identifier)
         const password = typeof body.password === 'string' ? body.password : ''
         assert(identifier && password, '请输入账号和密码')
-        // 再按账号分一层桶：源站落在边缘代理后面时出口 IP 往往相同，只按 IP 限流会变成
-        // 「一个人试错、所有人被锁」，也没法阻止针对单个账号的撞库。
-        if (!allow(`login:${identifier}`, 10, 60_000)) fail('rate_limited', 429, '这个账号的登录尝试过于频繁，请稍后再试')
+        // 按账号计数失败次数：成功登录不计数，也不会把后续正常登录挡住
+        if (loginBlocked(identifier)) fail('rate_limited', 429, '这个账号的登录尝试过于频繁，请稍后再试')
         const user = db.prepare('SELECT * FROM users WHERE identifier_hash = ? AND deleted_at IS NULL')
           .get(hashIdentifier(identifier, identifierSecret))
-        if (!user || !verifyPassword(password, user.password_hash)) fail('unauthorized', 401, '账号或密码不正确')
+        if (!user || !verifyPassword(password, user.password_hash)) {
+          recordLoginFailure(identifier)
+          fail('unauthorized', 401, '账号或密码不正确')
+        }
+        loginFailures.delete(identifier)
         const result = issueSession(res, user)
         return sendJson(res, result.status, result.body, result.headers)
       }
@@ -1055,7 +1112,7 @@ export function createApiServer(options = {}) {
       const rows = db.prepare(`
         SELECT * FROM training_sessions
         WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
-        ORDER BY date ASC, created_at ASC
+        ORDER BY date ASC, created_at ASC, id ASC
         LIMIT ? OFFSET ?
       `).all(user.id, from, to, limit + 1, offset)
       const page = rows.slice(0, limit)
@@ -1151,7 +1208,7 @@ export function createApiServer(options = {}) {
       const rows = db.prepare(`
         SELECT * FROM motion_analyses
         WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
-        ORDER BY date DESC, created_at DESC
+        ORDER BY date DESC, created_at DESC, id DESC
         LIMIT ? OFFSET ?
       `).all(user.id, from, to, limit + 1, offset)
       const page = rows.slice(0, limit)
@@ -1213,6 +1270,8 @@ export function createApiServer(options = {}) {
     if (analysisPath && method === 'PATCH') {
       const row = findAnalysis(db, user.id, decodeURIComponent(analysisPath[1]))
       if (!row) fail('not_found', 404, '分析记录不存在')
+      // 只有请求里真的出现 sessionId 才改关联：省略这个字段不能把已有绑定清掉
+      if (!Object.hasOwn(body, 'sessionId')) return sendJson(res, 200, { analysis: analysisJson(row) })
       const sessionId = body.sessionId === null ? null : stringOrNull(body.sessionId, 100)
       if (sessionId) {
         const session = findSession(db, user.id, sessionId)
@@ -1233,9 +1292,9 @@ export function createApiServer(options = {}) {
       const date = url.searchParams.get('date')
       const { limit, offset } = pagination(url)
       const rows = date && isDate(date)
-        ? db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY time ASC LIMIT ? OFFSET ?')
+        ? db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY time ASC, id ASC LIMIT ? OFFSET ?')
           .all(user.id, date, limit + 1, offset)
-        : db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND deleted_at IS NULL ORDER BY date ASC, time ASC LIMIT ? OFFSET ?')
+        : db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND deleted_at IS NULL ORDER BY date ASC, time ASC, id ASC LIMIT ? OFFSET ?')
           .all(user.id, limit + 1, offset)
       const page = rows.slice(0, limit)
       return sendJson(res, 200, {
@@ -1284,6 +1343,14 @@ export function createApiServer(options = {}) {
       const result = { status: 201, body: { meal: readMeal(db, id) } }
       saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
       return sendJson(res, result.status, result.body)
+    }
+
+    // 缩略图单独取：同步与导出不再携带它（客户端按需拉取并缓存到本机）
+    const mealThumbPath = /^\/meals\/([^/]+)\/thumb$/.exec(path)
+    if (mealThumbPath && method === 'GET') {
+      const row = findMeal(db, user.id, decodeURIComponent(mealThumbPath[1]))
+      if (!row) fail('not_found', 404, '餐食记录不存在')
+      return sendJson(res, 200, { mealId: row.id, photoThumb: row.photo_thumb ?? null })
     }
 
     const mealPath = /^\/meals\/([^/]+)$/.exec(path)
@@ -1615,14 +1682,15 @@ export function createApiServer(options = {}) {
 
     const exportPath = /^\/export\/([^/]+)$/.exec(path)
     if (exportPath && method === 'GET') {
-      const job = db.prepare('SELECT id, format, status, error FROM export_jobs WHERE id = ? AND user_id = ?')
+      const job = db.prepare('SELECT id, format, status, error, content IS NOT NULL AS has_content FROM export_jobs WHERE id = ? AND user_id = ?')
         .get(decodeURIComponent(exportPath[1]), user.id)
       if (!job) fail('not_found', 404, '导出任务不存在')
       return sendJson(res, 200, {
         jobId: job.id,
         format: job.format,
         status: job.status,
-        downloadUrl: job.status === 'completed' ? `/api/v1/export/${job.id}/download` : null,
+        // 内容被新导出清空后就不再给下载地址：否则客户端点进去只能拿到 404
+        downloadUrl: job.status === 'completed' && job.has_content ? `/api/v1/export/${job.id}/download` : null,
         error: job.error ?? undefined
       })
     }
