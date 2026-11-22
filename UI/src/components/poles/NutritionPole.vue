@@ -257,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ArrowRight, Camera, Pill, Utensils } from 'lucide-vue-next'
 import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
@@ -277,6 +277,7 @@ import {
 } from '@/services/mealRules'
 import { buildWeeklyReport, WEEK_LABELS, weekDates, weekStart } from '@/services/weekRules'
 import { eyebrowDate, shortDate, toISODate } from '@/utils/time'
+import { hydrateMealThumbs } from '@/services/mealThumbs'
 import type { Meal, MealType } from '@/types/domain'
 
 type View = 'today' | 'week' | 'log'
@@ -294,6 +295,10 @@ const emit = defineEmits<{
 }>()
 
 const store = useAppStore()
+// 缩略图按需拉取：同步只带文字与条目，图片在展示时补齐并缓存
+watch(() => store.meals, (list) => {
+  void hydrateMealThumbs(list, () => store.persistState())
+}, { immediate: true })
 const now = new Date()
 const today = toISODate(now)
 const tab = ref<View>('today')

@@ -35,3 +35,10 @@ export async function remove(meal: Meal): Promise<void> {
   const id = meal.serverId ?? meal.clientId ?? meal.id
   await request<void>(`/meals/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
+
+/** 缩略图不随同步下发，展示时按需取一次（服务端返回 data URL 或 null） */
+export async function thumb(meal: Meal): Promise<string | null> {
+  const id = meal.serverId ?? meal.clientId ?? meal.id
+  const body = await request<{ photoThumb: string | null }>(`/meals/${encodeURIComponent(id)}/thumb`)
+  return body.photoThumb
+}

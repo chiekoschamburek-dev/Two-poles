@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-wrap">
     <header class="lede">
       <div>
@@ -263,7 +263,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowRight, Camera, ChevronLeft, ChevronRight, PenLine } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
@@ -284,9 +284,15 @@ import {
 } from '@/services/mealRules'
 import { LOW_CONFIDENCE } from '@/services/foodRecognition'
 import { canUseLlm, isLlmReady, usingDefault } from '@/services/llm'
+import { hydrateMealThumbs } from '@/services/mealThumbs'
 import { shortDate, toISODate } from '@/utils/time'
 
 const store = useAppStore()
+
+// 缩略图不随同步下发，展示前按需补齐（取到后写回本机记录）
+watch(() => store.meals, (list) => {
+  void hydrateMealThumbs(list, () => store.persistState())
+}, { immediate: true })
 
 const now = new Date()
 const today = toISODate(now)

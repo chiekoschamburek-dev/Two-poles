@@ -32,7 +32,7 @@ import { weekDates, weekStart } from '@/services/weekRules'
 import { WELLNESS_DISMISS_KEY } from '@/services/wellnessCards'
 import { toISODate } from '@/utils/time'
 import { clearStoredState, loadStoredState, saveStoredState, clearSyncMeta } from '@/services/storage'
-import { addConflict, bootstrapSync, canUploadRecord, clearAllConflicts, configureSync, enqueueSync, refreshPending, syncState } from '@/services/sync'
+import { addConflict, bootstrapSync, canUploadRecord, clearAllConflicts, clearConflict, configureSync, enqueueSync, refreshPending, syncState } from '@/services/sync'
 import { listOutbox, removeOp } from '@/services/outbox'
 import type { UploadBatch } from '@/services/sync'
 import type { RemoteSyncSnapshot } from '@/services/api/sync'
@@ -60,7 +60,7 @@ export interface NewMealInput {
 
 export const useAppStore = defineStore('app', () => {
   // === State ===
-  const userProfile = ref<UserProfile | null>(null)
+  const allProfile = ref<UserProfile | null>(null)
   const allSessions = ref<TrainingSession[]>([])
   const allMeals = ref<Meal[]>([])
   const allAnalyses = ref<MotionAnalysis[]>([])
@@ -92,6 +92,15 @@ export const useAppStore = defineStore('app', () => {
   let quotaWarned = false
 
   // === Computed ===
+  /**
+   * 当前账号可见的档案：换账号后，上一个账号的档案留在本机（登出后还能看到），
+   * 但不参与当前账号的展示、计划生成与补传。
+   */
+  const userProfile = computed({
+    get: () => (allProfile.value && belongsToOtherAccount({ userId: allProfile.value.id }) ? null : allProfile.value),
+    // 显式赋值（测试夹具、恢复备份）写回原始档案；日常更新走 updateProfile
+    set: (value: UserProfile | null) => { allProfile.value = value }
+  })
   const hasProfile = computed(() => !!userProfile.value)
 
   // === Actions ===
@@ -124,7 +133,7 @@ export const useAppStore = defineStore('app', () => {
     darkMedia?.addEventListener?.('change', applyTheme)
     const data = loadStoredState()
     // 旧档案没有 PB / 极限数组：在这里补齐，页面就不用到处写 `?? []`
-    userProfile.value = normalizeProfile(data.profile ?? null)
+    allProfile.value = normalizeProfile(data.profile ?? null)
     allSessions.value = Array.isArray(data.sessions) ? data.sessions : []
     allMeals.value = Array.isArray(data.meals) ? data.meals : []
     allAnalyses.value = Array.isArray(data.analyses) ? data.analyses : []
@@ -161,7 +170,7 @@ export const useAppStore = defineStore('app', () => {
    */
   function persistState() {
     const state = {
-      profile: userProfile.value,
+      profile: allProfile.value,
       sessions: allSessions.value,
       meals: allMeals.value,
       analyses: allAnalyses.value,
@@ -196,7 +205,7 @@ export const useAppStore = defineStore('app', () => {
   // ——— 同步层：本机优先，登录后在后台拉取/补传 ———
   /** 新记录的归属：登录后一定是当前账号，避免换号时被本地档案的旧 id 带跑 */
   function currentUserId(): string {
-    return syncState.user?.id || userProfile.value?.id || 'demo-user'
+    return syncState.user?.id || allProfile.value?.id || 'demo-user'
   }
 
   /** 已经属于另一个账号的记录：换号后只留在本机，补传与回写都要跳过 */
@@ -242,6 +251,7 @@ export const useAppStore = defineStore('app', () => {
 
   function getUploadBatch(firstSync: boolean): UploadBatch {
     const since = syncState.lastSyncAt
+    // 用“可见档案”：换账号后上一个账号的档案不参与补传（否则会把 A 的档案写进 B）
     const localProfileAt = userProfile.value?.updatedAt ?? ''
     const localPrivacyAt = privacy.value.updatedAt ?? ''
     const profileNeedsUpload = !!userProfile.value && (firstSync
@@ -269,12 +279,12 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function markProfileSynced(remote: UserProfile, uploadedAt?: string) {
-    if (!userProfile.value) return
-    const previousId = userProfile.value.id
-    userProfile.value = userProfile.value.updatedAt === uploadedAt ? normalizeProfile(remote) : {
-      ...userProfile.value,
+    if (!allProfile.value) return
+    const previousId = allProfile.value.id
+    allProfile.value = allProfile.value.updatedAt === uploadedAt ? normalizeProfile(remote) : {
+      ...allProfile.value,
       id: remote.id,
-      updatedAt: userProfile.value.updatedAt
+      updatedAt: allProfile.value.updatedAt
     }
     if (previousId && previousId !== remote.id && syncState.adoptingLocalData) {
       // 只有在「首次登录接管本机数据」时才改写归属；换账号时保持原样，
@@ -376,13 +386,19 @@ export const useAppStore = defineStore('app', () => {
     }
     if (snapshot.profile) {
       const remoteTime = snapshot.profile.updatedAt ?? ''
-      const localTime = userProfile.value?.updatedAt ?? ''
-      if (!userProfile.value || remoteTime > localTime) userProfile.value = normalizeProfile(snapshot.profile)
+      const localTime = allProfile.value?.updatedAt ?? ''
+      // 换账号时以服务端档案为准：本机更“新”的档案属于上一个账号，不能留下
+      if (!syncState.adoptingLocalData || !allProfile.value || remoteTime > localTime) {
+        allProfile.value = normalizeProfile(snapshot.profile)
+      }
     }
     if (snapshot.privacy) {
       const remoteTime = snapshot.privacy.updatedAt ?? ''
       const localTime = privacy.value.updatedAt ?? ''
-      if (!privacy.value.updatedAt || remoteTime > localTime) privacy.value = { ...privacy.value, ...snapshot.privacy }
+      // 隐私设置同理：换账号直接采用服务端（或默认）值，避免 A 的设置留在 B 的账号里
+      if (!syncState.adoptingLocalData || !privacy.value.updatedAt || remoteTime > localTime) {
+        privacy.value = { ...privacy.value, ...snapshot.privacy }
+      }
     }
 
     const deletedSessions = deletedKeys(snapshot.deleted?.sessions ?? [])
@@ -555,6 +571,74 @@ export const useAppStore = defineStore('app', () => {
       refreshPending()
     }
     return moved
+  }
+
+  /**
+   * 冲突记录换个 clientId 重新创建：用于“服务端已删除/拒绝”的冲突。
+   * 服务端不允许用已删除的 clientId 复活，换号重发是唯一能把本机内容送上去的路径。
+   */
+  function resaveConflictRecord(kind: 'session' | 'meal' | 'analysis', clientId: string): boolean {
+    const matches = (item: { clientId?: string; id: string }) => (item.clientId ?? item.id) === clientId
+    if (kind === 'session') {
+      const target = allSessions.value.find(matches)
+      if (!target) return false
+      target.clientId = newId()
+      delete target.serverId
+      target._sync = 'pending'
+      queueSessionSync(target)
+    } else if (kind === 'meal') {
+      const target = allMeals.value.find(matches)
+      if (!target) return false
+      target.clientId = newId()
+      delete target.serverId
+      target._sync = 'pending'
+      queueMealCreate(target)
+    } else {
+      const target = allAnalyses.value.find(matches)
+      if (!target) return false
+      target.clientId = newId()
+      delete target.serverId
+      target._sync = 'pending'
+      queueAnalysisSync(target, 'analysis.create')
+    }
+    clearConflict(`${kind}:${clientId}`)
+    persistState()
+    return true
+  }
+
+  /**
+   * 计划冲突：把本机“已完成”的项合并到服务端最新版本上，再生成下一版。
+   * 直接采用服务端版本会丢掉本机刚练完的完成状态；直接重发本地版本又会覆盖另一台设备的改动。
+   */
+  function mergeConflictPlan(clientId: string): boolean {
+    const conflict = syncState.conflicts.find(item => item.id === `plan:${clientId}`)
+    const local = allPlans.value.find(item => (item.clientId ?? item.id) === clientId)
+    const remote = conflict?.latestPlan
+    if (!local || !remote) return false
+    const localDone = new Set(local.items.filter(item => item.completed).map(item => item.id))
+    const merged: Plan = {
+      ...remote,
+      id: local.id,
+      clientId: `${local.id}:merge-${newId().slice(0, 8)}`,
+      version: remote.version + 1,
+      reason: `${remote.reason}（合并本机完成状态）`,
+      items: remote.items.map(item => ({
+        ...item,
+        planId: local.id,
+        completed: item.completed || localDone.has(item.id)
+      })),
+      updatedAt: new Date().toISOString(),
+      _sync: 'pending'
+    }
+    allPlanHistory.value.push({ ...local, items: local.items.map(item => ({ ...item })) })
+    allPlans.value = allPlans.value.map(item => (item.id === local.id ? merged : item))
+    for (const op of listOutbox()) {
+      if (op.kind.startsWith('plan.') && (op.clientId === clientId || op.clientId === local.clientId)) removeOp(op.id)
+    }
+    clearConflict(`plan:${clientId}`)
+    enqueueSync('plan.create', merged.clientId!, { ...merged, items: merged.items.map(item => ({ ...item })) })
+    persistState()
+    return true
   }
 
   function queueProfileSync() {
@@ -1145,11 +1229,14 @@ export const useAppStore = defineStore('app', () => {
    */
   function updateProfile(profile: Partial<UserProfile>) {
     const updatedAt = new Date().toISOString()
-    if (userProfile.value) {
-      userProfile.value = { ...userProfile.value, ...profile, updatedAt }
+    // 以“当前账号可见的档案”为基线：换账号后编辑的是 B 自己的档案，
+    // 不能把 A 的档案对象（被隐藏但仍在本机）改一改再传上去
+    const current = userProfile.value
+    if (current) {
+      allProfile.value = { ...current, ...profile, updatedAt }
     } else {
-      userProfile.value = {
-        id: newId(),
+      allProfile.value = {
+        id: currentUserId(),
         age: 25,
         goal: '',
         experience: '',
@@ -1510,7 +1597,7 @@ export const useAppStore = defineStore('app', () => {
    * Clear all data
    */
   function clearAllData() {
-    userProfile.value = null
+    allProfile.value = null
     allSessions.value = []
     allMeals.value = []
     allAnalyses.value = []
@@ -1616,6 +1703,8 @@ export const useAppStore = defineStore('app', () => {
     acceptAdjustment,
     adoptRemotePlan,
     adoptForeignRecords,
+    resaveConflictRecord,
+    mergeConflictPlan,
     rejectAdjustment,
     resolveAdjustment,
     isAdjustmentResolved,

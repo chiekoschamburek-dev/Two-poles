@@ -130,28 +130,35 @@ export function configureSync(next: SyncHandlers) {
   handlers = next
 }
 
-export async function bootstrapSync() {
+let bootstrapPromise: Promise<void> | null = null
+
+export function bootstrapSync(): Promise<void> {
   if (!apiEnabled) {
     syncState.status = 'local'
-    return
+    return Promise.resolve()
   }
-  bindNetworkListeners()
-  loadConflicts()
-  syncState.pending = pendingCount()
-  const meta = readSyncMeta()
-  const restored = await authApi.refresh()
-  if (!restored) {
+  // 单飞：应用启动与「重新挂载」可能各触发一次，重复 refresh 会让账号归属判断看到两个 owner
+  if (bootstrapPromise) return bootstrapPromise
+  bootstrapPromise = (async () => {
+    bindNetworkListeners()
+    loadConflicts()
+    syncState.pending = pendingCount()
+    const meta = readSyncMeta()
+    const restored = await authApi.refresh()
+    if (!restored) {
+      syncState.status = 'idle'
+      return
+    }
+    syncState.user = restored.user
+    // 同一个账号回来可以继续接管本机记录；换账号时只拉取，不把本机旧数据补传过去
+    const owner = readSyncOwner()
+    syncState.adoptingLocalData = !owner || owner === restored.user.id
+    writeSyncOwner(restored.user.id)
+    syncState.lastSyncAt = meta && meta.userId === restored.user.id ? meta.lastSyncAt : ''
     syncState.status = 'idle'
-    return
-  }
-  syncState.user = restored.user
-  // 同一个账号回来可以继续接管本机记录；换账号时只拉取，不把本机旧数据补传过去
-  const owner = readSyncOwner()
-  syncState.adoptingLocalData = !owner || owner === restored.user.id
-  writeSyncOwner(restored.user.id)
-  syncState.lastSyncAt = meta && meta.userId === restored.user.id ? meta.lastSyncAt : ''
-  syncState.status = 'idle'
-  await syncNow()
+    await syncNow()
+  })().finally(() => { bootstrapPromise = null })
+  return bootstrapPromise
 }
 
 async function afterAuth(result: authApi.AuthResult) {
@@ -488,8 +495,10 @@ export async function syncNow(): Promise<void> {
 
 export async function exportRemote(format: 'json' | 'csv'): Promise<{ blob: Blob; filename: string }> {
   let job = await settingsApi.createExport(format)
-  for (let i = 0; i < 40 && job.status === 'pending'; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 250))
+  // 服务端单个作业最多跑 60 秒（超时会标 failed）；客户端要等得比它久，否则大账号永远拿不到文件
+  const deadline = Date.now() + 75_000
+  while (job.status === 'pending' && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
     job = await settingsApi.getExport(job.jobId)
   }
   if (job.status !== 'completed') throw new Error(job.error || '导出任务未完成')

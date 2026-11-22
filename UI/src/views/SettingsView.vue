@@ -113,12 +113,16 @@
                     </table>
                   </details>
                   <div class="actions">
+                    <BaseButton size="sm" @click="mergePlanConflict(item)">合并本机完成状态</BaseButton>
                     <BaseButton size="sm" variant="secondary" @click="adoptPlan(item)">采用服务端版本</BaseButton>
                     <RouterLink class="link" to="/plan">查看本机计划</RouterLink>
                   </div>
                 </template>
               </div>
-              <button v-if="!item.latestPlan" type="button" class="text-btn" @click="retryConflict(item)">重试</button>
+              <div v-if="!item.latestPlan" class="conflict-actions">
+                <button type="button" class="text-btn" @click="retryConflict(item)">重试</button>
+                <button v-if="item.kind !== 'profile'" type="button" class="text-btn" @click="resaveConflict(item)">另存为新记录</button>
+              </div>
             </li>
           </ul>
         </div>
@@ -503,6 +507,29 @@ function adoptPlan(conflict: SyncConflict) {
   if (!conflict.latestPlan) return
   store.adoptRemotePlan(conflict.clientId, conflict.latestPlan)
   clearConflict(conflict.id)
+}
+
+async function mergePlanConflict(conflict: SyncConflict) {
+  if (!store.mergeConflictPlan(conflict.clientId)) return
+  await syncNow()
+  store.showToast({
+    type: 'success',
+    title: '已合并本机完成状态',
+    message: syncState.error || '已按服务端最新版本生成下一版计划，历史里能对回本机版本',
+    duration: 5000
+  })
+}
+
+async function resaveConflict(conflict: SyncConflict) {
+  if (conflict.kind === 'plan' || conflict.kind === 'profile') return
+  if (!store.resaveConflictRecord(conflict.kind, conflict.clientId)) return
+  await syncNow()
+  store.showToast({
+    type: 'success',
+    title: '已另存为新记录',
+    message: syncState.error || '会作为当前账号的新记录上传，原冲突已清除',
+    duration: 4000
+  })
 }
 const syncBadgeVariant = computed<BadgeVariant>(() => {
   if (!syncState.apiEnabled || !syncState.user) return 'neutral'
@@ -946,6 +973,7 @@ async function wipe() {
 .sync-conflicts ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
 .sync-conflicts li{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--color-text-secondary);line-height:1.5}
 .sync-conflicts li>div{min-width:0;overflow-wrap:anywhere}
+.conflict-actions{display:flex;flex-direction:column;gap:2px;align-items:flex-end}
 .foreign-data{margin-top:12px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);color:var(--color-text-secondary);font-size:12.5px;line-height:1.6}
 .conflict-table{width:100%;border-collapse:collapse;margin:8px 0}
 .conflict-table th,.conflict-table td{padding:6px;text-align:left;vertical-align:top;border:1px solid var(--color-border);overflow-wrap:anywhere}

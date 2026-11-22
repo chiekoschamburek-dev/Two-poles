@@ -5,7 +5,7 @@ import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { createMockApi } from '@/mocks/handlers'
 import { useAppStore } from '@/stores/app'
-import { bootstrapSync, clearAllConflicts, configureSync, deviceLogin, enqueueSync, flushOutbox, logout, syncNow, syncState } from '@/services/sync'
+import { addConflict, bootstrapSync, clearAllConflicts, configureSync, deviceLogin, enqueueSync, flushOutbox, logout, syncNow, syncState } from '@/services/sync'
 import { clearOutbox, enqueue, listOutbox, updateOp } from '@/services/outbox'
 import { ApiError, clearAccessToken, request, setAccessToken } from '@/services/api/http'
 import * as mealsApi from '@/services/api/meals'
@@ -213,4 +213,77 @@ test('换账号后隐藏其它账号的记录，并可显式并入当前账号',
   assert.equal(store.foreignRecordCount, 0)
   assert.ok(store.sessions.every((item) => item.userId === syncState.user!.id))
   syncState.adoptingLocalData = true
+})
+
+test('换账号不会把上一个账号的档案写进当前账号', async () => {
+  // A 的档案更新时间比 B 更晚，确保不是靠时间戳比较“碰巧”挡住的
+  const later = new Date(Date.now() + 60_000).toISOString()
+  mem.set('twopoles.v1.profile', JSON.stringify({
+    id: 'other-account',
+    age: 41,
+    nickname: 'A 的档案',
+    goal: '增肌',
+    experience: '规律训练',
+    availableTimes: [],
+    equipment: [],
+    restrictions: [],
+    updatedAt: later
+  }))
+  mem.set('twopoles.v1.syncOwner', JSON.stringify('other-account'))
+  mem.delete('twopoles.v1.syncMeta')
+  mock.state.profile = null
+  setActivePinia(createPinia())
+  const store = useAppStore()
+  store.init()
+  await bootstrapSync()
+
+  assert.equal(store.userProfile, null, '换账号后不展示上一个账号的档案')
+  await syncNow()
+  assert.equal(mock.state.profile, null, '不能把上一个账号的档案上传到当前账号')
+
+  store.updateProfile({ age: 30, nickname: 'B 的档案' })
+  await syncNow()
+  assert.equal(mock.state.profile?.nickname, 'B 的档案', 'B 自己的档案照常同步')
+  assert.equal(store.userProfile?.id, syncState.user!.id)
+})
+
+test('计划冲突可以合并本机的完成状态', async () => {
+  const store = useAppStore()
+  const plan = store.ensureWeekPlan(new Date(2027, 5, 7))
+  const [first, second] = plan.items
+  store.markItemCompleted(plan.id, first.id, true)
+  const clientId = plan.clientId!
+  // 服务端最新版本：完成的是另一项，本机这一项在它上面还是未完成
+  const serverVersion = {
+    ...plan,
+    clientId: 'server-version',
+    items: plan.items.map(item => ({ ...item, completed: item.id === second.id }))
+  }
+  addConflict('plan', clientId, '计划版本冲突', serverVersion)
+  assert.equal(store.mergeConflictPlan(clientId), true)
+  const merged = store.plans.find(item => item.id === plan.id)!
+  assert.equal(merged.version, serverVersion.version + 1)
+  assert.equal(merged.items.find(item => item.id === first.id)?.completed, true, '本机完成的项保留')
+  assert.equal(merged.items.find(item => item.id === second.id)?.completed, true, '服务端完成的项也保留')
+  assert.equal(syncState.conflicts.some(item => item.id === `plan:${clientId}`), false)
+  clearOutbox()
+})
+
+test('冲突记录可以另存为新记录重新上传', async () => {
+  const store = useAppStore()
+  const local = store.addSession({
+    date: '2026-11-03',
+    exerciseName: '硬拉',
+    type: '其他',
+    completionStatus: 'completed',
+    actualDuration: 10
+  })
+  const oldClientId = local.clientId!
+  addConflict('session', oldClientId, '测试冲突')
+  assert.equal(local._sync, 'conflict')
+  assert.equal(store.resaveConflictRecord('session', oldClientId), true)
+  assert.notEqual(local.clientId, oldClientId)
+  assert.equal(local._sync, 'pending')
+  assert.equal(syncState.conflicts.some(item => item.id === `session:${oldClientId}`), false)
+  clearOutbox()
 })

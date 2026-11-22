@@ -94,7 +94,7 @@ async function noticeAppUpdate() {
   store.showToast({
     type: 'info',
     title: `发现新版本 ${status.latest.versionName}`,
-    message: '网页内容已自动更新；只有 App 壳（通知等原生能力）需要换包。到「设置 → 安装 App」可一键更新。',
+    message: '网页内容已自动更新；只有 App 壳（通知等原生能力）需要换包。到「设置 → 安装 App」可一键更新，也可以在那里关掉这个版本的提醒。',
     duration: 9000
   })
 }

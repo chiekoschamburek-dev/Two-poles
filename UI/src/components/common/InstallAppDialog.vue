@@ -42,7 +42,9 @@
             <p v-if="updateError" class="fine apk-error" role="alert">{{ updateError }}</p>
             <div class="actions">
               <BaseButton size="sm" variant="secondary" :disabled="updateState === 'checking'" @click="refreshVersion">重新检查</BaseButton>
+              <BaseButton v-if="status?.hasUpdate && !dismissed" size="sm" variant="ghost" @click="dismissThisVersion">不再提醒此版本</BaseButton>
             </div>
+            <p v-if="dismissed" class="fine">已关闭 {{ status?.latest.versionName }} 的自动提醒；下次发布新版本会再提示。</p>
           </section>
 
           <template v-else>
@@ -99,7 +101,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Capacitor } from '@capacitor/core'
 import { Download, Monitor, Smartphone } from 'lucide-vue-next'
 import BaseButton from './BaseButton.vue'
-import { checkAppUpdate, downloadAndInstall, formatSize, type UpdateStatus } from '@/services/appUpdate'
+import { checkAppUpdate, dismissUpdate, downloadAndInstall, formatSize, type UpdateStatus } from '@/services/appUpdate'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -127,6 +129,7 @@ const updateState = ref<'idle' | 'checking' | 'ready'>('idle')
 const updateStatus = ref<UpdateStatus | null>(null)
 const updating = ref(false)
 const updateError = ref('')
+const dismissed = ref(false)
 const status = computed(() => updateStatus.value)
 const installedLabel = computed(() => updateStatus.value
   ? `${updateStatus.value.installed.versionName}（${updateStatus.value.installed.versionCode}）`
@@ -159,6 +162,14 @@ async function runUpdate() {
   } finally {
     updating.value = false
   }
+}
+
+/** 明确的“不再提醒”：只静默这一个版本，新版本发布后照常提示 */
+function dismissThisVersion() {
+  const current = updateStatus.value
+  if (!current) return
+  dismissUpdate(current.latest.versionCode)
+  dismissed.value = true
 }
 
 watch(() => props.open, (open) => {
