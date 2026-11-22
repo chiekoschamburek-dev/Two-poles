@@ -8,7 +8,7 @@
 
 `server/index.mjs` 是新增的 Node 24 + SQLite 服务，提供 `/api/v1/*`。当前 ESA 的入口仍为 `server/llm.js`，发布现有 `esa.jsonc` 不会自动部署账号后端。要启用账号同步，需要：
 
-1. 在有持久磁盘的 Node 24 主机上运行 `npm run server`（工作目录 UI），将 `TWOPOLES_DB` 指向持久目录，并设置独立随机的 `AUTH_SECRET`、`COOKIE_SECURE=true` 和精确的 `CORS_ORIGINS`。
+1. 在有持久磁盘的 Node 24 主机上运行 `npm run server`（工作目录 UI），将 `TWOPOLES_DB` 指向持久目录，并设置独立随机的 `AUTH_SECRET`、`COOKIE_SECURE=true` 和精确的 `CORS_ORIGINS`；主机是 UTC 时再设 `TWOPOLES_TIMEZONE=Asia/Shanghai`，否则“本周”“今天”和 CSV 时间列会按 UTC 算。
 2. 配置站点同源 `/api/v1/*` 回源到该服务，保留 Authorization / If-Match / Idempotency-Key、Set-Cookie 和 Cookie；HTTPS 由入口代理终止。SQLite 文件需独立备份；当前没有自动保留期或备份轮换作业。
 3. 前端构建时设置 `VITE_API_BASE_URL=same-origin`。仅设置这个变量不会创建后端或回源规则。未配置时保持纯本机模式。
 
