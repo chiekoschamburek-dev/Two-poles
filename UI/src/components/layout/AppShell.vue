@@ -15,6 +15,11 @@
     <!-- 路由切换后用读屏播报页面名：SPA 换页不会触发浏览器默认的"已加载"提示 -->
     <p class="visually-hidden" aria-live="polite" aria-atomic="true">{{ pageAnnouncement }}</p>
     <MobileNav />
+    <!-- 同步出问题（失败/冲突/登录过期）时全站可见，不用用户自己翻设置页 -->
+    <button v-if="syncProblem" type="button" class="sync-flag" @click="router.push('/settings')">
+      <CloudOff :size="15" aria-hidden="true" />
+      <span>{{ syncProblem }} · 去处理</span>
+    </button>
     <WellnessDock />
     <PlanDraftDialog />
     <ToastRegion />
@@ -23,7 +28,8 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { CloudOff } from 'lucide-vue-next'
 import TopBar from './TopBar.vue'
 import SidebarNav from './SidebarNav.vue'
 import MobileNav from './MobileNav.vue'
@@ -35,11 +41,22 @@ import { useWellnessDock } from '@/composables/useWellnessDock'
 import { startSupplementScheduler } from '@/composables/useSupplementReminders'
 import { initDietFeedback, stopDietFeedback } from '@/composables/useDietFeedback'
 import { resetBodyScroll } from '@/services/scrollLock'
-import { checkAppUpdate, dismissUpdate, isUpdateDismissed } from '@/services/appUpdate'
+import { checkAppUpdate, markUpdateNotified, shouldNotifyUpdate } from '@/services/appUpdate'
+import { syncState } from '@/services/sync'
 
 const mobileOpen = ref(false)
 const route = useRoute()
+const router = useRouter()
 const store = useAppStore()
+
+/** 冲突优先于状态：冲突不会自己消失，必须去设置页处理 */
+const syncProblem = computed(() => {
+  if (route.path.startsWith('/settings')) return ''
+  if (syncState.conflicts.length) return `${syncState.conflicts.length} 条同步冲突`
+  if (syncState.status === 'unauthorized') return '登录已过期'
+  if (syncState.status === 'error') return '同步已中断'
+  return ''
+})
 const mainRef = ref<HTMLElement | null>(null)
 const pageAnnouncement = ref('')
 const { init: initWellnessDock, modalOpen: wellnessModalOpen } = useWellnessDock()
@@ -71,8 +88,9 @@ let stopSupplements: (() => void) | null = null
 async function noticeAppUpdate() {
   const status = await checkAppUpdate()
   if (!status?.hasUpdate) return
-  if (isUpdateDismissed(status.latest.versionCode)) return
-  dismissUpdate(status.latest.versionCode)
+  // 同一个版本每天最多提醒一次：错过 9 秒 Toast 不会让这个版本从此再也不提示
+  if (!shouldNotifyUpdate(status.latest.versionCode)) return
+  markUpdateNotified(status.latest.versionCode)
   store.showToast({
     type: 'info',
     title: `发现新版本 ${status.latest.versionName}`,
@@ -126,6 +144,31 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .main-content > * { min-width: 0; }
+/* 同步问题常驻角标：放在底栏之上，不动主区布局（工作台两栏是固定高度） */
+.sync-flag {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(var(--mobile-nav-height) + var(--safe-bottom) + var(--space-3));
+  z-index: calc(var(--z-sticky) + 2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-caution);
+  background: var(--color-caution-soft);
+  color: var(--color-caution);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: var(--shadow-card-lg);
+}
+.sync-flag:hover { filter: brightness(0.97); }
+.sync-flag:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+@media (min-width: 768px) {
+  .sync-flag { bottom: var(--space-5); right: var(--space-5); }
+}
 /* 程序化聚焦（路由切换）不该画出一圈焦点环，只有键盘 Tab 过来时才显示 */
 .main-content:focus { outline: none; }
 .main-content:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }

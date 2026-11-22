@@ -82,6 +82,39 @@ export function dismissUpdate(versionCode: number): void {
   }
 }
 
+export const UPDATE_NOTICE_KEY = 'twopoles.v1.updateNotified'
+
+function todayKey(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * 是否该为这个版本弹一次「发现新版本」。
+ * 同一版本每天最多提醒一次：错过一次 Toast 不会让这个版本从此再也不提示；
+ * 用户明确点过「稍后」（dismissUpdate）才永久静默。
+ */
+export function shouldNotifyUpdate(versionCode: number): boolean {
+  if (isUpdateDismissed(versionCode)) return false
+  try {
+    const raw = localStorage.getItem(UPDATE_NOTICE_KEY)
+    if (!raw) return true
+    const last = JSON.parse(raw) as { versionCode?: number; day?: string }
+    if (last.versionCode !== versionCode) return true
+    return last.day !== todayKey()
+  } catch {
+    return true
+  }
+}
+
+export function markUpdateNotified(versionCode: number): void {
+  try {
+    localStorage.setItem(UPDATE_NOTICE_KEY, JSON.stringify({ versionCode, day: todayKey() }))
+  } catch {
+    // 同上：写不进去只是下次启动再提示一次
+  }
+}
+
 export async function checkAppUpdate(): Promise<UpdateStatus | null> {
   if (!isNative) return null
   const [installed, latest] = await Promise.all([readInstalledVersion(), fetchLatestApk()])
