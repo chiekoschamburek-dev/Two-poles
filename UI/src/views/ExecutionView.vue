@@ -16,12 +16,15 @@
     <BaseCard v-if="!trainingMode" class="guide-picker">
       <h2>{{ planDate }} 的训练计划</h2>
       <ol v-if="plannedItems.length" class="guide-queue">
-        <li v-for="item in plannedItems" :key="item.id">
+        <li v-for="item in plannedItems" :key="item.id || item.exerciseName">
           <strong>{{ item.exerciseName }}</strong>
           <span v-if="planItemSpec(item)"> · {{ planItemSpec(item) }}</span>
           <span v-if="item.completed"> · 已完成</span>
         </li>
       </ol>
+      <p v-if="adhocItem" class="adhoc-note" role="status">
+        当天计划里没有「{{ adhocItem.exerciseName }}」，本次按单独跟练记录，不计入计划完成率。
+      </p>
       <div class="guide-actions">
         <BaseButton :icon="Camera" :disabled="pendingItems.length > 0 && !store.privacy.cameraEnabled" @click="startTraining('camera')">摄像头跟练</BaseButton>
         <BaseButton variant="secondary" :icon="Play" @click="startTraining('timer')">计时与语音</BaseButton>
@@ -331,6 +334,11 @@ const planDate = computed(() => {
   const requested = route.query.planDate
   return typeof requested === 'string' && requested ? requested : toISODate(new Date())
 })
+/** 从「运动」柱状面板点「开始跟练」带过来的动作名：只练这一项，而不是当天整张计划 */
+const requestedExercise = computed(() => {
+  const requested = route.query.exercise
+  return typeof requested === 'string' ? requested.trim() : ''
+})
 const dayItems = computed(() => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(planDate.value)) return []
   const date = new Date(`${planDate.value}T00:00:00`)
@@ -338,9 +346,23 @@ const dayItems = computed(() => {
   const plan = store.weekPlan(date)
   return plan?.items.filter(item => item.date === planDate.value) ?? []
 })
+/** 当天计划里没有这个动作时（休息日/手工计划），按单独跟练开一项，不参与计划完成率 */
+const adhocItem = computed<PlanItem | null>(() => {
+  const name = requestedExercise.value
+  if (!name) return null
+  if (dayItems.value.some(item => item.exerciseName === name)) return null
+  if (!demoExercises.some(candidate => candidate.name === name)) return null
+  return { id: '', planId: '', date: planDate.value, exerciseName: name, type: '其他' as PlanItem['type'], completed: false }
+})
 const plannedItems = computed(() => {
   const itemId = route.query.planItemId
-  return itemId ? dayItems.value.filter(item => item.id === itemId) : dayItems.value
+  if (itemId) return dayItems.value.filter(item => item.id === itemId)
+  if (requestedExercise.value) {
+    const matched = dayItems.value.filter(item => item.exerciseName === requestedExercise.value)
+    if (matched.length) return matched
+    if (adhocItem.value) return [adhocItem.value]
+  }
+  return dayItems.value
 })
 const pendingItems = computed(() => plannedItems.value.filter(item => !item.completed))
 const emptyStartAttempted = ref(false)
@@ -1002,10 +1024,12 @@ function record() {
   recorded = true
   // 落记录前按墙钟补一次，避免用到上一个 tick（最多 250 ms 前）的读数
   if (sessionClock.anchor) elapsedMs.value = clockValue(sessionClock)
+  // 单独跟练（当天计划里没有这个动作）没有计划项 id，不能拿它去回写计划
+  const planItem = trainingItems.value[itemIndex.value]
   const session = store.addSession(
     summarizeSession({
       exercise: exercise.value,
-      planItemId: trainingItems.value[itemIndex.value]?.id,
+      planItemId: planItem?.id || undefined,
       setsCompleted: closedSets.value,
       repsBySet: repsBySet.value,
       steps: isStepsMode.value ? stepCounter.steps.value : undefined,
@@ -1017,6 +1041,10 @@ function record() {
       elapsedMs: elapsedMs.value
     })
   )
+  // 从计划里开练的动作：练完直接算完成，不用再回计划页手动标记一次
+  if (planItem?.id && planItem.planId && session.completionStatus === 'completed') {
+    store.markItemCompleted(planItem.planId, planItem.id, true)
+  }
   recordedCount.value++
   recordedId.value = session.id
   recordedNote.value = `已保存到本地记录（共 ${store.sessions.length} 条）`
@@ -1252,6 +1280,7 @@ onUnmounted(() => {
 .guide-queue{margin:0 0 14px;padding-left:22px;color:var(--color-text-secondary);line-height:1.65}
 .guide-actions{display:flex;gap:10px;flex-wrap:wrap}
 .guide-picker p,.voice-status{font-size:13px;color:var(--color-text-muted);line-height:1.6}
+.adhoc-note{margin:0 0 12px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--color-neutral-soft)}
 .voice-status{margin:0 0 12px}
 .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);transition:background var(--motion-fast),color var(--motion-fast),transform var(--motion-fast),box-shadow var(--motion-fast)}
 .chip.active{background:var(--pole-movement);color:var(--color-on-accent)}

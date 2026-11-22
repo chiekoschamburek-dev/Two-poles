@@ -468,8 +468,10 @@ function setTab(value: string) {
 }
 
 function start() {
-  if (!followable.value) return
-  router.push({ path: '/execution', query: { exercise: followable.value.exerciseName } })
+  const item = followable.value
+  if (!item) return
+  // 带上动作名和日期：跟练页据此只开这一项，而不是默认开「今天整张计划」
+  router.push({ path: '/execution', query: { exercise: item.exerciseName, planDate: item.date } })
 }
 
 function weekLabel(iso: string) {
