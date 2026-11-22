@@ -6,7 +6,7 @@ const isNative = Capacitor.isNativePlatform()
 
 const NativeApp = registerPlugin<{
   appVersion(): Promise<{ versionCode: number; versionName: string }>
-  installApk(options: { url: string; fileName?: string }): Promise<void>
+  installApk(options: { url: string; fileName?: string; size?: number; sha256?: string }): Promise<void>
 }>('SupplementNotificationSettings')
 
 /** 线上安装包清单，由 scripts/write-apk-version.mjs 随构建生成 */
@@ -128,7 +128,13 @@ export async function checkAppUpdate(): Promise<UpdateStatus | null> {
 
 export async function downloadAndInstall(latest: ApkManifest): Promise<void> {
   const absolute = new URL(latest.url, window.location.origin).href
-  await NativeApp.installApk({ url: absolute, fileName: `twopoles-${latest.versionName || latest.versionCode}.apk` })
+  // 清单里的 size/sha256 一并交给原生：下载被截断或被替换时宁可报错，也不拉起安装器
+  await NativeApp.installApk({
+    url: absolute,
+    fileName: `twopoles-${latest.versionName || latest.versionCode}.apk`,
+    size: latest.size || undefined,
+    sha256: latest.sha256 || undefined
+  })
 }
 
 export function formatSize(bytes: number): string {

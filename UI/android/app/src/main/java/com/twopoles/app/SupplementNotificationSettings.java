@@ -11,6 +11,8 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import androidx.core.content.ContextCompat;
@@ -21,6 +23,10 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.util.Locale;
 
 /**
  * 补剂通知的入口与自检。
@@ -32,6 +38,8 @@ import java.io.File;
 @CapacitorPlugin(name = "SupplementNotificationSettings")
 public class SupplementNotificationSettings extends Plugin {
     static final String CHANNEL_ID = "supplement-reminders-v2";
+    /** 安装包下载超时：超过就取消并报错，避免 Promise 永远挂着 */
+    static final long DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000L;
 
     @PluginMethod
     public void open(PluginCall call) {
@@ -143,6 +151,8 @@ public class SupplementNotificationSettings extends Plugin {
      * 应用内更新：下载安装包后拉起系统安装器。
      * Android 不允许侧载应用静默自安装，这里做到的是省掉「自己找文件再点安装」，
      * 最后的系统安装确认框必须由用户点一次，无法绕过。
+     *
+     * 清单里带了 size 与 sha256 就必须核对：下载被截断或被替换时宁可报错，也不拉起安装器。
      */
     @PluginMethod
     public void installApk(PluginCall call) {
@@ -152,9 +162,11 @@ public class SupplementNotificationSettings extends Plugin {
             return;
         }
         String fileName = call.getString("fileName", "twopoles-update.apk");
+        final long expectedSize = call.getLong("size", 0L);
+        final String expectedSha256 = call.getString("sha256", "");
         Context context = getContext();
 
-        DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+        final DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         if (manager == null) {
             call.reject("系统下载服务不可用");
             return;
@@ -166,7 +178,7 @@ public class SupplementNotificationSettings extends Plugin {
         request.setMimeType("application/vnd.android.package-archive");
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName);
-        long downloadId;
+        final long downloadId;
         try {
             downloadId = manager.enqueue(request);
         } catch (Exception exception) {
@@ -174,11 +186,15 @@ public class SupplementNotificationSettings extends Plugin {
             return;
         }
 
-        BroadcastReceiver receiver = new BroadcastReceiver() {
+        final boolean[] settled = { false };
+        final Handler handler = new Handler(Looper.getMainLooper());
+        final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context receiverContext, Intent intent) {
                 long finished = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L);
-                if (finished != downloadId) return;
+                if (finished != downloadId || settled[0]) return;
+                settled[0] = true;
+                handler.removeCallbacksAndMessages(null);
                 try {
                     context.unregisterReceiver(this);
                 } catch (Exception ignored) {
@@ -188,6 +204,19 @@ public class SupplementNotificationSettings extends Plugin {
                 if (!file.exists() || file.length() == 0) {
                     call.reject("安装包下载失败，请重试");
                     return;
+                }
+                if (expectedSize > 0 && file.length() != expectedSize) {
+                    file.delete();
+                    call.reject("安装包大小与清单不符，可能下载不完整，请重试");
+                    return;
+                }
+                if (expectedSha256 != null && !expectedSha256.isEmpty()) {
+                    String actual = sha256Of(file);
+                    if (actual == null || !actual.equalsIgnoreCase(expectedSha256.trim())) {
+                        file.delete();
+                        call.reject("安装包校验失败，已删除下载文件，请重试");
+                        return;
+                    }
                 }
                 try {
                     Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", file);
@@ -208,6 +237,41 @@ public class SupplementNotificationSettings extends Plugin {
         } else {
             ContextCompat.registerReceiver(context, receiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED);
         }
+
+        // 下载排队后可能永远收不到完成广播（网络卡死、系统清理任务）：超时后取消下载并释放 Promise
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (settled[0]) return;
+                settled[0] = true;
+                try {
+                    manager.remove(downloadId);
+                } catch (Exception ignored) {
+                    // 取消失败不影响报错
+                }
+                try {
+                    context.unregisterReceiver(receiver);
+                } catch (Exception ignored) {
+                    // 已注销
+                }
+                call.reject("安装包下载超时，请检查网络后重试");
+            }
+        }, DOWNLOAD_TIMEOUT_MS);
         call.setKeepAlive(true);
+    }
+
+    /** 安装包 SHA-256（小写十六进制）；读文件失败返回 null */
+    private static String sha256Of(File file) {
+        try (InputStream input = new FileInputStream(file)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read);
+            StringBuilder hex = new StringBuilder();
+            for (byte value : digest.digest()) hex.append(String.format(Locale.US, "%02x", value));
+            return hex.toString();
+        } catch (Exception exception) {
+            return null;
+        }
     }
 }
