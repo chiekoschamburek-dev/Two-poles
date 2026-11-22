@@ -13,7 +13,7 @@ import * as remoteSync from './api/sync'
 import type { RemoteSyncSnapshot } from './api/sync'
 import { clearOutbox, enqueue, listOutbox, pendingCount, removeOp, setOpInFlight, updateOp } from './outbox'
 import type { OutboxKind, OutboxOp } from './outbox'
-import { clearSyncMeta, readSyncConflicts, readSyncMeta, writeSyncConflicts, writeSyncMeta } from './storage'
+import { clearSyncMeta, readSyncConflicts, readSyncMeta, readSyncOwner, writeSyncConflicts, writeSyncMeta, writeSyncOwner } from './storage'
 
 export type SyncStatus = 'local' | 'idle' | 'syncing' | 'offline' | 'error' | 'unauthorized'
 
@@ -51,6 +51,8 @@ export const syncState = reactive({
   apiEnabled,
   status: (apiEnabled ? 'idle' : 'local') as SyncStatus,
   user: null as AuthUser | null,
+  /** 这次登录可以接管本机既有记录（首次登录）；换账号时为 false，绝不把上一个账号的数据补传过去 */
+  adoptingLocalData: true,
   lastSyncAt: '',
   lastRemoteProfileAt: '',
   lastRemotePrivacyAt: '',
@@ -143,13 +145,20 @@ export async function bootstrapSync() {
     return
   }
   syncState.user = restored.user
+  // 同一个账号回来可以继续接管本机记录；换账号时只拉取，不把本机旧数据补传过去
+  const owner = readSyncOwner()
+  syncState.adoptingLocalData = !owner || owner === restored.user.id
+  writeSyncOwner(restored.user.id)
   syncState.lastSyncAt = meta && meta.userId === restored.user.id ? meta.lastSyncAt : ''
   syncState.status = 'idle'
   await syncNow()
 }
 
 async function afterAuth(result: authApi.AuthResult) {
+  const owner = readSyncOwner()
+  syncState.adoptingLocalData = !owner || owner === result.user.id
   syncState.user = result.user
+  writeSyncOwner(result.user.id)
   syncState.error = ''
   syncState.status = 'idle'
   syncState.lastSyncAt = ''
@@ -180,6 +189,8 @@ export async function deviceLogin() {
 export async function bindAccount(identifier: string, password: string) {
   const user = await authApi.bind(identifier, password)
   syncState.user = user
+  // 绑定后立刻补传本机记录：否则用户会以为「绑定没生效」，要等下一次主动操作才同步
+  await syncNow()
   return user
 }
 
@@ -201,8 +212,26 @@ export async function logout() {
   persistConflicts()
 }
 
+/**
+ * 一条记录能不能上传到当前账号：
+ * - 属于当前账号的，照常上传；
+ * - 未归属（空/demo-user）或属于上一个账号的，只在「首次登录接管本机数据」时上传，
+ *   换账号时一律留在本机，绝不把 A 的数据写进 B。
+ */
+export function canUploadRecord(owner?: string): boolean {
+  if (!syncState.user) return false
+  if (owner && owner === syncState.user.id) return true
+  return syncState.adoptingLocalData
+}
+
+function ownedByCurrentAccount(payload: unknown): boolean {
+  const owner = (payload as { userId?: unknown } | null)?.userId
+  return canUploadRecord(typeof owner === 'string' ? owner : undefined)
+}
+
 export function enqueueSync(kind: OutboxKind, clientId: string, payload: unknown): boolean {
   if (!apiEnabled || !syncState.user) return false
+  if (!ownedByCurrentAccount(payload)) return false
   try {
     enqueue(kind, clientId, payload)
   } catch (error) {

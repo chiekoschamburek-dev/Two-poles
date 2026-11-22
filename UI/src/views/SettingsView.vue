@@ -122,6 +122,10 @@
             </li>
           </ul>
         </div>
+        <p v-if="store.foreignRecordCount" class="foreign-data" role="status">
+          本机还有 {{ store.foreignRecordCount }} 条属于其它账号的记录：它们不会上传到当前账号，也不会被自动删除。
+          需要彻底分开时，请先导出再清除本机数据。
+        </p>
       </template>
     </BaseCard>
 
@@ -903,6 +907,7 @@ async function wipe() {
 .sync-conflicts ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
 .sync-conflicts li{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--color-text-secondary);line-height:1.5}
 .sync-conflicts li>div{min-width:0;overflow-wrap:anywhere}
+.foreign-data{margin-top:12px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--color-neutral-soft);color:var(--color-text-secondary);font-size:12.5px;line-height:1.6}
 .conflict-table{width:100%;border-collapse:collapse;margin:8px 0}
 .conflict-table th,.conflict-table td{padding:6px;text-align:left;vertical-align:top;border:1px solid var(--color-border);overflow-wrap:anywhere}
 .account-danger{margin-top:18px;padding-top:16px;border-top:1px solid var(--color-border)}

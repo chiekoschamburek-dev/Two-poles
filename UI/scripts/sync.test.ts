@@ -5,7 +5,7 @@ import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { createMockApi } from '@/mocks/handlers'
 import { useAppStore } from '@/stores/app'
-import { bootstrapSync, clearAllConflicts, configureSync, deviceLogin, flushOutbox, logout, syncNow, syncState } from '@/services/sync'
+import { bootstrapSync, clearAllConflicts, configureSync, deviceLogin, enqueueSync, flushOutbox, logout, syncNow, syncState } from '@/services/sync'
 import { clearOutbox, enqueue, listOutbox, updateOp } from '@/services/outbox'
 import { ApiError, clearAccessToken, request, setAccessToken } from '@/services/api/http'
 import * as mealsApi from '@/services/api/meals'
@@ -170,4 +170,19 @@ test('store: clearing optional profile fields clears their saved account values'
   assert.equal(mock.state.profile?.height, null)
   assert.equal(mock.state.profile?.targetEvent, null)
   assert.equal(mock.state.profile?.age, 30)
+})
+
+test('换账号后不再把上一个账号的记录入队', async () => {
+  clearOutbox()
+  const me = syncState.user!.id
+  // 模拟换号：这台设备上次登录的是另一个账号
+  syncState.adoptingLocalData = false
+  const foreign = { ...meal('foreign-meal'), userId: 'other-account' }
+  assert.equal(enqueueSync('meal.create', foreign.clientId!, foreign), false)
+  assert.equal(listOutbox().some((op) => op.clientId === 'foreign-meal'), false)
+  assert.equal(enqueueSync('session.create', 'foreign-session', { clientId: 'foreign-session', userId: 'other-account' }), false)
+  const own = { ...meal('own-meal'), userId: me }
+  assert.equal(enqueueSync('meal.create', own.clientId!, own), true, '当前账号自己的记录照常上传')
+  clearOutbox()
+  syncState.adoptingLocalData = true
 })

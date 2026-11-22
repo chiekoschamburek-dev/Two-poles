@@ -32,7 +32,7 @@ import { weekDates, weekStart } from '@/services/weekRules'
 import { WELLNESS_DISMISS_KEY } from '@/services/wellnessCards'
 import { toISODate } from '@/utils/time'
 import { clearStoredState, loadStoredState, saveStoredState, clearSyncMeta } from '@/services/storage'
-import { addConflict, bootstrapSync, clearAllConflicts, configureSync, enqueueSync, refreshPending, syncState } from '@/services/sync'
+import { addConflict, bootstrapSync, canUploadRecord, clearAllConflicts, configureSync, enqueueSync, refreshPending, syncState } from '@/services/sync'
 import { listOutbox, removeOp } from '@/services/outbox'
 import type { UploadBatch } from '@/services/sync'
 import type { RemoteSyncSnapshot } from '@/services/api/sync'
@@ -194,6 +194,39 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ——— 同步层：本机优先，登录后在后台拉取/补传 ———
+  /** 新记录的归属：登录后一定是当前账号，避免换号时被本地档案的旧 id 带跑 */
+  function currentUserId(): string {
+    return syncState.user?.id || userProfile.value?.id || 'demo-user'
+  }
+
+  /** 已经属于另一个账号的记录：换号后只留在本机，补传与回写都要跳过 */
+  function belongsToOtherAccount(item: { userId?: string }): boolean {
+    if (!syncState.user || syncState.adoptingLocalData) return false
+    const owner = item.userId
+    return !!owner && owner !== 'demo-user' && owner !== syncState.user.id
+  }
+
+  /** 换账号后本机仍留着的另一个账号的数据：不上传，但要让用户看得见 */
+  const foreignRecordCount = computed(() => {
+    if (!syncState.user || syncState.adoptingLocalData) return 0
+    return sessions.value.filter(item => belongsToOtherAccount(item)).length
+      + meals.value.filter(item => belongsToOtherAccount(item)).length
+      + plans.value.filter(item => belongsToOtherAccount(item)).length
+      + analyses.value.filter(item => belongsToOtherAccount(item)).length
+  })
+
+  let foreignWarned = false
+  function warnForeignRecords() {
+    if (foreignWarned || !foreignRecordCount.value) return
+    foreignWarned = true
+    showToast({
+      type: 'warning',
+      title: '本机还有其它账号的数据',
+      message: `${foreignRecordCount.value} 条记录属于另一个账号，不会被上传到当前账号。需要彻底分开时，请先导出再清除本机数据。`,
+      duration: 9000
+    })
+  }
+
   function getUploadBatch(firstSync: boolean): UploadBatch {
     const since = syncState.lastSyncAt
     const localProfileAt = userProfile.value?.updatedAt ?? ''
@@ -204,8 +237,10 @@ export const useAppStore = defineStore('app', () => {
     const privacyNeedsUpload = firstSync
       ? (syncState.lastRemotePrivacyAt ? localPrivacyAt !== syncState.lastRemotePrivacyAt : true)
       : localPrivacyAt > since
-    // 首次登录只补传本机记录；刚从服务端拉下来的记录已标记 synced，不重复上传
-    const needs = (item: { _sync?: string }) => item._sync === 'pending' || (firstSync && !item._sync)
+    // 首次登录只补传本机记录；刚从服务端拉下来的记录已标记 synced，不重复上传。
+    // 换账号时 canUploadRecord 会挡住未归属记录与上一个账号的记录：共用设备不能把 A 的数据写进 B。
+    const needs = (item: { _sync?: string; userId?: string }) => canUploadRecord(item.userId) &&
+      (item._sync === 'pending' || (firstSync && !item._sync))
     return {
       profile: profileNeedsUpload ? { ...userProfile.value! } : null,
       privacy: privacyNeedsUpload ? { ...privacy.value } : null,
@@ -228,10 +263,12 @@ export const useAppStore = defineStore('app', () => {
       id: remote.id,
       updatedAt: userProfile.value.updatedAt
     }
-    if (previousId && previousId !== remote.id) {
-      for (const item of sessions.value) if (item.userId === previousId || item.userId === 'demo-user') item.userId = remote.id
-      for (const item of meals.value) if (item.userId === previousId || item.userId === 'demo-user') item.userId = remote.id
-      for (const item of [...plans.value, ...planHistory.value]) item.userId = remote.id
+    if (previousId && previousId !== remote.id && syncState.adoptingLocalData) {
+      // 只有在「首次登录接管本机数据」时才改写归属；换账号时保持原样，
+      // 否则 A 的记录会被贴上 B 的标签一起上传。
+      for (const item of sessions.value) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
+      for (const item of meals.value) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
+      for (const item of [...plans.value, ...planHistory.value]) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
     }
     persistState()
   }
@@ -452,6 +489,7 @@ export const useAppStore = defineStore('app', () => {
       keys.forEach((key) => knownPlans.add(key))
     }
     persistState()
+    warnForeignRecords()
   }
 
   function configureSyncHandlers() {
@@ -521,6 +559,7 @@ export const useAppStore = defineStore('app', () => {
 
   function queueMealDelete(meal: Meal) {
     if (!syncState.apiEnabled || !syncState.user) return true
+    if (belongsToOtherAccount(meal)) return true
     return enqueueSync('meal.delete', meal.clientId ?? meal.id, {
       ...meal,
       items: meal.items.map((item) => ({ ...item }))
@@ -551,7 +590,7 @@ export const useAppStore = defineStore('app', () => {
     end.setDate(start.getDate() + 6)
     const plan: Plan = {
       id,
-      userId: userProfile.value?.id || 'demo-user',
+      userId: currentUserId(),
       version: 1,
       createdAt: new Date().toISOString(),
       reason: userProfile.value
@@ -950,7 +989,7 @@ export const useAppStore = defineStore('app', () => {
     }
     const plan: Plan = {
       id,
-      userId: userProfile.value?.id || 'demo-user',
+      userId: currentUserId(),
       version: (old?.version ?? 0) + 1,
       createdAt: new Date().toISOString(),
       reason: draft.reason || '按你确认的草稿整理的一周',
@@ -1123,7 +1162,7 @@ export const useAppStore = defineStore('app', () => {
     const session: TrainingSession = {
       ...input,
       id: newId(),
-      userId: userProfile.value?.id || 'demo-user',
+      userId: currentUserId(),
       createdAt: new Date().toISOString()
     }
     sessions.value.push(session)
@@ -1220,7 +1259,7 @@ export const useAppStore = defineStore('app', () => {
     const { items, completeness, analysis } = buildMealParts(input, mealId)
     const meal: Meal = {
       id: mealId,
-      userId: userProfile.value?.id || 'demo-user',
+      userId: currentUserId(),
       date: input.date,
       mealType: input.mealType,
       time: input.time,
@@ -1489,6 +1528,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Computed
     hasProfile,
+    foreignRecordCount,
 
     // Actions
     init,

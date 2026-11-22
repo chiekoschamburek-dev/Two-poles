@@ -48,6 +48,7 @@ const KEYS = {
   adjustmentResolutions: 'twopoles.v1.adjustmentResolutions',
   analyses: 'twopoles.v1.analyses',
   syncMeta: 'twopoles.v1.syncMeta',
+  syncOwner: 'twopoles.v1.syncOwner',
   outbox: 'twopoles.v1.outbox',
   conflicts: 'twopoles.v1.conflicts'
 } as const
@@ -247,6 +248,19 @@ export function writeSyncMeta(meta: SyncMeta): boolean {
 
 export function clearSyncMeta() {
   removeKey(KEYS.syncMeta)
+}
+
+/**
+ * 这台设备上一个登录过的账号 id。登出不清，用来区分「首次登录，接管本机数据」和
+ * 「换账号，绝不能把上一个账号的记录带过去」。清空全部数据时会随 KEYS 一起删除。
+ */
+export function readSyncOwner(): string {
+  const owner = readJson<string | null>(KEYS.syncOwner, null)
+  return typeof owner === 'string' ? owner : ''
+}
+
+export function writeSyncOwner(userId: string): boolean {
+  return writeJson(KEYS.syncOwner, userId)
 }
 
 export function readOutbox<T>(): T[] {
