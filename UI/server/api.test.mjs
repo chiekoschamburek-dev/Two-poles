@@ -1,5 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { unlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { createApiServer, pruneHistory } from './app.mjs'
 
 const api = createApiServer({ dbPath: ':memory:', secret: 'test-secret', corsOrigins: ['http://localhost:5173'] })
@@ -797,6 +801,46 @@ test('a new export supersedes the previous snapshot content', async () => {
   assert.equal(second.status, 202)
   const gone = await request(`/export/${first.body.jobId}/download`)
   assert.equal(gone.status, 404, '只保留最新一份导出内容')
+})
+
+test('rotating AUTH_SECRET does not lock existing accounts out', async () => {
+  const file = join(tmpdir(), `twopoles-rotate-${randomUUID()}.sqlite`)
+  const startServer = async (secret) => {
+    const instance = createApiServer({ dbPath: file, secret, identifierSecret: 'stable-hash-key' })
+    await new Promise((resolve) => instance.server.listen(0, '127.0.0.1', resolve))
+    const { port } = instance.server.address()
+    return { instance, base: `http://127.0.0.1:${port}/api/v1` }
+  }
+  const first = await startServer('secret-one')
+  const registered = await fetch(`${first.base}/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ identifier: 'rotate@example.com', password: 'correct-horse' })
+  })
+  assert.equal(registered.status, 200)
+  await first.instance.close()
+
+  const second = await startServer('secret-two')
+  const login = await fetch(`${second.base}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ identifier: 'rotate@example.com', password: 'correct-horse' })
+  })
+  assert.equal(login.status, 200, '只换 AUTH_SECRET 不该让老账号登不进来')
+  const wrongPassword = await fetch(`${second.base}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ identifier: 'rotate@example.com', password: 'nope' })
+  })
+  assert.equal(wrongPassword.status, 401)
+  await second.instance.close()
+  for (const suffix of ['', '-wal', '-shm']) {
+    try {
+      unlinkSync(`${file}${suffix}`)
+    } catch {
+      // 测试收尾，文件可能已不存在
+    }
+  }
 })
 
 test.after(async () => {

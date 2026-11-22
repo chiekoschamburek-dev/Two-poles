@@ -29,6 +29,7 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 | `PORT` / `HOST` | `8787` / `127.0.0.1` | 监听地址 |
 | `TWOPOLES_DB` | `./server/data/twopoles.sqlite` | SQLite 文件；测试用 `:memory:` |
 | `AUTH_SECRET` | 开发默认值 | access token HMAC；生产必须替换 |
+| `IDENTIFIER_SECRET` | 跟随 `AUTH_SECRET` | 账号标识哈希的盐。建议单独设置并长期不变：之后轮换 `AUTH_SECRET` 只让 token 失效，不会让全员无法登录 |
 | `COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
 | `CORS_ORIGINS` | 本地 5173 | 逗号分隔的精确白名单 |
 | `TRUSTED_CLIENT_IP_HEADER` | 空 | 边缘/反代写入的可信客户端 IP 头（如 `ESA-Client-IP`）。设置后只认这个头，不再回退到客户端可伪造的 `X-Forwarded-For` |

@@ -762,6 +762,12 @@ export function createApiServer(options = {}) {
   const dbPath = options.dbPath ?? process.env.TWOPOLES_DB ?? DEFAULT_DB
   const db = openDatabase(dbPath)
   const secret = options.secret ?? process.env.AUTH_SECRET ?? 'twopoles-dev-secret-change-me'
+  /**
+   * 账号标识哈希单独一把盐：轮换 AUTH_SECRET 只让 access token 失效，不会把所有人的
+   * identifier_hash 一起换掉（那等于全员无法登录）。首次启用这项配置时要填当前的
+   * AUTH_SECRET 值，之后保持不变；不配置就继续跟随 AUTH_SECRET（与旧库兼容）。
+   */
+  const identifierSecret = options.identifierSecret ?? process.env.IDENTIFIER_SECRET ?? secret
   const secureCookies = options.secureCookies ?? process.env.COOKIE_SECURE === 'true'
   const allowedOrigins = options.corsOrigins ?? (process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
@@ -906,7 +912,7 @@ export function createApiServer(options = {}) {
         const id = randomUUID()
         const identifier = `device:${id}`
         db.prepare('INSERT INTO users (id, type, identifier_hash, password_hash, created_at) VALUES (?, ?, ?, NULL, ?)')
-          .run(id, 'anonymous', hashIdentifier(identifier, secret), now)
+          .run(id, 'anonymous', hashIdentifier(identifier, identifierSecret), now)
         const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id)
         const result = issueSession(res, user)
         return sendJson(res, result.status, result.body, result.headers)
@@ -916,12 +922,12 @@ export function createApiServer(options = {}) {
         assert(identifier, '请输入有效的邮箱或手机号')
         const password = typeof body.password === 'string' ? body.password : ''
         assert(password.length >= 8 && password.length <= 200, '密码至少 8 位')
-        const exists = db.prepare('SELECT id FROM users WHERE identifier_hash = ?').get(hashIdentifier(identifier, secret))
+        const exists = db.prepare('SELECT id FROM users WHERE identifier_hash = ?').get(hashIdentifier(identifier, identifierSecret))
         assert(!exists, '该账号已注册')
         const id = randomUUID()
         const now = nowIso()
         db.prepare('INSERT INTO users (id, type, identifier_hash, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-          .run(id, 'registered', hashIdentifier(identifier, secret), hashPassword(password), now)
+          .run(id, 'registered', hashIdentifier(identifier, identifierSecret), hashPassword(password), now)
         const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id)
         audit(db, id, 'auth.register')
         const result = issueSession(res, user)
@@ -935,7 +941,7 @@ export function createApiServer(options = {}) {
         // 「一个人试错、所有人被锁」，也没法阻止针对单个账号的撞库。
         if (!allow(`login:${identifier}`, 10, 60_000)) fail('rate_limited', 429, '这个账号的登录尝试过于频繁，请稍后再试')
         const user = db.prepare('SELECT * FROM users WHERE identifier_hash = ? AND deleted_at IS NULL')
-          .get(hashIdentifier(identifier, secret))
+          .get(hashIdentifier(identifier, identifierSecret))
         if (!user || !verifyPassword(password, user.password_hash)) fail('unauthorized', 401, '账号或密码不正确')
         const result = issueSession(res, user)
         return sendJson(res, result.status, result.body, result.headers)
@@ -965,10 +971,10 @@ export function createApiServer(options = {}) {
         const password = typeof body.password === 'string' ? body.password : ''
         assert(password.length >= 8 && password.length <= 200, '密码至少 8 位')
         const taken = db.prepare('SELECT id FROM users WHERE identifier_hash = ? AND id != ?')
-          .get(hashIdentifier(identifier, secret), current.id)
+          .get(hashIdentifier(identifier, identifierSecret), current.id)
         assert(!taken, '该账号已注册')
         db.prepare('UPDATE users SET type = ?, identifier_hash = ?, password_hash = ? WHERE id = ?')
-          .run('registered', hashIdentifier(identifier, secret), hashPassword(password), current.id)
+          .run('registered', hashIdentifier(identifier, identifierSecret), hashPassword(password), current.id)
         audit(db, current.id, 'auth.bind')
         const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(current.id)
         return sendJson(res, 200, { user: userJson(updated) })
