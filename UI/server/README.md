@@ -31,6 +31,7 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 | `AUTH_SECRET` | 开发默认值 | access token HMAC；生产必须替换 |
 | `COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
 | `CORS_ORIGINS` | 本地 5173 | 逗号分隔的精确白名单 |
+| `TRUSTED_CLIENT_IP_HEADER` | 空 | 边缘/反代写入的可信客户端 IP 头（如 `ESA-Client-IP`）。设置后只认这个头，不再回退到客户端可伪造的 `X-Forwarded-For` |
 
 ## 接口
 
@@ -46,11 +47,13 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 - `POST /data/wipe`（二次确认令牌）
 - `GET /health`
 
-约定：统一错误包体 `{ code, message, detail? }`；训练/餐食/计划/调整创建支持 `Idempotency-Key`；access 只在内存，refresh 只在 HttpOnly cookie。普通资源按用户隔离；训练/餐食删除为软删并出现在 `/sync.deleted`。
+约定：统一错误包体 `{ code, message, detail? }`；训练/餐食/计划/调整创建支持 `Idempotency-Key`（同一个 key 换了方法或路径视为新请求，不会回放上一个接口的响应）；access 只在内存，refresh 只在 HttpOnly cookie。普通资源按用户隔离；训练/餐食删除为软删并出现在 `/sync.deleted`，软删过的 clientId 不能重建，重试会拿到 `409 conflict` 而不是假成功。
+
+`PATCH /sessions/:id/feedback` 与 `PATCH /meals/:id` 只写请求体里真正出现的字段：没带 `notes` / `analyzed` 就保持原值，显式传 `null` 才是清空。登录限流分两层：`/auth/*` 按 IP 30 次/分钟，`/auth/login` 再按账号 10 次/分钟。
 
 计划写入示例：`If-Match: "2"`。已有周计划的新版本写入、创建调整、接受调整都读取此头；缺失返回 428，header 与 body.baseVersion 不一致返回 400。接受调整在同一个 `BEGIN IMMEDIATE` 事务中检查最新版本并生成下一版；过期返回 `409 conflict` + `detail.latest`。已接受建议的重放返回原结果。锁定与已完成项保持不变，旧版本不就地覆盖。设置页可比较本机与最新计划，用户主动采用服务端版本后再重新调整。
 
-导出 `POST /export` 立即返回 `202 {jobId, format, status:'pending'}`；单独 worker 从 SQLite 读快照生成文件，GET 查询后下载。作业持久化，服务重启后继续 pending 作业。CSV 带 UTF-8 BOM，并转义单元格；RPE 缺失保留 null / 未记录。清数据保留账号和登录会话；删号会撤销会话并清除账号。两者都需要五分钟内有效、只能使用一次的确认令牌。
+导出 `POST /export` 立即返回 `202 {jobId, format, status:'pending'}`；单独 worker 从 SQLite 读快照生成文件，GET 查询后下载。作业持久化，服务重启后继续 pending 作业；单个作业超过 60 秒会被终止并标记 failed，不会卡住整个队列。为避免主库和备份被历史快照撑大，新建导出时会清空该用户此前完成的导出内容（只保留最新一份）。CSV 带 UTF-8 BOM，并转义单元格；RPE 缺失保留 null / 未记录。清数据保留账号和登录会话；删号会撤销会话并清除账号。两者都需要五分钟内有效、只能使用一次的确认令牌。
 
 ## 前端落点
 

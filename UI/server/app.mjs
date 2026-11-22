@@ -35,6 +35,7 @@ const DEFAULT_PRIVACY = {
   saveMotionSeriesLocally: false
 }
 const MAX_BODY = 2 * 1024 * 1024
+const EXPORT_TIMEOUT_MS = 60_000
 const DEFAULT_DB = fileURLToPath(new URL('./data/twopoles.sqlite', import.meta.url))
 
 class HttpError extends Error {
@@ -367,10 +368,12 @@ function audit(db, userId, action, targetType = null, targetId = null) {
   `).run(userId, action, targetType, targetId, nowIso())
 }
 
-function idempotencyResult(db, userId, key) {
+function idempotencyResult(db, userId, key, method, path) {
   if (!key) return null
   const row = db.prepare('SELECT * FROM idempotency_keys WHERE user_id = ? AND key = ?').get(userId, key)
-  return row ? { status: row.status, body: jsonParse(row.response_json, {}) } : null
+  // 同一个 key 换了接口/方法就是另一件事，不能把上一个接口的响应体当成这次的结果
+  if (!row || row.method !== method || row.path !== path) return null
+  return { status: row.status, body: jsonParse(row.response_json, {}) }
 }
 
 function saveIdempotency(db, userId, key, method, path, status, body) {
@@ -544,11 +547,13 @@ function writePlanItems(db, planId, items) {
       planned_target_minutes, locked, completed, alternatives_json, order_index
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
+  let written = 0
   items.forEach((item, index) => {
     if (!item || typeof item !== 'object') return
     const date = isDate(item.date) ? item.date : null
     const name = stringOrNull(item.exerciseName, 120)
     if (!date || !name) return
+    written += 1
     insert.run(
       randomUUID(),
       stringOrNull(item.id, 80),
@@ -570,6 +575,7 @@ function writePlanItems(db, planId, items) {
       index
     )
   })
+  return written
 }
 
 function sessionRowsForWeek(db, userId, start, end) {
@@ -695,8 +701,15 @@ function confirmation(db, userId, action, body) {
 
 function createRateLimiter() {
   const buckets = new Map()
+  let calls = 0
   return function allow(key, limit, windowMs) {
     const now = Date.now()
+    // 限流键里含客户端可影响的 IP：过期桶不回收，长期就是一条内存增长路径。
+    if (++calls % 256 === 0) {
+      for (const [bucketKey, bucket] of buckets) {
+        if (bucket.reset <= now) buckets.delete(bucketKey)
+      }
+    }
     const row = buckets.get(key)
     if (!row || row.reset <= now) {
       buckets.set(key, { count: 1, reset: now + windowMs })
@@ -716,6 +729,20 @@ export function createApiServer(options = {}) {
     ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
     : ['http://localhost:5173', 'http://127.0.0.1:5173'])
   const allow = createRateLimiter()
+  /**
+   * 客户端 IP：默认沿用 X-Forwarded-For；部署在边缘函数/反代后面时用 TRUSTED_CLIENT_IP_HEADER
+   * 指定由边缘写入的可信头（例如 ESA-Client-IP），此时不再回退到客户端能随便改的 XFF——
+   * 否则「边缘已经覆盖 XFF」会退化成全体用户共用一个限流桶，或者被伪造头直接绕过。
+   */
+  const trustedIpHeader = String(options.clientIpHeader ?? process.env.TRUSTED_CLIENT_IP_HEADER ?? '').trim().toLowerCase()
+  function clientIp(req) {
+    if (trustedIpHeader) {
+      const value = req.headers[trustedIpHeader]
+      if (typeof value === 'string' && value.trim()) return value.split(',')[0].trim()
+      return String(req.socket.remoteAddress ?? 'local')
+    }
+    return String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? 'local').split(',')[0].trim()
+  }
   let closing = false
   let exportRunning = false
   let exportWorker = null
@@ -739,14 +766,23 @@ export function createApiServer(options = {}) {
               await backup(db, source)
             }
             if (closing) break
+            // 单个 worker 串行处理全部导出：没有超时看门狗时，一次挂起就等于全局导出队列永久停摆
             const content = await new Promise((resolveResult, reject) => {
               const worker = new Worker(new URL('./export-worker.mjs', import.meta.url), {
                 workerData: { dbPath: source, userId: job.user_id, format: job.format }
               })
               exportWorker = worker
-              worker.once('message', resolveResult)
-              worker.once('error', reject)
-              worker.once('exit', (code) => { if (code !== 0 || closing) reject(new Error('导出进程已停止')) })
+              const timer = setTimeout(() => {
+                void worker.terminate().catch(() => {})
+                reject(new Error('导出超时，已终止'))
+              }, EXPORT_TIMEOUT_MS)
+              const settle = (done, value) => {
+                clearTimeout(timer)
+                done(value)
+              }
+              worker.once('message', (value) => settle(resolveResult, value))
+              worker.once('error', (error) => settle(reject, error))
+              worker.once('exit', (code) => { if (code !== 0 || closing) settle(reject, new Error('导出进程已停止')) })
             })
             if (!closing) db.prepare("UPDATE export_jobs SET status = 'completed', content = ?, completed_at = ? WHERE id = ? AND status = 'pending'")
               .run(content, nowIso(), job.id)
@@ -804,7 +840,7 @@ export function createApiServer(options = {}) {
     if (!url.pathname.startsWith('/api/v1')) return sendJson(res, 404, { code: 'not_found', message: '接口不存在' })
     const path = url.pathname.slice('/api/v1'.length) || '/'
     const method = req.method ?? 'GET'
-    const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? 'local').split(',')[0].trim()
+    const ip = clientIp(req)
     const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? await readBody(req) : {}
 
     if (path === '/health') {
@@ -843,6 +879,9 @@ export function createApiServer(options = {}) {
         const identifier = normalizeIdentifier(body.identifier)
         const password = typeof body.password === 'string' ? body.password : ''
         assert(identifier && password, '请输入账号和密码')
+        // 再按账号分一层桶：源站落在边缘代理后面时出口 IP 往往相同，只按 IP 限流会变成
+        // 「一个人试错、所有人被锁」，也没法阻止针对单个账号的撞库。
+        if (!allow(`login:${identifier}`, 10, 60_000)) fail('rate_limited', 429, '这个账号的登录尝试过于频繁，请稍后再试')
         const user = db.prepare('SELECT * FROM users WHERE identifier_hash = ? AND deleted_at IS NULL')
           .get(hashIdentifier(identifier, secret))
         if (!user || !verifyPassword(password, user.password_hash)) fail('unauthorized', 401, '账号或密码不正确')
@@ -964,12 +1003,15 @@ export function createApiServer(options = {}) {
 
     if (path === '/sessions' && method === 'POST') {
       const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey)
+      const cached = idempotencyResult(db, user.id, idKey, method, path)
       if (cached) return sendJson(res, cached.status, cached.body)
       const raw = body.session && typeof body.session === 'object' ? body.session : body
       const clientId = stringOrNull(raw.clientId || raw.id, 100) ?? randomUUID()
       const existing = db.prepare('SELECT * FROM training_sessions WHERE user_id = ? AND client_id = ?').get(user.id, clientId)
       if (existing) {
+        // 软删的记录不能用同一个 clientId 复活，但也不能假装成功：否则客户端把墓碑当已同步，
+        // 记录在本机还在、在服务端和换设备后已经没了。
+        if (existing.deleted_at) fail('conflict', 409, '这条训练记录已删除，不能再用同一个 clientId 重建', { deletedAt: existing.deleted_at })
         const result = { status: 200, body: { session: sessionJson(existing) } }
         saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
         return sendJson(res, result.status, result.body)
@@ -1011,21 +1053,25 @@ export function createApiServer(options = {}) {
       if (!row) fail('not_found', 404, '训练记录不存在')
       const rpe = body.rpe === null || body.rpe === undefined ? null : integerOrNull(body.rpe)
       assert(rpe === null || (rpe >= 0 && rpe <= 10), 'RPE 必须在 0–10 之间或留空')
-      db.prepare(`
-        UPDATE training_sessions SET
-          actual_duration = COALESCE(?, actual_duration),
-          actual_distance = COALESCE(?, actual_distance),
-          rpe = ?,
-          discomfort = ?,
-          completion_reason = ?,
-          notes = ?,
-          updated_at = ?
-        WHERE id = ?
-      `).run(
-        integerOrNull(body.duration), integerOrNull(body.distance), rpe,
-        bool(body.discomfort) ? 1 : 0, stringOrNull(body.reason, 300), stringOrNull(body.notes, 1000),
-        nowIso(), row.id
-      )
+      // 只写请求里真的出现的字段：前端不带 notes/reason 时不能把已经记下的内容清掉。
+      // 显式传 null 仍然表示"清空"，所以按 key 是否存在判断，而不是按值。
+      const fields = []
+      const values = []
+      const setIfPresent = (key, column, value) => {
+        if (!Object.hasOwn(body, key)) return
+        fields.push(`${column} = ?`)
+        values.push(value)
+      }
+      setIfPresent('duration', 'actual_duration', integerOrNull(body.duration))
+      setIfPresent('distance', 'actual_distance', integerOrNull(body.distance))
+      setIfPresent('rpe', 'rpe', rpe)
+      setIfPresent('discomfort', 'discomfort', bool(body.discomfort) ? 1 : 0)
+      setIfPresent('reason', 'completion_reason', stringOrNull(body.reason, 300))
+      setIfPresent('notes', 'notes', stringOrNull(body.notes, 1000))
+      if (!fields.length) return sendJson(res, 200, { session: sessionJson(row) })
+      fields.push('updated_at = ?')
+      values.push(nowIso(), row.id)
+      db.prepare(`UPDATE training_sessions SET ${fields.join(', ')} WHERE id = ?`).run(...values)
       return sendJson(res, 200, { session: sessionJson(db.prepare('SELECT * FROM training_sessions WHERE id = ?').get(row.id)) })
     }
 
@@ -1050,12 +1096,13 @@ export function createApiServer(options = {}) {
 
     if (path === '/analyses' && method === 'POST') {
       const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey)
+      const cached = idempotencyResult(db, user.id, idKey, method, path)
       if (cached) return sendJson(res, cached.status, cached.body)
       const raw = body.analysis && typeof body.analysis === 'object' ? body.analysis : body
       const clientId = stringOrNull(raw.clientId || raw.id, 100) ?? randomUUID()
       const existing = db.prepare('SELECT * FROM motion_analyses WHERE user_id = ? AND client_id = ?').get(user.id, clientId)
       if (existing) {
+        if (existing.deleted_at) fail('conflict', 409, '这条分析记录已删除，不能再用同一个 clientId 重建', { deletedAt: existing.deleted_at })
         const result = { status: 200, body: { analysis: analysisJson(existing) } }
         saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
         return sendJson(res, result.status, result.body)
@@ -1128,12 +1175,13 @@ export function createApiServer(options = {}) {
 
     if (path === '/meals' && method === 'POST') {
       const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey)
+      const cached = idempotencyResult(db, user.id, idKey, method, path)
       if (cached) return sendJson(res, cached.status, cached.body)
       const raw = body.meal && typeof body.meal === 'object' ? body.meal : body
       const clientId = stringOrNull(raw.clientId || raw.id, 100) ?? randomUUID()
       const existing = db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND client_id = ?').get(user.id, clientId)
       if (existing) {
+        if (existing.deleted_at) fail('conflict', 409, '这条餐食记录已删除，不能再用同一个 clientId 重建', { deletedAt: existing.deleted_at })
         const result = { status: 200, body: { meal: readMeal(db, existing.id) } }
         saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
         return sendJson(res, result.status, result.body)
@@ -1174,20 +1222,21 @@ export function createApiServer(options = {}) {
       const now = nowIso()
       db.exec('BEGIN')
       try {
-        db.prepare(`
-          UPDATE meal_records SET
-            time = COALESCE(?, time),
-            meal_type = COALESCE(?, meal_type),
-            completeness = COALESCE(?, completeness),
-            analyzed = ?,
-            updated_at = ?
-          WHERE id = ?
-        `).run(
-          stringOrNull(body.time, 10),
-          ['breakfast', 'lunch', 'dinner', 'snack'].includes(body.mealType) ? body.mealType : null,
-          ['complete', 'partial', 'unknown'].includes(body.completeness) ? body.completeness : null,
-          body.analyzed ? 1 : 0, now, row.id
-        )
+        // 与训练反馈同理：没带 analyzed 的 PATCH 不能顺手把它改成 false
+        const fields = []
+        const values = []
+        const setIfPresent = (key, column, value) => {
+          if (!Object.hasOwn(body, key) || value === undefined) return
+          fields.push(`${column} = ?`)
+          values.push(value)
+        }
+        setIfPresent('time', 'time', stringOrNull(body.time, 10))
+        setIfPresent('mealType', 'meal_type', ['breakfast', 'lunch', 'dinner', 'snack'].includes(body.mealType) ? body.mealType : undefined)
+        setIfPresent('completeness', 'completeness', ['complete', 'partial', 'unknown'].includes(body.completeness) ? body.completeness : undefined)
+        setIfPresent('analyzed', 'analyzed', body.analyzed ? 1 : 0)
+        fields.push('updated_at = ?')
+        values.push(now, row.id)
+        db.prepare(`UPDATE meal_records SET ${fields.join(', ')} WHERE id = ?`).run(...values)
         if (Array.isArray(body.items)) writeMealItems(db, row.id, body.items)
         db.exec('COMMIT')
       } catch (error) {
@@ -1213,7 +1262,7 @@ export function createApiServer(options = {}) {
 
     if (path === '/plans' && method === 'POST') {
       const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey)
+      const cached = idempotencyResult(db, user.id, idKey, method, path)
       if (cached) return sendJson(res, cached.status, cached.body)
       const raw = body.plan && typeof body.plan === 'object' ? body.plan : body
       const clientId = stringOrNull(raw.clientId || raw.id, 120) ?? randomUUID()
@@ -1264,7 +1313,9 @@ export function createApiServer(options = {}) {
           stringOrNull(raw.source, 20) ?? 'rules', raw.locked ? 1 : 0,
           stringOrNull(raw.createdAt, 40) ?? now, now
         )
-        writePlanItems(db, id, raw.items)
+        const written = writePlanItems(db, id, raw.items)
+        // 全部条目都缺日期/动作名时不能回 201 + 空计划：客户端会把空计划当成同步成功
+        assert(raw.items.length === 0 || written > 0, '计划条目都缺少日期或动作名')
         db.exec('COMMIT')
       } catch (error) {
         db.exec('ROLLBACK')
@@ -1280,7 +1331,7 @@ export function createApiServer(options = {}) {
     if (adjustPath && method === 'POST') {
       const baseVersion = planBaseVersion(req, body)
       const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey)
+      const cached = idempotencyResult(db, user.id, idKey, method, path)
       if (cached) return sendJson(res, cached.status, cached.body)
       const plan = findPlan(db, user.id, decodeURIComponent(adjustPath[1]))
       if (!plan) fail('not_found', 404, '计划不存在')
@@ -1454,7 +1505,11 @@ export function createApiServer(options = {}) {
     }
 
     if (path === '/export' && method === 'GET') {
-      const rows = db.prepare('SELECT * FROM export_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 20').all(user.id)
+      // 只取状态列：content 是整份导出快照，为了列 20 条任务把它全读进内存不划算
+      const rows = db.prepare(`
+        SELECT id, format, status, created_at, completed_at
+        FROM export_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 20
+      `).all(user.id)
       return sendJson(res, 200, {
         jobs: rows.map((row) => ({
           jobId: row.id,
@@ -1475,13 +1530,16 @@ export function createApiServer(options = {}) {
         INSERT INTO export_jobs (id, user_id, format, status, content, error, created_at, completed_at)
         VALUES (?, ?, ?, 'pending', NULL, NULL, ?, NULL)
       `).run(id, user.id, format, now)
+      // 导出文件是整份用户数据快照；只保留最新一份，避免主库（和备份）被历史导出无限撑大
+      db.prepare("UPDATE export_jobs SET content = NULL WHERE user_id = ? AND status = 'completed'").run(user.id)
       setImmediate(scheduleExports)
       return sendJson(res, 202, { jobId: id, format, status: 'pending' })
     }
 
     const exportPath = /^\/export\/([^/]+)$/.exec(path)
     if (exportPath && method === 'GET') {
-      const job = db.prepare('SELECT * FROM export_jobs WHERE id = ? AND user_id = ?').get(decodeURIComponent(exportPath[1]), user.id)
+      const job = db.prepare('SELECT id, format, status, error FROM export_jobs WHERE id = ? AND user_id = ?')
+        .get(decodeURIComponent(exportPath[1]), user.id)
       if (!job) fail('not_found', 404, '导出任务不存在')
       return sendJson(res, 200, {
         jobId: job.id,

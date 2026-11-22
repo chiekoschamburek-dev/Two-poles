@@ -621,6 +621,105 @@ test('unauthorized requests and unknown routes use the shared error envelope', a
   assert.equal(missing.body.code, 'not_found')
 })
 
+test('partial feedback patch keeps the fields the client did not send', async () => {
+  const created = await request('/sessions', {
+    method: 'POST',
+    body: { clientId: 'partial-feedback', date: weekStart, exerciseName: '坐站训练', actualDuration: 15 }
+  })
+  assert.equal(created.status, 201)
+  const full = await request('/sessions/partial-feedback/feedback', {
+    method: 'PATCH',
+    body: { rpe: 6, discomfort: true, reason: '时间不够', notes: '最后一组降重' }
+  })
+  assert.equal(full.status, 200)
+  const partial = await request('/sessions/partial-feedback/feedback', { method: 'PATCH', body: { rpe: 8 } })
+  assert.equal(partial.status, 200)
+  assert.equal(partial.body.session.rpe, 8)
+  assert.equal(partial.body.session.notes, '最后一组降重', '没带 notes 不能抹掉已有备注')
+  assert.equal(partial.body.session.completionReason, '时间不够')
+  assert.equal(partial.body.session.discomfort, true)
+  const cleared = await request('/sessions/partial-feedback/feedback', { method: 'PATCH', body: { notes: null } })
+  assert.equal(cleared.body.session.notes, undefined, '显式 null 仍然表示清空')
+  assert.equal(cleared.body.session.completionReason, '时间不够')
+})
+
+test('partial meal patch keeps analyzed', async () => {
+  const created = await request('/meals', {
+    method: 'POST',
+    body: { clientId: 'partial-meal', date: weekStart, mealType: 'dinner', analyzed: true, items: [{ foodName: '米饭', category: '谷薯类' }] }
+  })
+  assert.equal(created.status, 201)
+  const patched = await request('/meals/partial-meal', { method: 'PATCH', body: { time: '19:00' } })
+  assert.equal(patched.status, 200)
+  assert.equal(patched.body.meal.time, '19:00')
+  assert.equal(patched.body.meal.analyzed, true, '没带 analyzed 不能把它改回 false')
+})
+
+test('idempotency keys are scoped to the endpoint and the method', async () => {
+  const first = await request('/sessions', {
+    method: 'POST',
+    idempotencyKey: 'shared-key',
+    body: { clientId: 'idem-scope', date: weekStart, exerciseName: '深蹲' }
+  })
+  assert.equal(first.status, 201)
+  const second = await request('/meals', {
+    method: 'POST',
+    idempotencyKey: 'shared-key',
+    body: { clientId: 'idem-scope-meal', date: weekStart, mealType: 'snack', items: [] }
+  })
+  assert.equal(second.status, 201, '换了接口就必须真的执行，而不是回放上一个接口的响应')
+  assert.ok(second.body.meal)
+  assert.equal(second.body.meal.clientId, 'idem-scope-meal')
+})
+
+test('a malformed cookie is rejected instead of crashing the request', async () => {
+  const response = await fetch(`${base}/auth/refresh`, {
+    method: 'POST',
+    headers: { cookie: 'twopoles_refresh=%E0%A4%A' }
+  })
+  assert.equal(response.status, 401)
+})
+
+test('a deleted clientId cannot be silently recreated', async () => {
+  const body = { clientId: 'resurrect', date: weekStart, exerciseName: '卧推' }
+  assert.equal((await request('/sessions', { method: 'POST', body })).status, 201)
+  assert.equal((await request('/sessions/resurrect', { method: 'DELETE' })).status, 204)
+  const again = await request('/sessions', { method: 'POST', body })
+  assert.equal(again.status, 409, '软删记录不能假装创建成功，也不能给客户端一个墓碑')
+  assert.equal(again.body.code, 'conflict')
+})
+
+test('a plan whose items are all invalid is rejected instead of returning an empty plan', async () => {
+  const response = await request('/plans', {
+    method: 'POST',
+    body: {
+      plan: {
+        clientId: 'bad-items',
+        version: 1,
+        weekStartDate: '2027-01-04',
+        reason: 'invalid',
+        items: [{ exerciseName: '' }]
+      }
+    }
+  })
+  assert.equal(response.status, 400)
+  assert.equal(response.body.code, 'validation_failed')
+})
+
+test('login attempts are limited per account even when the IP changes', async () => {
+  const statuses = []
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const response = await fetch(`${base}/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.9.0.${attempt}` },
+      body: JSON.stringify({ identifier: 'brute@example.com', password: 'wrong-password' })
+    })
+    statuses.push(response.status)
+  }
+  assert.ok(statuses.filter((status) => status === 401).length >= 5, '前几次正常返回认证失败')
+  assert.equal(statuses.at(-1), 429, '同一账号的连续尝试必须被单独限流')
+})
+
 test.after(async () => {
   await api.close()
 })

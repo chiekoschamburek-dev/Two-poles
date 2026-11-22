@@ -111,7 +111,14 @@ export function parseCookies(req) {
     if (index === -1) continue
     const key = part.slice(0, index).trim()
     const value = part.slice(index + 1).trim()
-    if (key) out[key] = decodeURIComponent(value)
+    // 畸形百分号编码不该把整个请求打到 500：按原样保留，后面按无效 token 处理（401）
+    if (key) {
+      try {
+        out[key] = decodeURIComponent(value)
+      } catch {
+        out[key] = value
+      }
+    }
   }
   return out
 }

@@ -23,7 +23,9 @@ location /api/v1/ {
 }
 ```
 
-使用独立 API 域名时需与站点同站，并在 CORS_ORIGINS 中精确放行前端 origin。refresh cookie 使用 SameSite=Lax；任意跨站部署仅靠 CORS 不足以续期。Node 服务不能直接放进 ESA 的边缘函数运行时。接口与已知边界见 [server/README.md](server/README.md)。
+使用独立 API 域名时需与站点同站，并在 CORS_ORIGINS 中精确放行前端 origin。refresh cookie 使用 SameSite=Lax；任意跨站部署仅靠 CORS 不足以续期。Node 服务不能直接放进 ESA 的边缘函数运行时。
+
+限流按客户端 IP 分桶，而这条链路（边缘函数 → 源站）里源站只能看到边缘的出口 IP；nginx 再用 `$remote_addr` 覆盖 `X-Forwarded-For` 的话，所有用户会共用一个登录限流桶。正确做法是让边缘在转发 `/api/v1/*` 时写入真实客户端 IP（例如 `x-client-ip`），源站设置 `TRUSTED_CLIENT_IP_HEADER=x-client-ip` 并透传；未配置该变量时服务端退回直连地址，不会退回去信任客户端自带的 XFF。服务端另有按账号的登录限流（10 次/分钟）作为兜底。接口与已知边界见 [server/README.md](server/README.md)。
 
 ### 实际落地（2026-11-14）：`/api/v1/*` 由边缘函数转发，不走回源规则
 
