@@ -9,6 +9,46 @@ const iso = (d) => {
 
 export const isoLocal = iso
 
+/**
+ * 服务端时区：客户端总会显式传日期，这里只影响“今天”的默认值、周界计算的入口和 CSV 时间列。
+ * 默认跟随服务器系统时区；部署在 UTC 机器上时设 TWOPOLES_TIMEZONE=Asia/Shanghai 即可对齐用户。
+ */
+const ZONE = (process.env.TWOPOLES_TIMEZONE ?? '').trim()
+
+function zoneParts(date, zone) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  })
+  const parts = {}
+  for (const part of formatter.formatToParts(date)) if (part.type !== 'literal') parts[part.type] = part.value
+  return parts
+}
+
+/** 服务器“今天”（YYYY-MM-DD）；配置 TWOPOLES_TIMEZONE 后按该时区算 */
+export function todayIso(now = new Date()) {
+  if (!ZONE) return iso(now)
+  const parts = zoneParts(now, ZONE)
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
+/** ISO 时间戳 → 指定时区的 HH:MM；CSV 时间列用它，避免把 UTC 的 08:00 当成早上 8 点 */
+export function timeInZone(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  if (!ZONE) {
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  }
+  const parts = zoneParts(date, ZONE)
+  return `${parts.hour}:${parts.minute}`
+}
+
 export function mondayOf(value) {
   const date = value instanceof Date ? new Date(value) : new Date(`${value}T00:00:00`)
   if (Number.isNaN(date.getTime())) return null

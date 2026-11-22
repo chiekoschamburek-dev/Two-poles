@@ -24,7 +24,7 @@ import {
   userJson,
   verifyPassword
 } from './auth.mjs'
-import { buildWeeklyReport, isoLocal, mondayOf, weekDates } from './report.mjs'
+import { buildWeeklyReport, isoLocal, mondayOf, timeInZone, todayIso, weekDates } from './report.mjs'
 
 const FOOD_CATEGORIES = ['谷薯类', '蔬菜类', '水果类', '蛋类', '奶类', '肉类', '豆类', '坚果类', '油脂类', '其他']
 const DEFAULT_PRIVACY = {
@@ -633,7 +633,7 @@ export function exportPayload(db, userId, format) {
   const head = ['类别', '日期', '时间', '名称', '类型或类别', '时长分钟', '距离米', '次数', '组数', '单位', 'RPE', '负荷', '不适', '状态', '备注']
   const rows = [
     ...sessions.map((session) => [
-      '训练', session.date, session.createdAt?.slice(11, 16) ?? '', session.exerciseName, session.type,
+      '训练', session.date, timeInZone(session.createdAt), session.exerciseName, session.type,
       session.actualDuration ?? '', session.actualDistance ?? '', session.actualReps ?? '', session.actualSets ?? '', '',
       session.rpe ?? '未记录',
       session.rpe === null || !session.actualDuration ? '未计入' : Math.round(session.actualDuration * session.rpe),
@@ -680,6 +680,44 @@ function wipeUser(db, userId, deleteUser) {
     db.prepare('DELETE FROM audit_events WHERE user_id = ?').run(userId)
     if (deleteUser) db.prepare('DELETE FROM users WHERE id = ?').run(userId)
   })
+}
+
+const RETENTION_DAYS = {
+  revokedRefreshToken: 7,
+  idempotency: 30,
+  audit: 180,
+  exportJob: 30
+}
+
+/**
+ * 保留期清理：令牌、幂等键、审计日志和旧的导出作业之前只增不删，会把主库与备份一起撑大。
+ * 启动时跑一次、之后每 6 小时一次；返回值是各表实际删除的行数，测试直接调用。
+ */
+export function pruneHistory(db, now = Date.now()) {
+  const daysAgo = (days) => new Date(now - days * 86_400_000).toISOString()
+  const nowString = new Date(now).toISOString()
+  return {
+    refreshTokens: Number(db.prepare('DELETE FROM refresh_tokens WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)')
+      .run(nowString, daysAgo(RETENTION_DAYS.revokedRefreshToken)).changes),
+    idempotencyKeys: Number(db.prepare('DELETE FROM idempotency_keys WHERE created_at < ?')
+      .run(daysAgo(RETENTION_DAYS.idempotency)).changes),
+    auditEvents: Number(db.prepare('DELETE FROM audit_events WHERE created_at < ?')
+      .run(daysAgo(RETENTION_DAYS.audit)).changes),
+    exportJobs: Number(db.prepare("DELETE FROM export_jobs WHERE created_at < ? AND status <> 'pending'")
+      .run(daysAgo(RETENTION_DAYS.exportJob)).changes)
+  }
+}
+
+const PAGE_LIMIT_DEFAULT = 200
+const PAGE_LIMIT_MAX = 500
+
+/** 列表分页：默认 200 条、最多 500；nextOffset 为 null 表示没有更多 */
+function pagination(url) {
+  const rawLimit = Math.floor(Number(url.searchParams.get('limit')))
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, PAGE_LIMIT_MAX) : PAGE_LIMIT_DEFAULT
+  const rawOffset = Math.floor(Number(url.searchParams.get('offset')))
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0
+  return { limit, offset }
 }
 
 function confirmation(db, userId, action, body) {
@@ -804,6 +842,20 @@ export function createApiServer(options = {}) {
     })()
   }
   setImmediate(scheduleExports)
+  // 保留期清理：启动先跑一次，之后每 6 小时；unref 不阻止进程退出
+  try {
+    pruneHistory(db)
+  } catch (error) {
+    console.error('[api] 保留期清理失败', error)
+  }
+  const pruneTimer = setInterval(() => {
+    try {
+      pruneHistory(db)
+    } catch (error) {
+      console.error('[api] 保留期清理失败', error)
+    }
+  }, 6 * 60 * 60 * 1000)
+  pruneTimer.unref?.()
 
   function cors(req, res) {
     const origin = req.headers.origin
@@ -993,12 +1045,15 @@ export function createApiServer(options = {}) {
     if (path === '/sessions' && method === 'GET') {
       const from = isDate(url.searchParams.get('from')) ? url.searchParams.get('from') : '0000-01-01'
       const to = isDate(url.searchParams.get('to')) ? url.searchParams.get('to') : '9999-12-31'
+      const { limit, offset } = pagination(url)
       const rows = db.prepare(`
         SELECT * FROM training_sessions
         WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
         ORDER BY date ASC, created_at ASC
-      `).all(user.id, from, to)
-      return sendJson(res, 200, { sessions: rows.map(sessionJson) })
+        LIMIT ? OFFSET ?
+      `).all(user.id, from, to, limit + 1, offset)
+      const page = rows.slice(0, limit)
+      return sendJson(res, 200, { sessions: page.map(sessionJson), nextOffset: rows.length > limit ? offset + limit : null })
     }
 
     if (path === '/sessions' && method === 'POST') {
@@ -1086,12 +1141,15 @@ export function createApiServer(options = {}) {
     if (path === '/analyses' && method === 'GET') {
       const from = isDate(url.searchParams.get('from')) ? url.searchParams.get('from') : '0000-01-01'
       const to = isDate(url.searchParams.get('to')) ? url.searchParams.get('to') : '9999-12-31'
+      const { limit, offset } = pagination(url)
       const rows = db.prepare(`
         SELECT * FROM motion_analyses
         WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
         ORDER BY date DESC, created_at DESC
-      `).all(user.id, from, to)
-      return sendJson(res, 200, { analyses: rows.map(analysisJson) })
+        LIMIT ? OFFSET ?
+      `).all(user.id, from, to, limit + 1, offset)
+      const page = rows.slice(0, limit)
+      return sendJson(res, 200, { analyses: page.map(analysisJson), nextOffset: rows.length > limit ? offset + limit : null })
     }
 
     if (path === '/analyses' && method === 'POST') {
@@ -1167,10 +1225,17 @@ export function createApiServer(options = {}) {
 
     if (path === '/meals' && method === 'GET') {
       const date = url.searchParams.get('date')
+      const { limit, offset } = pagination(url)
       const rows = date && isDate(date)
-        ? db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY time ASC').all(user.id, date)
-        : db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND deleted_at IS NULL ORDER BY date ASC, time ASC').all(user.id)
-      return sendJson(res, 200, { meals: rows.map((row) => mealJson(row, readItems(db, 'meal_items', 'meal_record_id', row.id))) })
+        ? db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY time ASC LIMIT ? OFFSET ?')
+          .all(user.id, date, limit + 1, offset)
+        : db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND deleted_at IS NULL ORDER BY date ASC, time ASC LIMIT ? OFFSET ?')
+          .all(user.id, limit + 1, offset)
+      const page = rows.slice(0, limit)
+      return sendJson(res, 200, {
+        meals: page.map((row) => mealJson(row, readItems(db, 'meal_items', 'meal_record_id', row.id))),
+        nextOffset: rows.length > limit ? offset + limit : null
+      })
     }
 
     if (path === '/meals' && method === 'POST') {
@@ -1254,7 +1319,7 @@ export function createApiServer(options = {}) {
     }
 
     if (path === '/plans/current' && method === 'GET') {
-      const week = mondayOf(url.searchParams.get('week') ?? isoLocal(new Date()))
+      const week = mondayOf(url.searchParams.get('week') ?? todayIso())
       if (!week) fail('validation_failed', 400, 'week 参数不是有效日期')
       const plan = latestPlan(db, user.id, isoLocal(week))
       return sendJson(res, 200, { plan })
@@ -1436,7 +1501,7 @@ export function createApiServer(options = {}) {
     }
 
     if (path === '/reports/weekly' && method === 'GET') {
-      const start = mondayOf(url.searchParams.get('start') ?? isoLocal(new Date()))
+      const start = mondayOf(url.searchParams.get('start') ?? todayIso())
       if (!start) fail('validation_failed', 400, 'start 参数不是有效日期')
       const plan = latestPlan(db, user.id, isoLocal(start))
       const days = weekDates(start)
@@ -1480,7 +1545,13 @@ export function createApiServer(options = {}) {
             ORDER BY date DESC, created_at DESC
           `).all(user.id, since, since)
         : db.prepare('SELECT * FROM motion_analyses WHERE user_id = ? ORDER BY date DESC, created_at DESC').all(user.id)
-      const plans = db.prepare('SELECT * FROM plans WHERE user_id = ? AND deleted_at IS NULL ORDER BY week_start ASC, version ASC').all(user.id)
+      const plans = (since
+        ? db.prepare(`
+            SELECT * FROM plans
+            WHERE user_id = ? AND deleted_at IS NULL AND updated_at > ?
+            ORDER BY week_start ASC, version ASC
+          `).all(user.id, since)
+        : db.prepare('SELECT * FROM plans WHERE user_id = ? AND deleted_at IS NULL ORDER BY week_start ASC, version ASC').all(user.id))
         .map((row) => planJson(row, readItems(db, 'plan_items', 'plan_id', row.id)))
       const deleted = {
         sessions: sessionRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
@@ -1585,6 +1656,7 @@ export function createApiServer(options = {}) {
     db,
     async close() {
       closing = true
+      clearInterval(pruneTimer)
       if (exportWorker) await exportWorker.terminate()
       await exportTask
       await new Promise((resolveClosed) => server.close(resolveClosed))

@@ -39,90 +39,6 @@ CREATE TABLE IF NOT EXISTS profiles (
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS exercises (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  type TEXT NOT NULL,
-  equipment_json TEXT NOT NULL DEFAULT '[]',
-  venues_json TEXT NOT NULL DEFAULT '[]',
-  minutes INTEGER NOT NULL,
-  sets INTEGER,
-  reps INTEGER,
-  intensity TEXT CHECK(intensity IN ('低','中','高')),
-  jump_free INTEGER,
-  knee_friendly INTEGER,
-  spine_friendly INTEGER,
-  howto TEXT,
-  reason TEXT,
-  camera_json TEXT,
-  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','retired')),
-  source TEXT NOT NULL,
-  catalog_version TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS templates (
-  id TEXT PRIMARY KEY,
-  name TEXT,
-  note TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS template_items (
-  template_id TEXT NOT NULL REFERENCES templates(id),
-  exercise_id TEXT REFERENCES exercises(id),
-  day_offset INTEGER,
-  order_index INTEGER NOT NULL,
-  planned_minutes INTEGER,
-  PRIMARY KEY (template_id, order_index)
-);
-
-CREATE TABLE IF NOT EXISTS foods (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  category TEXT NOT NULL,
-  energy_kcal_per_100g REAL,
-  note TEXT,
-  verified INTEGER NOT NULL DEFAULT 0 CHECK(verified IN (0,1)),
-  revised_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS mixed_foods (
-  name TEXT PRIMARY KEY,
-  note TEXT
-);
-
-CREATE TABLE IF NOT EXISTS rule_versions (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK(kind IN ('diet','report','plan','food','exercise')),
-  version TEXT NOT NULL,
-  published_at TEXT,
-  notes_json TEXT,
-  UNIQUE (kind, version)
-);
-
-CREATE TABLE IF NOT EXISTS analysis_records (
-  id TEXT PRIMARY KEY,
-  user_id TEXT REFERENCES users(id),
-  kind TEXT NOT NULL,
-  input_hash TEXT NOT NULL,
-  rule_version TEXT,
-  result_json TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS meal_analyses (
-  id TEXT PRIMARY KEY,
-  meal_record_id TEXT NOT NULL REFERENCES meal_records(id),
-  category_coverage_json TEXT NOT NULL DEFAULT '[]',
-  missing_categories_json TEXT NOT NULL DEFAULT '[]',
-  unknown_items_json TEXT NOT NULL DEFAULT '[]',
-  has_nutrition_estimate INTEGER NOT NULL DEFAULT 0,
-  estimate_refs_json TEXT,
-  rule_version TEXT,
-  limitations_json TEXT NOT NULL DEFAULT '[]',
-  created_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS plans (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -346,7 +262,25 @@ export function openDatabase(path = ':memory:') {
     })
   }
   migrateRemoveMode(db)
+  dropUnusedTables(db)
   return db
+}
+
+/**
+ * 早期设计里的目录/模板/规则版本表从未接入接口：代码里没有任何读写，留着只会让备份和
+ * “哪些数据是真的”变模糊。老库里如果存在，启动时直接删掉。
+ */
+const UNUSED_TABLES = ['template_items', 'templates', 'exercises', 'foods', 'mixed_foods', 'rule_versions', 'analysis_records', 'meal_analyses']
+
+function dropUnusedTables(db) {
+  db.exec('PRAGMA foreign_keys = OFF')
+  try {
+    transaction(db, () => {
+      for (const table of UNUSED_TABLES) db.exec(`DROP TABLE IF EXISTS ${table}`)
+    })
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON')
+  }
 }
 
 // 旧库去掉大众/运动员分类：档案与计划重建掉 mode 列，mode_changes 整表删除。
@@ -355,7 +289,6 @@ export function openDatabase(path = ':memory:') {
 function migrateRemoveMode(db) {
   const columnsOf = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name)
   db.exec('DROP TABLE IF EXISTS mode_changes')
-  if (columnsOf('templates').includes('mode')) db.exec('ALTER TABLE templates DROP COLUMN mode')
   const plansHaveMode = columnsOf('plans').includes('mode')
   const profilesHaveMode = columnsOf('profiles').includes('mode')
   if (!plansHaveMode && !profilesHaveMode) return

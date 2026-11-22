@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createApiServer } from './app.mjs'
+import { createApiServer, pruneHistory } from './app.mjs'
 
 const api = createApiServer({ dbPath: ':memory:', secret: 'test-secret', corsOrigins: ['http://localhost:5173'] })
 await new Promise((resolve) => api.server.listen(0, '127.0.0.1', resolve))
@@ -718,6 +718,85 @@ test('login attempts are limited per account even when the IP changes', async ()
   }
   assert.ok(statuses.filter((status) => status === 401).length >= 5, '前几次正常返回认证失败')
   assert.equal(statuses.at(-1), 429, '同一账号的连续尝试必须被单独限流')
+})
+
+test('list endpoints are paginated and report the next offset', async () => {
+  const first = await request('/sessions?limit=1')
+  assert.equal(first.status, 200)
+  assert.equal(first.body.sessions.length, 1)
+  assert.equal(first.body.nextOffset, 1, '还有更多时返回下一页起点')
+  const second = await request('/sessions?limit=1&offset=1')
+  assert.equal(second.status, 200)
+  assert.notEqual(second.body.sessions[0]?.id, first.body.sessions[0]?.id)
+  const all = await request('/sessions?limit=500')
+  assert.equal(all.body.nextOffset, null, '取完就没有下一页')
+  assert.ok(all.body.sessions.length >= 2)
+  const meals = await request('/meals?limit=1')
+  assert.equal(meals.body.meals.length, 1)
+  assert.equal(meals.body.nextOffset, 1)
+})
+
+test('sync only returns plans changed after since', async () => {
+  const week = '2027-03-01'
+  const created = await request('/plans', {
+    method: 'POST',
+    ifMatch: '"0"',
+    body: { plan: { clientId: 'delta-plan', version: 1, weekStartDate: week, reason: 'delta', items: [{ id: 'd1', date: week, exerciseName: '深蹲' }] } }
+  })
+  assert.equal(created.status, 201)
+  const full = await request('/sync')
+  assert.ok(full.body.plans.some((plan) => plan.weekStartDate === week), '全量同步带上新计划')
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  const next = await request('/plans', {
+    method: 'POST',
+    ifMatch: '"1"',
+    body: { plan: { clientId: 'delta-plan:v2', version: 2, weekStartDate: week, reason: 'delta-2', items: [{ id: 'd1', date: week, exerciseName: '深蹲' }] } }
+  })
+  assert.equal(next.status, 201)
+  const delta = await request(`/sync?since=${encodeURIComponent(full.body.serverTime)}`)
+  assert.equal(delta.body.plans.length, 1, '增量同步只带变了的那一版')
+  assert.equal(delta.body.plans[0].version, 2)
+  assert.equal(delta.body.plans[0].weekStartDate, week)
+})
+
+test('retention job prunes expired tokens, idempotency keys, audit rows and old export jobs', async () => {
+  const userId = api.db.prepare('SELECT id FROM users LIMIT 1').get().id
+  const old = new Date(Date.now() - 200 * 86_400_000).toISOString()
+  api.db.prepare('INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run('old-refresh', userId, 'old-hash', old, old)
+  api.db.prepare('INSERT INTO idempotency_keys (user_id, key, method, path, status, response_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(userId, 'old-idem', 'POST', '/sessions', 201, '{}', old)
+  api.db.prepare('INSERT INTO audit_events (user_id, actor_role, action, created_at) VALUES (?, ?, ?, ?)')
+    .run(userId, 'user', 'test.old', old)
+  api.db.prepare("INSERT INTO export_jobs (id, user_id, format, status, created_at) VALUES (?, ?, 'json', 'completed', ?)")
+    .run('old-export', userId, old)
+  api.db.prepare("INSERT INTO export_jobs (id, user_id, format, status, created_at) VALUES (?, ?, 'json', 'pending', ?)")
+    .run('old-pending', userId, old)
+  const result = pruneHistory(api.db)
+  assert.ok(result.refreshTokens >= 1)
+  assert.ok(result.idempotencyKeys >= 1)
+  assert.ok(result.auditEvents >= 1)
+  assert.ok(result.exportJobs >= 1)
+  assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM export_jobs WHERE id = 'old-pending'").get().n, 1, '未完成的导出作业不能删')
+  assert.equal(api.db.prepare("SELECT COUNT(*) AS n FROM export_jobs WHERE id = 'old-export'").get().n, 0)
+})
+
+test('refresh with a bad cookie is a clean 401', async () => {
+  const response = await fetch(`${base}/auth/refresh`, {
+    method: 'POST',
+    headers: { cookie: 'twopoles_refresh=not-a-real-token' }
+  })
+  assert.equal(response.status, 401)
+  assert.ok(response.headers.getSetCookie().some((value) => value.startsWith('twopoles_refresh=;')), '失败时清掉 refresh cookie')
+})
+
+test('a new export supersedes the previous snapshot content', async () => {
+  const first = await request('/export', { method: 'POST', body: { format: 'json' } })
+  await waitForExport(first.body.jobId)
+  const second = await request('/export', { method: 'POST', body: { format: 'csv' } })
+  assert.equal(second.status, 202)
+  const gone = await request(`/export/${first.body.jobId}/download`)
+  assert.equal(gone.status, 404, '只保留最新一份导出内容')
 })
 
 test.after(async () => {
