@@ -25,8 +25,3 @@ export async function feedback(session: TrainingSession, value: SessionFeedback)
   })
   return body.session
 }
-
-export async function remove(session: TrainingSession): Promise<void> {
-  const id = session.serverId ?? session.clientId ?? session.id
-  await request<void>(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
-}

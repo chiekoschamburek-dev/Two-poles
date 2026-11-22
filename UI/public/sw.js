@@ -6,7 +6,9 @@
 //   - 页面导航：网络优先，失败回退缓存——在线时永远拿新版本，断网兜底旧版本
 //   - 同源静态资源：缓存优先——构建产物文件名带哈希、public 资源基本不变，缓存命中即离线可用
 //   - /api/*（LLM 代理与账号同步）与带 Range 的请求（视频拖动分段取流）一律不拦截
-const VERSION = 'v1'
+// 构建时由 vite 插件替换成构建号：每次发布换一个缓存名，旧运行时缓存会在 activate 时删除。
+// 开发环境保持占位符（只有一个缓存，无需轮换）。
+const VERSION = '__BUILD_ID__'
 const RUNTIME_CACHE = `twopoles-runtime-${VERSION}`
 /** 缓存条目上限：换版后旧哈希产物会累积，超过就按放入时间淘汰最旧的 */
 const RUNTIME_CACHE_LIMIT = 200

@@ -2,7 +2,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 
 /**
  * 本地模型代理：浏览器直连第三方 OpenAI 兼容接口基本都会被 CORS 拦掉，
@@ -192,6 +192,21 @@ export default defineConfig(({ mode }) => {
         res.setHeader('Content-Type', 'application/javascript')
         res.end(readFileSync(new URL('./node_modules/msw/lib/mockServiceWorker.js', import.meta.url)))
       })
+    }
+  }, {
+    // Service Worker 的缓存名带构建号：每次发布换一个，旧版本的运行时缓存会在 activate 时被清掉。
+    // 开发环境没有这一步，占位符保持不变即可（本地只有一个缓存，无影响）。
+    name: 'twopoles-sw-build-id',
+    apply: 'build',
+    closeBundle() {
+      const file = fileURLToPath(new URL('./dist/sw.js', import.meta.url))
+      try {
+        const source = readFileSync(file, 'utf8')
+        if (!source.includes('__BUILD_ID__')) return
+        writeFileSync(file, source.replaceAll('__BUILD_ID__', Date.now().toString(36)))
+      } catch {
+        // 没生成 sw.js（例如 EVAL 构建）时跳过
+      }
     }
   }],
   resolve: {

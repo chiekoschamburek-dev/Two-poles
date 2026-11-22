@@ -314,14 +314,6 @@ async function executeOp(op: OutboxOp): Promise<void> {
       handlers?.markSessionSynced(op.clientId, remote, hasNewer())
       return
     }
-    case 'session.delete': {
-      try {
-        await sessionsApi.remove(op.payload as TrainingSession)
-      } catch (error) {
-        if (!(error instanceof ApiError) || error.status !== 404) throw error
-      }
-      return
-    }
     case 'meal.create': {
       const remote = await mealsApi.create(op.payload as Meal)
       handlers?.markMealSynced(op.clientId, remote, hasNewer())

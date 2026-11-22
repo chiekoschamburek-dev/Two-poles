@@ -6,7 +6,6 @@ export type OutboxKind =
   | 'privacy.update'
   | 'session.create'
   | 'session.feedback'
-  | 'session.delete'
   | 'meal.create'
   | 'meal.update'
   | 'meal.delete'
@@ -100,8 +99,6 @@ export function enqueue(kind: OutboxKind, clientId: string, payload: unknown): O
     filtered = ops.filter((op) => !sameResource(op, kind, clientId))
   } else if (kind === 'session.create' || kind === 'meal.create' || kind === 'plan.create' || kind === 'analysis.create') {
     filtered = ops.filter((op) => !sameResource(op, kind, clientId))
-  } else if (kind === 'session.delete') {
-    filtered = ops.filter((op) => !(op.clientId === clientId && (op.kind === 'session.create' || op.kind === 'session.feedback')))
   } else if (kind === 'meal.delete') {
     filtered = ops.filter((op) => !(op.clientId === clientId && (op.kind === 'meal.create' || op.kind === 'meal.update')))
   } else if (kind === 'analysis.delete') {
