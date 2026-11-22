@@ -186,3 +186,31 @@ test('换账号后不再把上一个账号的记录入队', async () => {
   clearOutbox()
   syncState.adoptingLocalData = true
 })
+
+test('换账号后隐藏其它账号的记录，并可显式并入当前账号', async () => {
+  // 直接写存储构造一条“上一个账号”的本机记录，再重新初始化 store
+  const foreignSession = {
+    id: 'foreign-session-1',
+    clientId: 'foreign-session-1',
+    userId: 'other-account',
+    date: '2026-11-03',
+    exerciseName: '深蹲',
+    type: '其他' as const,
+    completionStatus: 'completed' as const,
+    createdAt: new Date().toISOString(),
+    _sync: 'pending' as const
+  }
+  mem.set('twopoles.v1.sessions', JSON.stringify([foreignSession]))
+  setActivePinia(createPinia())
+  const store = useAppStore()
+  store.init()
+  await bootstrapSync()
+  syncState.adoptingLocalData = false
+
+  assert.equal(store.sessions.some((item) => item.userId === 'other-account'), false, '换账号后不展示上一个账号的记录')
+  assert.equal(store.foreignRecordCount, 1)
+  assert.equal(store.adoptForeignRecords(), 1)
+  assert.equal(store.foreignRecordCount, 0)
+  assert.ok(store.sessions.every((item) => item.userId === syncState.user!.id))
+  syncState.adoptingLocalData = true
+})

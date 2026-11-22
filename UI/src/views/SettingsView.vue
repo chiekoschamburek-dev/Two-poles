@@ -122,10 +122,20 @@
             </li>
           </ul>
         </div>
-        <p v-if="store.foreignRecordCount" class="foreign-data" role="status">
-          本机还有 {{ store.foreignRecordCount }} 条属于其它账号的记录：它们不会上传到当前账号，也不会被自动删除。
-          需要彻底分开时，请先导出再清除本机数据。
-        </p>
+        <div v-if="store.foreignRecordCount || store.foreignPlanCount" class="foreign-data" role="status">
+          <p v-if="store.foreignRecordCount">
+            本机还有 {{ store.foreignRecordCount }} 条属于其它账号的训练/餐食/分析记录：默认不上传、不删除。
+            确认要归到当前账号时可以并入，并入后它们会作为当前账号的新记录重新上传。
+          </p>
+          <p v-if="store.foreignPlanCount">
+            另有 {{ store.foreignPlanCount }} 份其它账号的周计划：计划按账号隔离，只在本机保留，不参与并入。
+          </p>
+          <div v-if="store.foreignRecordCount" class="actions">
+            <BaseButton size="sm" :disabled="mergingForeign" @click="mergeForeignRecords">
+              {{ mergeForeignArmed ? '再按一次确认并入' : '并入当前账号' }}
+            </BaseButton>
+          </div>
+        </div>
       </template>
     </BaseCard>
 
@@ -732,6 +742,35 @@ async function syncNowUI() {
     store.showToast({ type: 'warning', title: '同步未完成', message: syncState.error, duration: 4000 })
   } else {
     store.showToast({ type: 'success', title: '已同步', message: syncState.pending ? `仍有 ${syncState.pending} 条待补传` : '本机与服务端已对齐', duration: 2500 })
+  }
+}
+
+const mergeForeignArmed = ref(false)
+const mergingForeign = ref(false)
+
+/** 两段式确认：把本机其它账号的记录显式归到当前账号，再走一次同步 */
+async function mergeForeignRecords() {
+  if (mergingForeign.value || !store.foreignRecordCount) return
+  if (!mergeForeignArmed.value) {
+    mergeForeignArmed.value = true
+    return
+  }
+  mergeForeignArmed.value = false
+  mergingForeign.value = true
+  try {
+    const moved = store.adoptForeignRecords()
+    if (!moved) return
+    await syncNow()
+    store.showToast({
+      type: 'success',
+      title: `已并入 ${moved} 条记录`,
+      message: syncState.error ? `并入完成，但同步未走完：${syncState.error}` : '它们会作为当前账号的新记录上传',
+      duration: 5000
+    })
+  } catch (error) {
+    store.showToast({ type: 'error', title: '并入失败', message: errorMessage(error), duration: 5000 })
+  } finally {
+    mergingForeign.value = false
   }
 }
 

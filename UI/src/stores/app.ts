@@ -61,9 +61,9 @@ export interface NewMealInput {
 export const useAppStore = defineStore('app', () => {
   // === State ===
   const userProfile = ref<UserProfile | null>(null)
-  const sessions = ref<TrainingSession[]>([])
-  const meals = ref<Meal[]>([])
-  const analyses = ref<MotionAnalysis[]>([])
+  const allSessions = ref<TrainingSession[]>([])
+  const allMeals = ref<Meal[]>([])
+  const allAnalyses = ref<MotionAnalysis[]>([])
   const privacy = ref<PrivacySettings>({
     cameraEnabled: true,
     exportFormat: 'json',
@@ -82,8 +82,8 @@ export const useAppStore = defineStore('app', () => {
   const planCompletionStyle = ref<PlanCompletionStyle>('highlight')
   const darkMedia = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
   /** 每周一份当前计划（含版本）；被替换掉的旧版本进 planHistory，永不静默覆盖 */
-  const plans = ref<Plan[]>([])
-  const planHistory = ref<Plan[]>([])
+  const allPlans = ref<Plan[]>([])
+  const allPlanHistory = ref<Plan[]>([])
   /** 本机自定的"1 单位 = 几克"，key 见 unitKey()；没填的单位退回演示假设 */
   const unitGrams = ref<Record<string, number>>({})
   /** 已接受/已暂不调整的计划建议；避免同一条证据反复弹卡 */
@@ -125,9 +125,9 @@ export const useAppStore = defineStore('app', () => {
     const data = loadStoredState()
     // 旧档案没有 PB / 极限数组：在这里补齐，页面就不用到处写 `?? []`
     userProfile.value = normalizeProfile(data.profile ?? null)
-    sessions.value = Array.isArray(data.sessions) ? data.sessions : []
-    meals.value = Array.isArray(data.meals) ? data.meals : []
-    analyses.value = Array.isArray(data.analyses) ? data.analyses : []
+    allSessions.value = Array.isArray(data.sessions) ? data.sessions : []
+    allMeals.value = Array.isArray(data.meals) ? data.meals : []
+    allAnalyses.value = Array.isArray(data.analyses) ? data.analyses : []
     if (data.privacy) privacy.value = { ...privacy.value, ...data.privacy }
     if (data.speech && typeof data.speech.enabled === 'boolean') {
       speech.value = { enabled: data.speech.enabled, voiceURI: typeof data.speech.voiceURI === 'string' ? data.speech.voiceURI : '' }
@@ -136,8 +136,8 @@ export const useAppStore = defineStore('app', () => {
     if (data.theme === 'light' || data.theme === 'dark' || data.theme === 'system') themePref.value = data.theme
     planCompletionStyle.value = data.planCompletionStyle === 'strike' ? 'strike' : 'highlight'
     applyTheme()
-    if (Array.isArray(data.plans)) plans.value = data.plans
-    if (Array.isArray(data.planHistory)) planHistory.value = data.planHistory
+    if (Array.isArray(data.plans)) allPlans.value = data.plans
+    if (Array.isArray(data.planHistory)) allPlanHistory.value = data.planHistory
     if (data.unitGrams && typeof data.unitGrams === 'object') {
       const clean: Record<string, number> = {}
       // 上限只防手滑（1 碗 = 5 kg），不是营养判断
@@ -162,16 +162,16 @@ export const useAppStore = defineStore('app', () => {
   function persistState() {
     const state = {
       profile: userProfile.value,
-      sessions: sessions.value,
-      meals: meals.value,
-      analyses: analyses.value,
+      sessions: allSessions.value,
+      meals: allMeals.value,
+      analyses: allAnalyses.value,
       privacy: privacy.value,
       speech: speech.value,
       collapsed: collapsedCards.value,
       theme: themePref.value,
       planCompletionStyle: planCompletionStyle.value,
-      plans: plans.value,
-      planHistory: planHistory.value,
+      plans: allPlans.value,
+      planHistory: allPlanHistory.value,
       unitGrams: unitGrams.value,
       adjustmentResolutions: adjustmentResolutions.value
     }
@@ -206,13 +206,26 @@ export const useAppStore = defineStore('app', () => {
     return !!owner && owner !== 'demo-user' && owner !== syncState.user.id
   }
 
-  /** 换账号后本机仍留着的另一个账号的数据：不上传，但要让用户看得见 */
+  // ——— 对外可见的数据：换账号后只展示当前账号与未归属的记录，另一个账号的留在本机但不上屏 ———
+  const sessions = computed(() => allSessions.value.filter(item => !belongsToOtherAccount(item)))
+  const meals = computed(() => allMeals.value.filter(item => !belongsToOtherAccount(item)))
+  const analyses = computed(() => allAnalyses.value.filter(item => !belongsToOtherAccount(item)))
+  const plans = computed(() => allPlans.value.filter(item => !belongsToOtherAccount(item)))
+  const planHistory = computed(() => allPlanHistory.value.filter(item => !belongsToOtherAccount(item)))
+
+  /** 换账号后本机仍留着的另一个账号的记录：不上传，但要让用户看得见、可显式并入 */
   const foreignRecordCount = computed(() => {
     if (!syncState.user || syncState.adoptingLocalData) return 0
-    return sessions.value.filter(item => belongsToOtherAccount(item)).length
-      + meals.value.filter(item => belongsToOtherAccount(item)).length
-      + plans.value.filter(item => belongsToOtherAccount(item)).length
-      + analyses.value.filter(item => belongsToOtherAccount(item)).length
+    return allSessions.value.filter(item => belongsToOtherAccount(item)).length
+      + allMeals.value.filter(item => belongsToOtherAccount(item)).length
+      + allAnalyses.value.filter(item => belongsToOtherAccount(item)).length
+  })
+
+  /** 另一个账号的周计划：计划按账号隔离，不参与“并入”，只在本机保留 */
+  const foreignPlanCount = computed(() => {
+    if (!syncState.user || syncState.adoptingLocalData) return 0
+    return allPlans.value.filter(item => belongsToOtherAccount(item)).length
+      + allPlanHistory.value.filter(item => belongsToOtherAccount(item)).length
   })
 
   let foreignWarned = false
@@ -222,7 +235,7 @@ export const useAppStore = defineStore('app', () => {
     showToast({
       type: 'warning',
       title: '本机还有其它账号的数据',
-      message: `${foreignRecordCount.value} 条记录属于另一个账号，不会被上传到当前账号。需要彻底分开时，请先导出再清除本机数据。`,
+      message: `${foreignRecordCount.value} 条训练/餐食/分析记录属于另一个账号，不会被上传到当前账号。可在设置页选择并入当前账号，或先导出再清除本机数据。`,
       duration: 9000
     })
   }
@@ -244,10 +257,10 @@ export const useAppStore = defineStore('app', () => {
     return {
       profile: profileNeedsUpload ? { ...userProfile.value! } : null,
       privacy: privacyNeedsUpload ? { ...privacy.value } : null,
-      sessions: sessions.value.filter(needs).map((item) => ({ ...item })),
-      meals: meals.value.filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) })),
-      plans: [...planHistory.value, ...plans.value].filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) })),
-      analyses: analyses.value.filter(needs).map((item) => ({
+      sessions: allSessions.value.filter(needs).map((item) => ({ ...item })),
+      meals: allMeals.value.filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) })),
+      plans: [...allPlanHistory.value, ...allPlans.value].filter(needs).map((item) => ({ ...item, items: item.items.map((row) => ({ ...row })) })),
+      analyses: allAnalyses.value.filter(needs).map((item) => ({
         ...item,
         findings: item.findings.map((finding) => ({ ...finding })),
         metrics: item.metrics.map((metric) => ({ ...metric }))
@@ -266,9 +279,9 @@ export const useAppStore = defineStore('app', () => {
     if (previousId && previousId !== remote.id && syncState.adoptingLocalData) {
       // 只有在「首次登录接管本机数据」时才改写归属；换账号时保持原样，
       // 否则 A 的记录会被贴上 B 的标签一起上传。
-      for (const item of sessions.value) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
-      for (const item of meals.value) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
-      for (const item of [...plans.value, ...planHistory.value]) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
+      for (const item of allSessions.value) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
+      for (const item of allMeals.value) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
+      for (const item of [...allPlans.value, ...allPlanHistory.value]) if (!item.userId || item.userId === 'demo-user' || item.userId === previousId) item.userId = remote.id
     }
     persistState()
   }
@@ -279,7 +292,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function markSessionSynced(clientId: string, remote: TrainingSession, pending: boolean) {
-    const local = sessions.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id)
+    const local = allSessions.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id)
     if (!local) return
     local.serverId = remote.serverId ?? remote.id
     if (!pending) local.updatedAt = remote.updatedAt ?? local.updatedAt
@@ -288,7 +301,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function markMealSynced(clientId: string, remote: Meal, pending: boolean) {
-    const local = meals.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id)
+    const local = allMeals.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id)
     if (!local) return
     local.serverId = remote.serverId ?? remote.id
     if (!pending) local.updatedAt = remote.updatedAt ?? local.updatedAt
@@ -297,7 +310,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function markPlanSynced(clientId: string, remote: Plan, pending: boolean) {
-    const local = [...plans.value, ...planHistory.value].find((item) =>
+    const local = [...allPlans.value, ...allPlanHistory.value].find((item) =>
       (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id
     )
     if (!local) return
@@ -311,7 +324,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function markAnalysisSynced(clientId: string, remote: MotionAnalysis, pending: boolean) {
-    const local = analyses.value.find((item) =>
+    const local = allAnalyses.value.find((item) =>
       (item.clientId ?? item.id) === clientId || item.id === clientId || item.serverId === remote.id
     )
     if (!local) return
@@ -323,16 +336,16 @@ export const useAppStore = defineStore('app', () => {
 
   function markConflict(kind: 'session' | 'meal' | 'analysis' | 'plan' | 'profile', clientId: string, _message: string) {
     if (kind === 'session') {
-      const local = sessions.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
+      const local = allSessions.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
       if (local) local._sync = 'conflict'
     } else if (kind === 'meal') {
-      const local = meals.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
+      const local = allMeals.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
       if (local) local._sync = 'conflict'
     } else if (kind === 'analysis') {
-      const local = analyses.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
+      const local = allAnalyses.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
       if (local) local._sync = 'conflict'
     } else if (kind === 'plan') {
-      const local = [...plans.value, ...planHistory.value].find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
+      const local = [...allPlans.value, ...allPlanHistory.value].find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
       if (local) local._sync = 'conflict'
     } else if (userProfile.value) {
       userProfile.value.updatedAt = new Date().toISOString()
@@ -374,11 +387,11 @@ export const useAppStore = defineStore('app', () => {
 
     const deletedSessions = deletedKeys(snapshot.deleted?.sessions ?? [])
     if (deletedSessions.size) {
-      sessions.value = sessions.value.filter((item) => keepDeleted('session', item, deletedSessions))
+      allSessions.value = allSessions.value.filter((item) => keepDeleted('session', item, deletedSessions))
     }
     for (const remote of snapshot.sessions ?? []) {
       if (deleting('session', remote)) continue
-      const local = sessions.value.find((item) =>
+      const local = allSessions.value.find((item) =>
         (item.clientId ?? item.id) === (remote.clientId ?? remote.id) || item.serverId === remote.id || item.id === remote.id
       )
       if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
@@ -393,17 +406,17 @@ export const useAppStore = defineStore('app', () => {
           _sync: 'synced'
         })
       } else {
-        sessions.value.push({ ...remote, _sync: 'synced' })
+        allSessions.value.push({ ...remote, _sync: 'synced' })
       }
     }
 
     const deletedMeals = deletedKeys(snapshot.deleted?.meals ?? [])
     if (deletedMeals.size) {
-      meals.value = meals.value.filter((item) => keepDeleted('meal', item, deletedMeals))
+      allMeals.value = allMeals.value.filter((item) => keepDeleted('meal', item, deletedMeals))
     }
     for (const remote of snapshot.meals ?? []) {
       if (deleting('meal', remote)) continue
-      const local = meals.value.find((item) =>
+      const local = allMeals.value.find((item) =>
         (item.clientId ?? item.id) === (remote.clientId ?? remote.id) || item.serverId === remote.id || item.id === remote.id
       )
       if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
@@ -418,17 +431,17 @@ export const useAppStore = defineStore('app', () => {
           _sync: 'synced'
         })
       } else {
-        meals.value.push({ ...remote, _sync: 'synced' })
+        allMeals.value.push({ ...remote, _sync: 'synced' })
       }
     }
 
     const deletedAnalyses = deletedKeys(snapshot.deleted?.analyses ?? [])
     if (deletedAnalyses.size) {
-      analyses.value = analyses.value.filter((item) => keepDeleted('analysis', item, deletedAnalyses))
+      allAnalyses.value = allAnalyses.value.filter((item) => keepDeleted('analysis', item, deletedAnalyses))
     }
     for (const remote of snapshot.analyses ?? []) {
       if (deleting('analysis', remote)) continue
-      const local = analyses.value.find((item) =>
+      const local = allAnalyses.value.find((item) =>
         (item.clientId ?? item.id) === (remote.clientId ?? remote.id) || item.serverId === remote.id || item.id === remote.id
       )
       if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
@@ -443,7 +456,7 @@ export const useAppStore = defineStore('app', () => {
           _sync: 'synced'
         })
       } else {
-        analyses.value.push({ ...remote, _sync: 'synced' })
+        allAnalyses.value.push({ ...remote, _sync: 'synced' })
       }
     }
 
@@ -458,11 +471,12 @@ export const useAppStore = defineStore('app', () => {
     const latest = [...grouped.values()].map((list) => list.sort((a, b) => a.version - b.version)[list.length - 1]).filter(Boolean)
     const latestIds = new Set(latest.map((plan) => plan.id))
     for (const remote of latest) {
-      const local = plans.value.find((item) =>
+      // 只和当前账号的本地计划合并：不能把 B 的远端版本套到同一周 A 的本地计划上
+      const local = allPlans.value.find((item) => !belongsToOtherAccount(item) && (
         (item.clientId && item.clientId === remote.clientId) ||
         (item.serverId && item.serverId === remote.serverId) ||
         item.weekStartDate === remote.weekStartDate
-      )
+      ))
       if (local && (local._sync === 'pending' || local._sync === 'conflict')) {
         local.serverId = local.serverId ?? remote.serverId ?? remote.id
         continue
@@ -475,17 +489,17 @@ export const useAppStore = defineStore('app', () => {
           _sync: 'synced'
         })
       } else {
-        plans.value.push({ ...remote, _sync: 'synced' })
+        allPlans.value.push({ ...remote, _sync: 'synced' })
       }
     }
-    const knownPlans = new Set([...plans.value, ...planHistory.value].flatMap((plan) =>
+    const knownPlans = new Set([...allPlans.value, ...allPlanHistory.value].flatMap((plan) =>
       [plan.id, plan.serverId, plan.clientId].filter((value): value is string => !!value)
     ))
     for (const remote of remotePlans) {
       if (latestIds.has(remote.id)) continue
       const keys = [remote.id, remote.serverId, remote.clientId].filter((value): value is string => !!value)
       if (keys.some((key) => knownPlans.has(key))) continue
-      planHistory.value.push({ ...remote, _sync: 'synced' })
+      allPlanHistory.value.push({ ...remote, _sync: 'synced' })
       keys.forEach((key) => knownPlans.add(key))
     }
     persistState()
@@ -507,14 +521,40 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function adoptRemotePlan(clientId: string, remote: Plan) {
-    const index = plans.value.findIndex((plan) => (plan.clientId ?? plan.id) === clientId)
+    const index = allPlans.value.findIndex((plan) => (plan.clientId ?? plan.id) === clientId)
     if (index < 0) return
-    const local = plans.value[index]
-    planHistory.value.push({ ...local, items: local.items.map((item) => ({ ...item })), _sync: 'conflict' })
-    plans.value[index] = { ...remote, id: local.id, serverId: remote.id, _sync: 'synced' }
+    const local = allPlans.value[index]
+    allPlanHistory.value.push({ ...local, items: local.items.map((item) => ({ ...item })), _sync: 'conflict' })
+    allPlans.value[index] = { ...remote, id: local.id, serverId: remote.id, _sync: 'synced' }
     for (const op of listOutbox()) if (op.clientId === clientId && op.kind.startsWith('plan.')) removeOp(op.id)
     persistState()
     refreshPending()
+  }
+
+  /**
+   * 用户显式确认后，把本机属于其它账号的训练/餐食/分析记录并入当前账号：
+   * 改写归属、清掉上一个账号的 serverId（否则会 PATCH 到别人的记录上），作为新记录重新上传。
+   * 周计划不参与并入：计划按账号隔离，避免同一周两个版本互相覆盖。
+   */
+  function adoptForeignRecords(): number {
+    const me = syncState.user?.id
+    if (!me) return 0
+    let moved = 0
+    const adopt = (item: { userId?: string; serverId?: string; _sync?: string }) => {
+      if (!belongsToOtherAccount(item)) return
+      item.userId = me
+      delete item.serverId
+      item._sync = 'pending'
+      moved += 1
+    }
+    for (const item of allSessions.value) adopt(item)
+    for (const item of allMeals.value) adopt(item)
+    for (const item of allAnalyses.value) adopt(item)
+    if (moved) {
+      persistState()
+      refreshPending()
+    }
+    return moved
   }
 
   function queueProfileSync() {
@@ -573,7 +613,7 @@ export const useAppStore = defineStore('app', () => {
     enqueueSync('plan.create', plan.clientId, { ...plan, items: plan.items.map((item) => ({ ...item })) })
   }
 
-  /** 本周（周一为起点）的计划；没有就按档案生成 v1 并落盘 */
+  /** 本周（周一为起点）的计划；没有就按档案生成 v1 并落盘。只认当前账号（或未归属）的本地计划 */
   function ensureWeekPlan(reference: Date, queue = true): Plan {
     const start = weekStart(reference)
     const iso = toISODate(start)
@@ -602,7 +642,7 @@ export const useAppStore = defineStore('app', () => {
       weekEndDate: toISODate(end),
       items: items.map(i => ({ ...i, planId: id }))
     }
-    plans.value.push(plan)
+    allPlans.value.push(plan)
     persistState()
     if (queue) queuePlanSync(plan)
     return plan
@@ -636,8 +676,8 @@ export const useAppStore = defineStore('app', () => {
   function regenerateWeekPlan(reference: Date): Plan | null {
     const old = weekPlan(reference)
     if (old) {
-      planHistory.value.push({ ...old, items: old.items.map(i => ({ ...i })) })
-      plans.value = plans.value.filter(p => p.id !== old.id)
+      allPlanHistory.value.push({ ...old, items: old.items.map(i => ({ ...i })) })
+      allPlans.value = allPlans.value.filter(p => p.id !== old.id)
     }
     const fresh = ensureWeekPlan(reference, false)
     if (old) fresh.version = old.version + 1
@@ -984,8 +1024,8 @@ export const useAppStore = defineStore('app', () => {
     if (!items.length) return null
     const carried = draft.dayDate && old ? old.items.map(item => ({ ...item, planId: id })) : []
     if (old) {
-      planHistory.value.push({ ...old, items: old.items.map(i => ({ ...i })) })
-      plans.value = plans.value.filter(p => p.id !== old.id)
+      allPlanHistory.value.push({ ...old, items: old.items.map(i => ({ ...i })) })
+      allPlans.value = allPlans.value.filter(p => p.id !== old.id)
     }
     const plan: Plan = {
       id,
@@ -999,7 +1039,7 @@ export const useAppStore = defineStore('app', () => {
       items: [...carried, ...items],
       source: draft.source === 'image' || (draft.dayDate && old?.source === 'image') ? 'image' : 'llm'
     }
-    plans.value.push(plan)
+    allPlans.value.push(plan)
     persistState()
     queuePlanSync(plan)
     resetPlanDraft()
@@ -1016,7 +1056,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** 一次修改 = 一个新版本：旧版本进 planHistory，永不就地覆盖 */
   function bumpVersion(plan: Plan, items: PlanItem[], reason: string, queue = true): Plan {
-    planHistory.value.push({ ...plan, items: plan.items.map(i => ({ ...i })) })
+    allPlanHistory.value.push({ ...plan, items: plan.items.map(i => ({ ...i })) })
     plan.items = items
     plan.version += 1
     plan.clientId = `${plan.id}:v${plan.version}`
@@ -1032,7 +1072,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** 接受调整建议：锁定项与已完成项保持不变 */
   function acceptAdjustment(planId: string, changes: PlanChange[], reason: string): Plan | null {
-    const plan = plans.value.find(p => p.id === planId)
+    const plan = allPlans.value.find(p => p.id === planId)
     if (!plan) return null
     const baseVersion = plan.version
     const changedIds = new Set(changes.filter(c => c.type === 'changed').map(c => c.itemId))
@@ -1058,7 +1098,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function rejectAdjustment(planId: string) {
-    const plan = plans.value.find(p => p.id === planId)
+    const plan = allPlans.value.find(p => p.id === planId)
     if (!plan) return
     showToast({ type: 'info', title: '已保持原计划', message: '计划本身没有需要改动的地方', duration: 2500 })
   }
@@ -1075,7 +1115,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function markItemCompleted(planId: string, itemId: string, completed: boolean) {
-    const plan = plans.value.find(p => p.id === planId)
+    const plan = allPlans.value.find(p => p.id === planId)
     if (!plan) return
     const items = plan.items.map(i => (i.id === itemId ? { ...i, completed } : i))
     const name = items.find(i => i.id === itemId)?.exerciseName ?? itemId
@@ -1084,7 +1124,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** 手工录入：不满足自动推荐条件（如未满 18 岁）时的安排入口 */
   function addManualItem(planId: string, input: { date: string; exerciseName: string; minutes: number; note?: string }) {
-    const plan = plans.value.find(p => p.id === planId)
+    const plan = allPlans.value.find(p => p.id === planId)
     if (!plan) return null
     const item: PlanItem = {
       id: `${input.date}-${input.exerciseName}-m${Date.now().toString(36)}`,
@@ -1165,7 +1205,7 @@ export const useAppStore = defineStore('app', () => {
       userId: currentUserId(),
       createdAt: new Date().toISOString()
     }
-    sessions.value.push(session)
+    allSessions.value.push(session)
     queueSessionSync(session)
     persistState()
     showToast({
@@ -1181,7 +1221,7 @@ export const useAppStore = defineStore('app', () => {
    * Attach the post-session feedback (RPE, discomfort, reason, notes)
    */
   function applyFeedback(sessionId: string, feedback: SessionFeedback) {
-    const session = sessions.value.find(s => s.id === sessionId)
+    const session = allSessions.value.find(s => s.id === sessionId)
     if (!session) return
     session.rpe = feedback.rpe
     session.discomfort = feedback.discomfort
@@ -1214,7 +1254,7 @@ export const useAppStore = defineStore('app', () => {
   function buildMealAnalysis(items: MealItem[], date: string, mealId: string, excludeMealId?: string) {
     const completeness = deriveCompleteness(items)
     const dayCategories = [...new Set(
-      meals.value
+      allMeals.value
         .filter(m => m.date === date && m.id !== excludeMealId)
         .flatMap(m => m.items.map(i => i.category))
     )]
@@ -1271,7 +1311,7 @@ export const useAppStore = defineStore('app', () => {
       photoThumb: input.photoThumb,
       photoId: input.photoId
     }
-    meals.value.push(meal)
+    allMeals.value.push(meal)
     queueMealCreate(meal)
     persistState()
     showToast({
@@ -1288,9 +1328,9 @@ export const useAppStore = defineStore('app', () => {
    * 同一 id 原地替换，列表按 key 复用，避免整条记录（含照片）被销毁重建。
    */
   function updateMeal(mealId: string, input: { time: string; items: NewMealInput['items'] }): Meal | null {
-    const index = meals.value.findIndex(m => m.id === mealId)
+    const index = allMeals.value.findIndex(m => m.id === mealId)
     if (index === -1) return null
-    const current = meals.value[index]
+    const current = allMeals.value[index]
     const { items, completeness, analysis } = buildMealParts({
       date: current.date,
       mealType: current.mealType,
@@ -1305,7 +1345,7 @@ export const useAppStore = defineStore('app', () => {
       analyzed: !!analysis,
       analysis
     }
-    meals.value[index] = updated
+    allMeals.value[index] = updated
     queueMealSync(updated)
     persistState()
     showToast({
@@ -1319,7 +1359,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** 逐项确认：只清掉待核对标记，不改动类别、份量与热量 */
   function confirmMealItem(mealId: string, itemId: string): boolean {
-    const meal = meals.value.find(m => m.id === mealId)
+    const meal = allMeals.value.find(m => m.id === mealId)
     const item = meal?.items.find(i => i.id === itemId)
     if (!meal || !item) return false
     if (item.userConfirmed && item.uncertain === false) return false
@@ -1337,7 +1377,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** 删除识别错误的条目；至少保留一项，删完会重算完整度与结构 */
   function removeMealItem(mealId: string, itemId: string): boolean {
-    const meal = meals.value.find(m => m.id === mealId)
+    const meal = allMeals.value.find(m => m.id === mealId)
     if (!meal || meal.items.length <= 1) return false
     const remaining = meal.items.filter(i => i.id !== itemId)
     if (remaining.length === meal.items.length) return false
@@ -1353,7 +1393,7 @@ export const useAppStore = defineStore('app', () => {
 
   /** 全部确认这一餐；返回新确认的条目数 */
   function confirmMeal(mealId: string): number {
-    const meal = meals.value.find(m => m.id === mealId)
+    const meal = allMeals.value.find(m => m.id === mealId)
     if (!meal) return 0
     let changed = 0
     for (const item of meal.items) {
@@ -1371,20 +1411,20 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function removeMeal(mealId: string) {
-    const meal = meals.value.find(m => m.id === mealId)
+    const meal = allMeals.value.find(m => m.id === mealId)
     if (meal && !queueMealDelete(meal)) {
       showToast({ type: 'warning', title: '删除未完成', message: syncState.error, duration: 5000 })
       return
     }
     if (meal?.photoId) void deleteMealPhoto(meal.photoId).catch(() => { /* 清不掉原图不影响删除记录 */ })
-    meals.value = meals.value.filter(m => m.id !== mealId)
+    allMeals.value = allMeals.value.filter(m => m.id !== mealId)
     persistState()
     showToast({ type: 'info', title: '已删除该餐记录', message: '删除后这一天会重新显示为"未记录"', duration: 2500 })
   }
 
   /** 自动判断的餐次只影响标签与时间线，不改动条目与结构分析 */
   function updateMealType(mealId: string, mealType: MealType) {
-    const meal = meals.value.find(m => m.id === mealId)
+    const meal = allMeals.value.find(m => m.id === mealId)
     if (!meal || meal.mealType === mealType) return false
     meal.mealType = mealType
     queueMealSync(meal)
@@ -1440,13 +1480,13 @@ export const useAppStore = defineStore('app', () => {
     record.clientId = record.clientId ?? record.id
     record._sync = 'pending'
     queueAnalysisSync(record)
-    analyses.value = [record, ...analyses.value.filter(item => item.id !== record.id)]
+    allAnalyses.value = [record, ...allAnalyses.value.filter(item => item.id !== record.id)]
     persistState()
   }
 
   function removeAnalysis(id: string) {
-    const target = analyses.value.find(item => item.id === id)
-    analyses.value = analyses.value.filter(item => item.id !== id)
+    const target = allAnalyses.value.find(item => item.id === id)
+    allAnalyses.value = allAnalyses.value.filter(item => item.id !== id)
     persistState()
     if (target) {
       enqueueSync('analysis.delete', target.clientId ?? target.id, { ...target })
@@ -1457,7 +1497,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function linkAnalysisToSession(id: string, sessionId: string | undefined) {
-    const analysis = analyses.value.find(item => item.id === id)
+    const analysis = allAnalyses.value.find(item => item.id === id)
     if (!analysis) return false
     if (sessionId) analysis.sessionId = sessionId
     else delete analysis.sessionId
@@ -1471,11 +1511,11 @@ export const useAppStore = defineStore('app', () => {
    */
   function clearAllData() {
     userProfile.value = null
-    sessions.value = []
-    meals.value = []
-    analyses.value = []
-    plans.value = []
-    planHistory.value = []
+    allSessions.value = []
+    allMeals.value = []
+    allAnalyses.value = []
+    allPlans.value = []
+    allPlanHistory.value = []
     privacy.value = { cameraEnabled: true, exportFormat: 'json', showEnergyEstimate: false, saveFoodPhotoLocally: true, saveMotionSeriesLocally: false }
     speech.value = { enabled: false, voiceURI: '' }
     collapsedCards.value = []
@@ -1529,6 +1569,7 @@ export const useAppStore = defineStore('app', () => {
     // Computed
     hasProfile,
     foreignRecordCount,
+    foreignPlanCount,
 
     // Actions
     init,
@@ -1574,6 +1615,7 @@ export const useAppStore = defineStore('app', () => {
     resetPlanDraft,
     acceptAdjustment,
     adoptRemotePlan,
+    adoptForeignRecords,
     rejectAdjustment,
     resolveAdjustment,
     isAdjustmentResolved,
