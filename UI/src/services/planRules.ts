@@ -11,6 +11,7 @@ import {
   type Exercise,
   type Venue
 } from './exercises'
+import { parseTimeMinutes } from './profileRules'
 
 export const PLAN_VERSION = 4
 export const PLAN_RULES_VERSION = 'plan-rules-v4'
@@ -37,7 +38,8 @@ export interface DayPlan {
 }
 
 function budgetMinutes(times: string[]): number {
-  const nums = times.map(t => parseInt(t, 10)).filter(n => Number.isFinite(n) && n > 0)
+  // 档位文案统一由 profileRules 解析：预设档位与自定义分钟数是同一种写法
+  const nums = times.map(parseTimeMinutes).filter((n): n is number => n !== null)
   return nums.length ? Math.max(...nums) : 20
 }
 

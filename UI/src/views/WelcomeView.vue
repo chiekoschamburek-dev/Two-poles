@@ -66,8 +66,8 @@
                     v-model.number="draft.age"
                     type="number"
                     inputmode="numeric"
-                    min="12"
-                    max="90"
+                    :min="AGE_RANGE.min"
+                    :max="AGE_RANGE.max"
                     placeholder="—"
                     aria-label="年龄（必填）"
                     :aria-invalid="!!ageMessage"
@@ -75,7 +75,7 @@
                   />
                   <button type="button" class="age-step" aria-label="年龄加一" @click="bumpAge(1)">＋</button>
                 </div>
-                <small class="field-hint">12–90 岁；用于训练强度与动作筛选</small>
+                <small class="field-hint">{{ AGE_RANGE.min }}–{{ AGE_RANGE.max }} 岁；用于训练强度与动作筛选</small>
                 <small v-if="ageMessage" class="field-error" role="alert">{{ ageMessage }}</small>
               </div>
             </div>
@@ -115,28 +115,40 @@
             </div>
 
             <div class="field-block">
-              <div class="block-head"><span class="field-label">主项</span><small>单选，可留空</small></div>
+              <div class="block-head"><span class="field-label">专项</span><small>多选，可留空</small></div>
               <div class="chips">
                 <button
-                  v-for="e in PROFILE_EVENT_OPTIONS"
+                  v-for="e in PROFILE_DISCIPLINE_OPTIONS"
                   :key="e"
                   type="button"
                   class="chip"
-                  :class="{ on: !draft.otherPicked && draft.discipline === e }"
-                  :aria-pressed="!draft.otherPicked && draft.discipline === e"
-                  @click="pickEvent(e)"
+                  :class="{ on: draft.disciplines.includes(e) }"
+                  :aria-pressed="draft.disciplines.includes(e)"
+                  @click="toggle(draft.disciplines, e)"
                 >{{ e }}</button>
-                <button type="button" class="chip" :class="{ on: otherSport }" :aria-pressed="otherSport" @click="pickOtherSport">其他</button>
               </div>
-              <input
-                v-if="otherSport"
-                v-model="draft.discipline"
-                class="text-input"
-                type="text"
-                maxlength="24"
-                placeholder="填写主项，例如：60m 栏"
-                aria-label="填写主项"
-              />
+              <div v-if="customDisciplines.length" class="chips picked">
+                <button
+                  v-for="d in customDisciplines"
+                  :key="d"
+                  type="button"
+                  class="chip on"
+                  :aria-label="`移除自定义专项 ${d}`"
+                  @click="toggle(draft.disciplines, d)"
+                >{{ d }} ×</button>
+              </div>
+              <div class="custom-add">
+                <input
+                  v-model="draft.customDiscipline"
+                  class="text-input"
+                  type="text"
+                  maxlength="24"
+                  placeholder="没有你练的项目？自己填一个"
+                  aria-label="添加自定义专项"
+                  @keydown.enter.prevent="addDiscipline"
+                />
+                <button type="button" class="add-btn" @click="addDiscipline">加上</button>
+              </div>
             </div>
 
             <div class="field-block">
@@ -161,7 +173,7 @@
                 </label>
                 <div class="field">
                   <span class="field-label">对应项目</span>
-                  <input :value="draft.discipline || '未选主项'" type="text" disabled />
+                  <input :value="draft.disciplines.length ? draft.disciplines.join('、') : '未选专项'" type="text" disabled />
                 </div>
               </div>
 
@@ -228,6 +240,31 @@
                   @click="toggle(draft.availableTimes, t)"
                 >{{ t }}</button>
               </div>
+              <div v-if="customTimes.length" class="chips picked">
+                <button
+                  v-for="t in customTimes"
+                  :key="t"
+                  type="button"
+                  class="chip on"
+                  :aria-label="`移除自定义时长 ${t}`"
+                  @click="toggle(draft.availableTimes, t)"
+                >{{ t }} ×</button>
+              </div>
+              <div class="custom-add">
+                <input
+                  v-model.number="customMinutes"
+                  class="text-input"
+                  type="number"
+                  :min="TIME_RANGE.min"
+                  :max="TIME_RANGE.max"
+                  placeholder="档位都不合适？填分钟数"
+                  aria-label="自定义可用时长（分钟）"
+                  @keydown.enter.prevent="addCustomTime"
+                  @blur="timeTouched = true"
+                />
+                <button type="button" class="add-btn" @click="addCustomTime">加上</button>
+              </div>
+              <small v-if="timeError" class="field-error">{{ timeError }}</small>
             </div>
 
             <div class="field-block">
@@ -311,7 +348,7 @@
                 <div><dt>身体数据</dt><dd>{{ bodyLine }}</dd></div>
                 <div><dt>主要目标</dt><dd>{{ draft.goal.trim() || '未填' }}</dd></div>
                 <div><dt>运动经验</dt><dd>{{ draft.experience.trim() || '未填' }}</dd></div>
-                <div><dt>主项</dt><dd>{{ draft.discipline.trim() || '未填' }}</dd></div>
+                <div><dt>专项</dt><dd>{{ draft.disciplines.length ? draft.disciplines.join('、') : '未填' }}</dd></div>
                 <div><dt>训练目标</dt><dd>{{ trainingGoalLine }}</dd></div>
                 <div><dt>可用时间</dt><dd>{{ listText(draft.availableTimes) }}</dd></div>
                 <div><dt>器材 / 场地</dt><dd>{{ equipmentLine }}</dd></div>
@@ -339,7 +376,7 @@
               <ChevronLeft :size="15" /> 上一步
             </button>
             <span class="spacer"></span>
-            <span v-if="step === 0 && !canAdvance" class="foot-hint">填写 12–90 岁年龄后可继续</span>
+            <span v-if="step === 0 && !canAdvance" class="foot-hint">填写 {{ AGE_RANGE.min }}–{{ AGE_RANGE.max }} 岁年龄后可继续</span>
             <button v-if="step > 0 && step < 3" type="button" class="skip" @click="skipStep">跳过这一步</button>
             <BaseButton v-if="step < 3" :icon="ChevronRight" :disabled="!canAdvance" @click="advance">下一步</BaseButton>
             <BaseButton v-else :disabled="saving || avatarLoading" @click="finish">{{ saving ? '正在保存…' : avatarLoading ? '正在处理头像…' : '开启运动计划' }}</BaseButton>
@@ -363,8 +400,8 @@ import PbList from '@/components/profile/PbList.vue'
 import GymList from '@/components/profile/GymList.vue'
 import PoleMark from '@/components/poles/PoleMark.vue'
 import {
+  PROFILE_DISCIPLINE_OPTIONS,
   PROFILE_EQUIPMENT_OPTIONS,
-  PROFILE_EVENT_OPTIONS,
   PROFILE_EXPERIENCES,
   PROFILE_GATE_OPTIONS,
   PROFILE_GOALS,
@@ -375,7 +412,18 @@ import {
 } from '@/config/profileOptions'
 import { useAppStore } from '@/stores/app'
 import { createProfileDraft, toProfilePayload } from '@/services/profileForm'
-import { AGE_RANGE, ageError as profileAgeError, bodyErrors, cycleRangeError, goalSummary, isValidAge } from '@/services/profileRules'
+import {
+  AGE_RANGE,
+  TIME_RANGE,
+  ageError as profileAgeError,
+  bodyErrors,
+  customTimeError,
+  cycleRangeError,
+  goalSummary,
+  isValidAge,
+  sortTimeLabels,
+  timeLabel
+} from '@/services/profileRules'
 import { gateReason } from '@/services/exercises'
 
 const STEPS = [
@@ -389,7 +437,7 @@ const STEPS = [
     key: 'goal',
     label: '运动目标',
     title: '你想练成什么样',
-    copy: '主要目标决定计划侧重；主项、比赛或周期目标都是选填。'
+    copy: '主要目标决定计划侧重；专项、比赛或周期目标都是选填。'
   },
   {
     key: 'habits',
@@ -416,13 +464,18 @@ const saving = ref(false)
 const error = ref('')
 const stepError = ref('')
 const heading = ref<HTMLElement | null>(null)
+/** 自定义时长与专项的输入缓冲：点「加上」才并入多选，不直接落库 */
+const customMinutes = ref<number | ''>('')
+const timeTouched = ref(false)
 
 const current = computed(() => STEPS[step.value])
 const progressWidth = computed(() => `${((step.value + 1) / STEPS.length) * 100}%`)
 const body = computed(() => bodyErrors(draft.height, draft.weight))
 const ageMessage = computed(() => (ageTouched.value ? (profileAgeError(draft.age) ?? '') : ''))
 const cycleMessage = computed(() => cycleRangeError(draft.cycleStartDate, draft.cycleEndDate) ?? '')
-const otherSport = computed(() => draft.otherPicked || (!!draft.discipline && !PROFILE_EVENT_OPTIONS.includes(draft.discipline)))
+const customTimes = computed(() => draft.availableTimes.filter(t => !PROFILE_TIME_OPTIONS.includes(t)))
+const customDisciplines = computed(() => draft.disciplines.filter(d => !PROFILE_DISCIPLINE_OPTIONS.includes(d)))
+const timeError = computed(() => (timeTouched.value ? customTimeError(customMinutes.value) : null))
 const blocked = computed(() => gateReason({ restrictions: draft.restrictions }))
 
 const canAdvance = computed(() => {
@@ -452,12 +505,12 @@ const specialLine = computed(() => {
   return picked.length ? picked.join(' · ') : '无'
 })
 const trainingGoalLine = computed(() => {
-  if (!draft.discipline && !draft.targetEvent && !draft.cyclePhase && !draft.cycleFocus) return '未填'
+  if (!draft.disciplines.length && !draft.targetEvent && !draft.cyclePhase && !draft.cycleFocus) return '未填'
   return goalSummary({
     goalType: draft.goalType,
     targetEvent: draft.targetEvent,
     targetEventDate: draft.targetEventDate,
-    discipline: draft.discipline,
+    disciplines: draft.disciplines,
     cyclePhase: draft.cyclePhase
   })
 })
@@ -468,14 +521,20 @@ function toggle(list: string[], value: string) {
   else list.splice(index, 1)
 }
 
-function pickEvent(event: string) {
-  draft.otherPicked = false
-  draft.discipline = draft.discipline === event ? '' : event
+/** 自定义专项：与预设项并列存在一个数组里，删掉就是取消选中 */
+function addDiscipline() {
+  const value = draft.customDiscipline.trim()
+  if (!value) return
+  if (!draft.disciplines.includes(value)) draft.disciplines.push(value)
+  draft.customDiscipline = ''
 }
 
-function pickOtherSport() {
-  draft.otherPicked = true
-  if (PROFILE_EVENT_OPTIONS.includes(draft.discipline)) draft.discipline = ''
+/** 自定义时长：校验后按分钟数并入，重复值不会再加一条 */
+function addCustomTime() {
+  timeTouched.value = true
+  if (customMinutes.value === '' || customTimeError(customMinutes.value)) return
+  draft.availableTimes = sortTimeLabels([...draft.availableTimes, timeLabel(Number(customMinutes.value))])
+  customMinutes.value = ''
 }
 
 function bumpAge(delta: number) {
@@ -500,7 +559,7 @@ function advance() {
   if (!canAdvance.value) {
     ageTouched.value = true
     stepError.value = step.value === 0
-      ? '请先填写 12–90 岁之间的年龄。'
+      ? `请先填写 ${AGE_RANGE.min}–${AGE_RANGE.max} 岁之间的年龄。`
       : (cycleMessage.value || '请先修正这一步的填写。')
     return
   }
@@ -524,7 +583,7 @@ async function finish() {
   if (!isValidAge(validAge)) {
     step.value = 0
     ageTouched.value = true
-    error.value = '请先填写 12–90 岁之间的年龄。'
+    error.value = `请先填写 ${AGE_RANGE.min}–${AGE_RANGE.max} 岁之间的年龄。`
     return
   }
   if (body.value.height || body.value.weight) {
@@ -637,6 +696,13 @@ async function finish() {
 .chip.on{background:var(--color-accent-soft);color:var(--color-accent);border-color:var(--color-accent-line)}
 .chip.warn{background:var(--color-caution-soft);color:var(--color-caution)}
 .chip.warn.on{background:var(--color-caution);color:var(--color-on-caution);border-color:var(--color-caution)}
+/* 专项与时长的自定义补充：输入框 + 「加上」，与预设 chip 视觉上分开 */
+.custom-add{display:flex;gap:8px;margin-top:2px}
+.custom-add .text-input{flex:1;min-width:0}
+.add-btn{flex:none;font-family:inherit;padding:0 16px;min-height:40px;border-radius:11px;font-size:12.5px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);border:1px solid var(--color-accent-line);transition:all var(--motion-fast)}
+.add-btn:hover{background:var(--color-accent-line)}
+.picked{margin-top:2px}
+.field-block .field-error{margin:0}
 .seg{display:flex;gap:8px;flex-wrap:wrap}
 .seg button{font-family:inherit;padding:9px 14px;border-radius:11px;font-size:12.5px;font-weight:600;color:var(--color-text-secondary);background:var(--color-neutral-soft);border:1px solid transparent;transition:all var(--motion-fast)}
 .seg button.on{background:var(--color-accent);color:var(--color-on-accent)}

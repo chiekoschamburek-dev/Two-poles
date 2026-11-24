@@ -244,7 +244,7 @@ audit_events(id INTEGER PK, user_id INTEGER NULL, actor_role TEXT CHECK(actor_ro
 
 - [ ] key、密钥、内部 URL 只存在于服务端配置；CI 加 secret 扫描
 - [ ] CORS 精确白名单，带 `credentials` 时禁止 `*`
-- [ ] 所有输入服务端复校（年龄范围 12–90、`auto_recommend` 只允许 18 岁以上且未命中 `GATE_RESTRICTIONS` 时为 1、时间格式 HH:MM、类别枚举、份量单位在 `UNIT_GRAMS` 内、字符串长度）
+- [ ] 所有输入服务端复校（年龄范围 12–100、`auto_recommend` 只允许 18 岁以上且未命中 `GATE_RESTRICTIONS` 时为 1、时间格式 HH:MM、类别枚举、份量单位在 `UNIT_GRAMS` 内、字符串长度）
 - [ ] 限流：登录/注册/导出/清除重点设；`/data/wipe` 需 `confirmToken`（先申请、再执行）
 - [ ] CSP 基线 + 关掉不需要的 `connect-src`；MediaPipe 的 wasm 走同源
 - [ ] 账号删除与保留期落到实际作业。当前界面已如实标注 `retentionDays` 与 `saveVideoLocally` 只是偏好、不触发删除或录制；接后端后要么实现该作业，要么删掉这两个开关别给用户提供它没有的控制权（设计文档 §2.4(4) 的"离线备份最长 30 天轮换"说的是服务端备份保留期，与用户数据保留天数是两件事，界面和文档都要分开表述）

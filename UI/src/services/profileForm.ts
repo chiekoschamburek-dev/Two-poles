@@ -2,7 +2,7 @@
 // 档案页和首次使用引导都从这里取初始值、生成 store.updateProfile 的载荷，
 // 避免两边各写一套字段名/trim/undefined 规则。
 import type { GoalType, GymRecord, PersonalBest, UserProfile } from '@/types/domain'
-import { PROFILE_EVENT_OPTIONS } from '@/config/profileOptions'
+import { disciplinesOf, sortTimeLabels } from './profileRules'
 
 export interface ProfileDraft {
   nickname: string
@@ -16,9 +16,10 @@ export interface ProfileDraft {
   equipment: string[]
   availableVenues: string[]
   restrictions: string[]
-  discipline: string
-  /** 主项选了「其他」：保存时保留自由输入的 discipline */
-  otherPicked: boolean
+  /** 专项，可多选；预设与自定义都放在这一个数组里 */
+  disciplines: string[]
+  /** 「其他专项」输入框的临时内容，点「加上」才进 disciplines，不落库 */
+  customDiscipline: string
   goalType: GoalType
   cyclePhase: string
   cycleStartDate: string
@@ -42,12 +43,12 @@ export function createProfileDraft(profile: UserProfile | null | undefined): Pro
     weight: profile?.weight ?? '',
     goal: profile?.goal ?? '',
     experience: profile?.experience ?? '',
-    availableTimes: [...(profile?.availableTimes ?? [])],
+    availableTimes: sortTimeLabels(profile?.availableTimes ?? []),
     equipment: [...(profile?.equipment ?? [])],
     availableVenues: [...(profile?.availableVenues ?? [])],
     restrictions: [...(profile?.restrictions ?? [])],
-    discipline: profile?.discipline ?? '',
-    otherPicked: !!profile?.discipline && !PROFILE_EVENT_OPTIONS.includes(profile.discipline),
+    disciplines: disciplinesOf(profile),
+    customDiscipline: '',
     goalType,
     cyclePhase: profile?.cyclePhase ?? '',
     cycleStartDate: profile?.cycleStartDate ?? '',
@@ -72,15 +73,16 @@ export function toProfilePayload(draft: ProfileDraft, age: number): Partial<User
     age,
     goal: draft.goal.trim(),
     experience: draft.experience.trim(),
-    availableTimes: [...draft.availableTimes],
+    availableTimes: sortTimeLabels(draft.availableTimes),
     equipment: [...draft.equipment],
     availableVenues: [...draft.availableVenues],
     restrictions: [...draft.restrictions],
     // 身体数据：留空时存 undefined，不覆盖成 0
     height: draft.height === '' ? undefined : Number(draft.height),
     weight: draft.weight === '' ? undefined : Number(draft.weight),
-    // 专项字段：保存时原样带回，不丢
-    discipline: draft.discipline.trim() || undefined,
+    // 专项改多选：只写 disciplines；旧的单选字段显式清空，避免两套口径并存
+    disciplines: draft.disciplines.map(item => item.trim()).filter(Boolean),
+    discipline: undefined,
     cyclePhase: draft.cyclePhase || undefined,
     cycleStartDate: draft.cycleStartDate || undefined,
     cycleEndDate: draft.cycleEndDate || undefined,

@@ -4,7 +4,9 @@ import { unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { DatabaseSync } from 'node:sqlite'
 import { createApiServer, pruneHistory } from './app.mjs'
+import { openDatabase } from './db.mjs'
 import { resolveZone } from './report.mjs'
 
 const api = createApiServer({ dbPath: ':memory:', secret: 'test-secret', corsOrigins: ['http://localhost:5173'] })
@@ -125,6 +127,43 @@ test('profile round-trips and validates age', async () => {
   assert.deepEqual(response.body.profile.restrictions, ['膝关节不适'])
   const read = await request('/profile')
   assert.equal(read.body.profile.nickname, '同步测试')
+})
+
+test('profile accepts a wider age range and multi-select disciplines', async () => {
+  // 上限放宽到 100：90 岁以上仍在训练的用户不该被表单拒绝；101 仍然拦截
+  const oldest = await request('/profile', { method: 'PUT', body: { age: 100 } })
+  assert.equal(oldest.status, 200)
+  assert.equal(oldest.body.profile.age, 100)
+  const tooOld = await request('/profile', { method: 'PUT', body: { age: 101 } })
+  assert.equal(tooOld.status, 400)
+  assert.equal(tooOld.body.code, 'validation_failed')
+  // 后续用例沿用 24 岁的档案，这里改回去
+  assert.equal((await request('/profile', { method: 'PUT', body: { age: 24 } })).body.profile.age, 24)
+
+  const saved = await request('/profile', {
+    method: 'PUT',
+    body: { disciplines: ['力量训练', '跑步', '力量训练'], discipline: '跑步' }
+  })
+  assert.equal(saved.status, 200)
+  // 去重后按提交顺序返回；旧的单选镜像取第一项
+  assert.deepEqual(saved.body.profile.disciplines, ['力量训练', '跑步'])
+  assert.equal(saved.body.profile.discipline, '力量训练')
+  const reread = await request('/profile')
+  assert.deepEqual(reread.body.profile.disciplines, ['力量训练', '跑步'])
+  assert.deepEqual((await request('/sync')).body.profile.disciplines, ['力量训练', '跑步'])
+
+  // 只发旧字段的客户端仍然收得下：折成数组，不丢值
+  const legacyOnly = await request('/profile', { method: 'PUT', body: { discipline: '800m' } })
+  assert.deepEqual(legacyOnly.body.profile.disciplines, ['800m'])
+  // 同时发了空数组与旧字段时，数组是权威：空数组就是清空
+  const bothShapes = await request('/profile', { method: 'PUT', body: { disciplines: [], discipline: '800m' } })
+  assert.deepEqual(bothShapes.body.profile.disciplines, [])
+
+  // 显式发空数组就是清空，不回退到旧的单选值（不需要额外把 discipline 置 null）
+  await request('/profile', { method: 'PUT', body: { disciplines: ['跑步'] } })
+  const cleared = await request('/profile', { method: 'PUT', body: { disciplines: [] } })
+  assert.deepEqual(cleared.body.profile.disciplines, [])
+  assert.equal(cleared.body.profile.discipline, undefined)
 })
 
 test('profile avatar is validated, synchronized and explicitly removable', async () => {
@@ -975,6 +1014,78 @@ test('rotating AUTH_SECRET does not lock existing accounts out', async () => {
       unlinkSync(`${file}${suffix}`)
     } catch {
       // 测试收尾，文件可能已不存在
+    }
+  }
+})
+
+test('an old profiles table migrates to multi-select disciplines and a wider age range', () => {
+  const file = join(tmpdir(), `twopoles-profile-migrate-${randomUUID()}.sqlite`)
+  // 老库形状：还带 mode 列、age CHECK 卡在 90、专项只有单选 discipline
+  const legacy = new DatabaseSync(file)
+  legacy.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK(type IN ('anonymous','registered')),
+      identifier_hash TEXT NOT NULL UNIQUE,
+      password_hash TEXT,
+      created_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    CREATE TABLE profiles (
+      user_id TEXT PRIMARY KEY REFERENCES users(id),
+      nickname TEXT,
+      avatar_data_url TEXT,
+      mode TEXT,
+      age INTEGER NOT NULL CHECK(age >= 12 AND age <= 90),
+      goal TEXT,
+      experience TEXT,
+      available_times_json TEXT NOT NULL DEFAULT '[]',
+      equipment_json TEXT NOT NULL DEFAULT '[]',
+      available_venues_json TEXT NOT NULL DEFAULT '[]',
+      restrictions_json TEXT NOT NULL DEFAULT '[]',
+      height REAL,
+      weight REAL,
+      discipline TEXT,
+      cycle_phase TEXT,
+      cycle_start TEXT,
+      cycle_end TEXT,
+      goal_type TEXT,
+      target_event TEXT,
+      target_event_date TEXT,
+      target_result TEXT,
+      cycle_focus TEXT,
+      personal_bests_json TEXT NOT NULL DEFAULT '[]',
+      gym_records_json TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL
+    );
+  `)
+  legacy.exec(`
+    INSERT INTO users (id, type, identifier_hash, created_at) VALUES ('u-old', 'anonymous', 'hash-old', '2026-01-01T00:00:00.000Z');
+    INSERT INTO profiles (user_id, mode, age, goal, discipline, updated_at)
+    VALUES ('u-old', 'athlete', 90, '专项提升', '800m', '2026-01-01T00:00:00.000Z');
+  `)
+  legacy.close()
+
+  const db = openDatabase(file)
+  try {
+    const columns = db.prepare('PRAGMA table_info(profiles)').all().map((column) => column.name)
+    assert.ok(columns.includes('disciplines_json'), '新列要在')
+    assert.ok(!columns.includes('mode'), 'mode 列在这一轮一并去掉')
+    const row = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get('u-old')
+    assert.equal(row.discipline, '800m', '旧的单选列保留为镜像')
+    assert.equal(row.disciplines_json, '["800m"]', '单选值折进数组，不丢用户填过的专项')
+    // CHECK 放宽后 91–100 岁可以落库
+    db.prepare(`INSERT INTO profiles (user_id, age, updated_at) VALUES ('u-old', 100, '2026-01-02T00:00:00.000Z')
+      ON CONFLICT(user_id) DO UPDATE SET age = excluded.age`).run()
+    assert.equal(db.prepare('SELECT age FROM profiles WHERE user_id = ?').get('u-old').age, 100)
+  } finally {
+    db.close()
+    for (const suffix of ['', '-wal', '-shm']) {
+      try {
+        unlinkSync(`${file}${suffix}`)
+      } catch {
+        // 测试收尾，文件可能已不存在
+      }
     }
   }
 })

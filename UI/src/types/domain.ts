@@ -256,6 +256,9 @@ export interface UserProfile {
   weight?: number
 
   // 专项与周期字段（选填，所有用户都可填写）
+  /** 专项 / 主项，可多选；空数组与没填同义。旧档案的 discipline 由 profileRules.disciplinesOf() 迁入 */
+  disciplines?: string[]
+  /** 旧档案的单选专项。只用于读取历史数据，保存时不再写这个字段 */
   discipline?: string
   cyclePhase?: string
   cycleStartDate?: string

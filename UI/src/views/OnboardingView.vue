@@ -23,7 +23,7 @@
           </label>
           <label class="field">
             <span class="field-label">年龄（必填）</span>
-            <input ref="ageInput" v-model.number="age" type="number" min="12" max="90" placeholder="填写实际年龄" :aria-invalid="!!ageError" required />
+            <input ref="ageInput" v-model.number="age" type="number" :min="AGE_RANGE.min" :max="AGE_RANGE.max" placeholder="填写实际年龄" :aria-invalid="!!ageError" required />
             <small v-if="ageError" class="fine err">{{ ageError }}</small>
           </label>
         </div>
@@ -31,12 +31,12 @@
         <div class="grid2">
           <label class="field">
             <span class="field-label">身高 cm（可留空）</span>
-            <input v-model.number="height" type="number" min="100" max="250" step="any" placeholder="例如 175" />
+            <input v-model.number="height" type="number" :min="HEIGHT_RANGE.min" :max="HEIGHT_RANGE.max" step="any" placeholder="例如 175" />
             <small v-if="bodyError.height" class="fine err">{{ bodyError.height }}</small>
           </label>
           <label class="field">
             <span class="field-label">体重 kg（可留空）</span>
-            <input v-model.number="weight" type="number" min="25" max="200" step="any" placeholder="例如 65" />
+            <input v-model.number="weight" type="number" :min="WEIGHT_RANGE.min" :max="WEIGHT_RANGE.max" step="any" placeholder="例如 65" />
             <small v-if="bodyError.weight" class="fine err">{{ bodyError.weight }}</small>
           </label>
         </div>
@@ -72,6 +72,23 @@
           <div class="chips">
             <button v-for="t in timeOptions" :key="t" type="button" class="chip" :class="{ active: availableTimes.includes(t) }" :aria-pressed="availableTimes.includes(t)" @click="toggle(availableTimes, t)">{{ t }}</button>
           </div>
+          <div v-if="customTimes.length" class="chips picked">
+            <button v-for="t in customTimes" :key="t" type="button" class="chip active" :aria-label="`移除自定义时长 ${t}`" @click="toggle(availableTimes, t)">{{ t }} ×</button>
+          </div>
+          <div class="custom-add">
+            <input
+              v-model.number="customMinutes"
+              type="number"
+              :min="TIME_RANGE.min"
+              :max="TIME_RANGE.max"
+              placeholder="档位都不合适？填分钟数"
+              aria-label="自定义可用时长（分钟）"
+              @keydown.enter.prevent="addCustomTime"
+              @blur="timeTouched = true"
+            />
+            <button type="button" class="add-btn" @click="addCustomTime">加上</button>
+          </div>
+          <small v-if="timeError" class="fine err">{{ timeError }}</small>
         </div>
 
         <div class="field">
@@ -109,28 +126,39 @@
         <p class="fine section-note">专项、训练目标和成绩记录均可留空。</p>
 
         <div class="field">
-          <span class="field-label">主项（单选，可留空）</span>
+          <span class="field-label">专项（多选，可留空）</span>
           <div class="chips">
             <button
-              v-for="e in eventOptions"
+              v-for="e in disciplineOptions"
               :key="e"
               type="button"
               class="chip"
-              :class="{ active: !otherSport && discipline === e }"
-              :aria-pressed="!otherSport && discipline === e"
-              @click="pickEvent(e)"
+              :class="{ active: disciplines.includes(e) }"
+              :aria-pressed="disciplines.includes(e)"
+              @click="toggle(disciplines, e)"
             >{{ e }}</button>
-            <button type="button" class="chip" :class="{ active: otherSport }" :aria-pressed="otherSport" @click="pickOtherSport">其他</button>
           </div>
-          <input
-            v-if="otherSport"
-            v-model="discipline"
-            aria-label="填写主项"
-            class="other-input"
-            type="text"
-            maxlength="24"
-            placeholder="填写主项，例如：60m 栏"
-          />
+          <div v-if="customDisciplines.length" class="chips picked">
+            <button
+              v-for="d in customDisciplines"
+              :key="d"
+              type="button"
+              class="chip active"
+              :aria-label="`移除自定义专项 ${d}`"
+              @click="toggle(disciplines, d)"
+            >{{ d }} ×</button>
+          </div>
+          <div class="custom-add">
+            <input
+              v-model="customDiscipline"
+              aria-label="添加自定义专项"
+              type="text"
+              maxlength="24"
+              placeholder="没有你练的项目？自己填一个"
+              @keydown.enter.prevent="addDiscipline"
+            />
+            <button type="button" class="add-btn" @click="addDiscipline">加上</button>
+          </div>
         </div>
 
         <div class="field">
@@ -156,7 +184,7 @@
           </label>
           <label class="field">
             <span class="field-label">对应项目</span>
-            <input :value="discipline || '未选主项'" type="text" disabled />
+            <input :value="disciplines.length ? disciplines.join('、') : '未选专项'" type="text" disabled />
           </label>
         </div>
 
@@ -221,8 +249,8 @@ import PbList from '@/components/profile/PbList.vue'
 import GymList from '@/components/profile/GymList.vue'
 import { useAppStore } from '@/stores/app'
 import {
+  PROFILE_DISCIPLINE_OPTIONS,
   PROFILE_EQUIPMENT_OPTIONS,
-  PROFILE_EVENT_OPTIONS,
   PROFILE_EXPERIENCES,
   PROFILE_GATE_OPTIONS,
   PROFILE_GOALS,
@@ -233,7 +261,19 @@ import {
 } from '@/config/profileOptions'
 import { gateReason } from '@/services/exercises'
 import { createProfileDraft, toProfilePayload } from '@/services/profileForm'
-import { ageError as profileAgeError, bodyErrors, cycleRangeError, isValidAge } from '@/services/profileRules'
+import {
+  AGE_RANGE,
+  HEIGHT_RANGE,
+  TIME_RANGE,
+  WEIGHT_RANGE,
+  ageError as profileAgeError,
+  bodyErrors,
+  customTimeError,
+  cycleRangeError,
+  isValidAge,
+  sortTimeLabels,
+  timeLabel
+} from '@/services/profileRules'
 
 const router = useRouter()
 const store = useAppStore()
@@ -247,17 +287,20 @@ const venueOptions = PROFILE_VENUE_OPTIONS
 const restrictionOptions = PROFILE_RESTRICTION_OPTIONS
 const gateOptions = PROFILE_GATE_OPTIONS
 const phases = PROFILE_PHASES
-const eventOptions = PROFILE_EVENT_OPTIONS
+const disciplineOptions = PROFILE_DISCIPLINE_OPTIONS
 
 const error = ref('')
 const ageInput = ref<HTMLInputElement | null>(null)
 const triedSave = ref(false)
 const avatarLoading = ref(false)
+/** 自定义时长的输入缓冲；点「加上」才进 availableTimes */
+const customMinutes = ref<number | ''>('')
+const timeTouched = ref(false)
 
 const draft = reactive(createProfileDraft(store.userProfile))
 const {
   nickname, avatarDataUrl, age, height, weight, goal, experience, availableTimes, equipment,
-  availableVenues, restrictions, discipline, otherPicked, goalType, cyclePhase,
+  availableVenues, restrictions, disciplines, customDiscipline, goalType, cyclePhase,
   cycleStartDate, cycleEndDate, cycleFocus, targetEvent, targetEventDate, targetResult,
   personalBests, gymRecords
 } = toRefs(draft)
@@ -268,21 +311,15 @@ watch(() => store.userProfile, (profile) => {
   const next = createProfileDraft(profile)
   // 账号资料稍后同步到本机时，只回填尚未编辑的字段。
   const untouched = (key: keyof typeof draft) => JSON.stringify(draft[key]) === JSON.stringify(previous[key])
-  const changes = Object.entries(next).filter(([key]) => untouched(key as keyof typeof draft)
-    && (key !== 'otherPicked' || untouched('discipline')))
+  const changes = Object.entries(next).filter(([key]) => untouched(key as keyof typeof draft))
   Object.assign(draft, Object.fromEntries(changes))
   savedDraft = JSON.stringify(next)
 })
-const otherSport = computed(() => otherPicked.value || (!!discipline.value && !eventOptions.includes(discipline.value)))
 
-function pickEvent(e: string) {
-  otherPicked.value = false
-  discipline.value = discipline.value === e ? '' : e
-}
-function pickOtherSport() {
-  otherPicked.value = true
-  if (eventOptions.includes(discipline.value)) discipline.value = ''
-}
+/** 不在预设里的时长/专项：界面上单独一行，点一下就能删 */
+const customTimes = computed(() => availableTimes.value.filter(t => !timeOptions.includes(t)))
+const customDisciplines = computed(() => disciplines.value.filter(d => !disciplineOptions.includes(d)))
+const timeError = computed(() => (timeTouched.value ? customTimeError(customMinutes.value) : null))
 
 const bodyError = computed(() => bodyErrors(height.value, weight.value))
 const ageError = computed(() => triedSave.value ? (profileAgeError(age.value) ?? '') : '')
@@ -292,6 +329,22 @@ function toggle(list: string[], value: string) {
   const i = list.indexOf(value)
   if (i === -1) list.push(value)
   else list.splice(i, 1)
+}
+
+/** 自定义时长：校验后按分钟数并入，值重复不重复加 */
+function addCustomTime() {
+  timeTouched.value = true
+  if (customMinutes.value === '' || customTimeError(customMinutes.value)) return
+  availableTimes.value = sortTimeLabels([...availableTimes.value, timeLabel(Number(customMinutes.value))])
+  customMinutes.value = ''
+}
+
+/** 自定义专项：与预设项并列存在一个数组里，删掉就是取消选中 */
+function addDiscipline() {
+  const value = customDiscipline.value.trim()
+  if (!value) return
+  if (!disciplines.value.includes(value)) disciplines.value = [...disciplines.value, value]
+  customDiscipline.value = ''
 }
 
 const blocked = computed(() => gateReason({ restrictions: restrictions.value }))
@@ -358,8 +411,13 @@ function resetOnboarding() {
 .fine{font-size:11.5px;color:var(--color-text-muted);line-height:1.6;margin:7px 0 0}
 .fine.err{color:var(--color-danger)}
 .section-note{margin:-7px 0 16px}
-/* 主项"其他"的自由输入 */
-.other-input{width:100%;margin-top:9px;padding:11px 13px;border:1px solid var(--color-border);border-radius:12px;font-size:14px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
+/* 专项与时长的自定义补充：「加上」把输入并入多选，与预设 chip 视觉上分开 */
+.custom-add{display:flex;gap:8px;margin-top:9px}
+.custom-add input{flex:1;min-width:0}
+.add-btn{flex:none;padding:0 18px;min-height:44px;border-radius:12px;font-size:13px;font-weight:600;color:var(--color-accent);background:var(--color-accent-soft);transition:all var(--motion-fast)}
+.add-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+.picked{margin-top:9px}
+.custom-add + .fine{margin-top:9px}
 /* 目标类型二选一 */
 .seg{display:flex;gap:8px;flex-wrap:wrap}
 .seg button{padding:10px 16px;border-radius:11px;font-size:13px;font-weight:600;color:var(--color-text-secondary);background:var(--color-neutral-soft);transition:all var(--motion-fast);min-height:44px}

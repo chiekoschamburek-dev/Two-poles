@@ -15,8 +15,14 @@ export const PROFILE_GOALS = ['保持活力', '减脂', '增肌', '改善体态'
 /** 运动经验（可留空，允许自定义） */
 export const PROFILE_EXPERIENCES = ['几乎不运动', '偶尔运动', '有一定基础', '长期规律训练']
 
-/** 每次能用的时间（多选） */
-export const PROFILE_TIME_OPTIONS = ['10 分钟', '20 分钟', '30 分钟', '45 分钟', '60 分钟']
+/**
+ * 每次能用的时间预设档位（多选）。
+ * 这里只是"点着快"的常用档；超出档位的用「其他时长」自己填，
+ * 合法区间在 profileRules.TIME_RANGE，不在这张表里。
+ */
+export const PROFILE_TIME_OPTIONS = [
+  '10 分钟', '15 分钟', '20 分钟', '30 分钟', '45 分钟', '60 分钟', '90 分钟', '120 分钟'
+]
 
 /** 可用器材（多选） */
 export const PROFILE_EQUIPMENT_OPTIONS = ['无器材', '椅子', '弹力带', '哑铃', '单杠', '跑步机']
@@ -35,3 +41,18 @@ export const PROFILE_PHASES = ['基础准备', '强度建立', '量化提升', '
 
 /** 主项选项：与 PB 记录使用同一份径赛/田赛清单 */
 export const PROFILE_EVENT_OPTIONS = [...PROFILE_TRACK_EVENTS, ...PROFILE_FIELD_EVENTS]
+
+/**
+ * 大众运动项目：专项是"你主要在练什么"，不是只有田径。
+ * 按普及度排，客户先看到自己认得出的项目；竞技项目排在后面。
+ */
+export const PROFILE_COMMON_DISCIPLINES = [
+  '力量训练', '跑步', '骑行', '游泳', '篮球', '足球', '羽毛球', '网球',
+  '健身操', '瑜伽', '普拉提', '登山徒步', '体态改善'
+]
+
+/**
+ * 专项候选项（可多选）：大众项目 + 田径项目。
+ * PB 记录仍只用 PROFILE_EVENT_OPTIONS——那是比赛成绩口径，不能混进大众项目。
+ */
+export const PROFILE_DISCIPLINE_OPTIONS = [...PROFILE_COMMON_DISCIPLINES, ...PROFILE_EVENT_OPTIONS]

@@ -10,6 +10,7 @@ import type {
 } from '@/types/domain'
 import { shortDate, toISODate } from '@/utils/time'
 import { findExercise, gateReason } from '@/services/exercises'
+import { parseTimeMinutes } from '@/services/profileRules'
 
 export type AdjustmentSource = 'time-conflict' | 'feedback'
 export type FeedbackDirection = 'down' | 'up' | 'safety'
@@ -87,9 +88,11 @@ function nextIsoDate(iso: string): string {
 }
 
 function budgetMinutes(profile: UserProfile | null): number {
-  return Math.max(0, ...(profile?.availableTimes ?? [])
-    .map(t => parseInt(t, 10))
-    .filter(n => Number.isFinite(n)))
+  // 与 planRules 共用同一份时长解析：两者算出来的"最大可用时间块"必须一致
+  const nums = (profile?.availableTimes ?? [])
+    .map(parseTimeMinutes)
+    .filter((n): n is number => n !== null)
+  return nums.length ? Math.max(...nums) : 0
 }
 
 /** 某天计划总时长超过档案最大可用时间块时，建议把第一个未锁定未完成项原样搬到次日 */

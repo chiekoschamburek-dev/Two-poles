@@ -2,21 +2,17 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL CHECK(type IN ('anonymous','registered')),
-  identifier_hash TEXT NOT NULL UNIQUE,
-  password_hash TEXT,
-  created_at TEXT NOT NULL,
-  deleted_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS profiles (
+/**
+ * profiles 表的列定义。建新库（SCHEMA）与迁移时重建旧表都用这一份，
+ * 免得出现"新库有列、迁移完没有"这类漂移。
+ * disciplines_json：专项改为可多选后存数组；旧的单选 discipline 列保留为镜像（取第一项）。
+ * age 上限 100：90 岁以上仍在规律活动的用户不该被档案拒绝（前端 AGE_RANGE 同口径）。
+ */
+const PROFILES_COLUMNS = `
   user_id TEXT PRIMARY KEY REFERENCES users(id),
   nickname TEXT,
   avatar_data_url TEXT,
-  age INTEGER NOT NULL CHECK(age >= 12 AND age <= 90),
+  age INTEGER NOT NULL CHECK(age >= 12 AND age <= 100),
   goal TEXT,
   experience TEXT,
   available_times_json TEXT NOT NULL DEFAULT '[]',
@@ -26,6 +22,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   height REAL,
   weight REAL,
   discipline TEXT,
+  disciplines_json TEXT NOT NULL DEFAULT '[]',
   cycle_phase TEXT,
   cycle_start TEXT,
   cycle_end TEXT,
@@ -37,6 +34,20 @@ CREATE TABLE IF NOT EXISTS profiles (
   personal_bests_json TEXT NOT NULL DEFAULT '[]',
   gym_records_json TEXT NOT NULL DEFAULT '[]',
   updated_at TEXT NOT NULL
+`
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK(type IN ('anonymous','registered')),
+  identifier_hash TEXT NOT NULL UNIQUE,
+  password_hash TEXT,
+  created_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS profiles (
+${PROFILES_COLUMNS}
 );
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -273,6 +284,8 @@ export function openDatabase(path = ':memory:') {
     })
   }
   migrateRemoveMode(db)
+  migrateProfileDisciplines(db)
+  backfillDisciplines(db)
   dropUnusedTablesOnce(db)
   return db
 }
@@ -297,6 +310,88 @@ function dropUnusedTablesOnce(db) {
     db.exec('PRAGMA foreign_keys = ON')
   }
   db.exec(`PRAGMA user_version = ${DROP_UNUSED_TABLES_VERSION}`)
+}
+
+/**
+ * 专项改多选 + 年龄上限放宽：老库既没有 disciplines_json，CHECK 里也还卡着 age <= 90。
+ * 两件都是表结构问题，沿用 migrateRemoveMode 的 probe-and-rebuild：只在确实缺列或
+ * 还带旧 CHECK 时重建一次，重建时把旧的单选 discipline 折成数组，不丢用户填过的值。
+ * 幂等：列已存在且 CHECK 已放宽时直接跳过。
+ */
+const LEGACY_AGE_CHECK = /age\s*<=\s*90/
+
+function migrateProfileDisciplines(db) {
+  const columns = db.prepare('PRAGMA table_info(profiles)').all().map(column => column.name)
+  const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'profiles'").get()?.sql ?? ''
+  if (columns.includes('disciplines_json') && !LEGACY_AGE_CHECK.test(tableSql)) return
+  const rows = db.prepare('SELECT * FROM profiles').all()
+  db.exec('PRAGMA foreign_keys = OFF')
+  try {
+    transaction(db, () => {
+      db.exec('DROP TABLE IF EXISTS profiles_new')
+      db.exec(`CREATE TABLE profiles_new (${PROFILES_COLUMNS})`)
+      const insert = db.prepare(`INSERT INTO profiles_new (
+        user_id, nickname, avatar_data_url, age, goal, experience, available_times_json, equipment_json,
+        available_venues_json, restrictions_json, height, weight, discipline, disciplines_json,
+        cycle_phase, cycle_start, cycle_end, goal_type, target_event, target_event_date, target_result,
+        cycle_focus, personal_bests_json, gym_records_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      for (const row of rows) {
+        insert.run(
+          row.user_id,
+          row.nickname ?? null,
+          row.avatar_data_url ?? null,
+          row.age,
+          row.goal ?? null,
+          row.experience ?? null,
+          row.available_times_json ?? '[]',
+          row.equipment_json ?? '[]',
+          row.available_venues_json ?? '[]',
+          row.restrictions_json ?? '[]',
+          row.height ?? null,
+          row.weight ?? null,
+          row.discipline ?? null,
+          JSON.stringify(legacyDisciplines(row.discipline)),
+          row.cycle_phase ?? null,
+          row.cycle_start ?? null,
+          row.cycle_end ?? null,
+          row.goal_type ?? null,
+          row.target_event ?? null,
+          row.target_event_date ?? null,
+          row.target_result ?? null,
+          row.cycle_focus ?? null,
+          row.personal_bests_json ?? '[]',
+          row.gym_records_json ?? '[]',
+          row.updated_at
+        )
+      }
+      db.exec('DROP TABLE profiles')
+      db.exec('ALTER TABLE profiles_new RENAME TO profiles')
+    })
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON')
+  }
+}
+
+/** 迁移可能先于写入发生：只要还只有单选 discipline、数组为空，就补进去（幂等） */
+function backfillDisciplines(db) {
+  const rows = db.prepare(`
+    SELECT user_id, discipline, disciplines_json FROM profiles
+    WHERE discipline IS NOT NULL AND trim(discipline) <> ''
+  `).all()
+  if (!rows.length) return
+  const update = db.prepare('UPDATE profiles SET disciplines_json = ? WHERE user_id = ?')
+  transaction(db, () => {
+    for (const row of rows) {
+      const current = jsonParse(row.disciplines_json, [])
+      if (Array.isArray(current) && current.length) continue
+      update.run(JSON.stringify(legacyDisciplines(row.discipline)), row.user_id)
+    }
+  })
+}
+
+function legacyDisciplines(value) {
+  return typeof value === 'string' && value.trim() ? [value.trim()] : []
 }
 
 // 旧库去掉大众/运动员分类：档案与计划重建掉 mode 列，mode_changes 整表删除。
@@ -388,32 +483,9 @@ function migrateRemoveMode(db) {
         db.exec('CREATE INDEX IF NOT EXISTS idx_plans_user_week ON plans(user_id, week_start)')
       }
       if (profilesHaveMode) {
-        db.exec(`CREATE TABLE profiles_new (
-          user_id TEXT PRIMARY KEY REFERENCES users(id),
-          nickname TEXT,
-          avatar_data_url TEXT,
-          age INTEGER NOT NULL CHECK(age >= 12 AND age <= 90),
-          goal TEXT,
-          experience TEXT,
-          available_times_json TEXT NOT NULL DEFAULT '[]',
-          equipment_json TEXT NOT NULL DEFAULT '[]',
-          available_venues_json TEXT NOT NULL DEFAULT '[]',
-          restrictions_json TEXT NOT NULL DEFAULT '[]',
-          height REAL,
-          weight REAL,
-          discipline TEXT,
-          cycle_phase TEXT,
-          cycle_start TEXT,
-          cycle_end TEXT,
-          goal_type TEXT,
-          target_event TEXT,
-          target_event_date TEXT,
-          target_result TEXT,
-          cycle_focus TEXT,
-          personal_bests_json TEXT NOT NULL DEFAULT '[]',
-          gym_records_json TEXT NOT NULL DEFAULT '[]',
-          updated_at TEXT NOT NULL
-        )`)
+        // 重建用与新库同一份列定义；disciplines_json 有默认值，SELECT 里不带它也不会报错，
+        // 旧值随后由 backfillDisciplines() 从单选 discipline 折进数组。
+        db.exec(`CREATE TABLE profiles_new (${PROFILES_COLUMNS})`)
         db.exec(`INSERT INTO profiles_new (
           user_id, nickname, avatar_data_url, age, goal, experience, available_times_json, equipment_json,
           available_venues_json, restrictions_json, height, weight, discipline, cycle_phase, cycle_start, cycle_end,

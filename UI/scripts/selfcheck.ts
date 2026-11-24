@@ -31,8 +31,9 @@ import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } fr
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
-import { ageError, bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, isValidAge, normalizeProfile, parseResult } from '@/services/profileRules'
+import { ageError, bodyErrors, customTimeError, cycleRangeError, disciplinesOf, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, isValidAge, normalizeProfile, parseResult, parseTimeMinutes, sortTimeLabels, timeLabel } from '@/services/profileRules'
 import { createProfileDraft, toProfilePayload } from '@/services/profileForm'
+import { PROFILE_DISCIPLINE_OPTIONS, PROFILE_TIME_OPTIONS } from '@/config/profileOptions'
 import { buildPlanMessages, buildPlanQuestionMessages, canUseLlm, desiredWeeklySessions, extractJson, isLlmReady, usingDefault, validatePlanDraft, validatePlanQuestions } from '@/services/llm'
 import { BRIDGE_LIMITS, buildBridgeSignals, buildWeekFacts, peekLine, readDayFacts } from '@/services/bridgeRules'
 import { buildAdjustmentSuggestions, buildFeedbackIntents, buildTimeConflictSuggestion } from '@/services/adjustmentRules'
@@ -520,8 +521,9 @@ ok('解析不出的记录不参与比较但仍保留', eventBests([...pbList, pb
 
 ok('两项都没填 → 无错误', Object.keys(bodyErrors('', '')).length === 0)
 ok('只填身高不阻塞', Object.keys(bodyErrors(175, '')).length === 0)
-ok('身高超范围报错', !!bodyErrors(90, '').height && !!bodyErrors(300, '').height)
-ok('体重超范围报错', !!bodyErrors('', 10).weight && !!bodyErrors('', 260).weight)
+ok('身高超范围报错', !!bodyErrors(70, '').height && !!bodyErrors(261, '').height)
+ok('体重超范围报错', !!bodyErrors('', 15).weight && !!bodyErrors('', 401).weight)
+ok('放宽后的边缘值可填', Object.keys(bodyErrors(80, 20)).length === 0 && Object.keys(bodyErrors(260, 400)).length === 0)
 ok('175 / 65 → 无错误', Object.keys(bodyErrors(175, 65)).length === 0)
 
 ok('周期开始晚于结束 → 报错', cycleRangeError('2026-10-10', '2026-10-01') !== null)
@@ -530,6 +532,8 @@ ok('只填一端不校验', cycleRangeError('2026-10-10', '') === null)
 
 ok('比赛目标摘要', goalSummary({ goalType: 'competition', targetEvent: '秋季赛', targetEventDate: '2026-10-18' }) === '秋季赛 · 10 月 18 日', goalSummary({ goalType: 'competition', targetEvent: '秋季赛', targetEventDate: '2026-10-18' }))
 ok('周期目标摘要', goalSummary({ goalType: 'cycle', discipline: '800m', cyclePhase: '强度建立' }) === '800m · 强度建立', goalSummary({ goalType: 'cycle', discipline: '800m', cyclePhase: '强度建立' }))
+ok('多个专项用顿号并列', goalSummary({ goalType: 'cycle', disciplines: ['跑步', '力量训练'], cyclePhase: '基础准备' }) === '跑步、力量训练 · 基础准备', goalSummary({ goalType: 'cycle', disciplines: ['跑步', '力量训练'], cyclePhase: '基础准备' }))
+ok('只有专项没有阶段也出摘要', goalSummary({ goalType: 'cycle', disciplines: ['游泳'] }) === '游泳', goalSummary({ goalType: 'cycle', disciplines: ['游泳'] }))
 ok('没有目标时给诚实文案', goalSummary({ goalType: 'competition' }).includes('还没填'))
 ok('日期格式化跨月正确', formatCnDate('2026-12-01') === '12 月 1 日')
 
@@ -545,9 +549,9 @@ ok('1RM 与训练最高重量的文案不同', gymRecordLabel({ id: 'x', lift: '
 
 console.log('\n10b. 首次引导：年龄校验与档案草稿/载荷共用')
 const emptyAgeError = ageError('')
-ok('年龄空值不合法并给出统一文案', !isValidAge('') && !!emptyAgeError && emptyAgeError.includes('12–90'))
-ok('12 / 90 边界合法', isValidAge(12) && isValidAge(90))
-ok('小数与越界年龄不合法', !isValidAge(12.5) && !isValidAge(11) && !isValidAge(91))
+ok('年龄空值不合法并给出统一文案', !isValidAge('') && !!emptyAgeError && emptyAgeError.includes('12–100'))
+ok('12 / 100 边界合法', isValidAge(12) && isValidAge(100))
+ok('小数与越界年龄不合法', !isValidAge(12.5) && !isValidAge(11) && !isValidAge(101))
 const blankDraft = createProfileDraft(null)
 ok('新用户草稿不预填年龄/身高/体重', blankDraft.age === '' && blankDraft.height === '' && blankDraft.weight === '')
 ok('新用户草稿没有 PB / 极限数据', blankDraft.personalBests.length === 0 && blankDraft.gymRecords.length === 0)
@@ -569,6 +573,32 @@ ok('PB 记录原样带回', editedPayload.personalBests?.length === 1 && editedP
 const roundTripDraft = createProfileDraft(oldProfile)
 ok('档案回读保留已有目标与条件', roundTripDraft.goal === '减脂' && roundTripDraft.availableTimes[0] === '20 分钟' && roundTripDraft.weight === 62)
 ok('档案回读保留年龄，不额外造默认值', roundTripDraft.age === 30 && roundTripDraft.height === '')
+
+console.log('\n10c. 专项多选与时长自定义（面向更广的用户）')
+const migratedLegacy = normalizeProfile({ ...oldProfile, discipline: '800m' })
+ok('旧档案的单选专项迁进数组', JSON.stringify(migratedLegacy?.disciplines) === '["800m"]', JSON.stringify(migratedLegacy?.disciplines))
+ok('新档案的数组优先于旧字段', JSON.stringify(disciplinesOf({ disciplines: ['跑步'], discipline: '800m' })) === '["跑步"]')
+ok('专项去空去重并 trim', JSON.stringify(disciplinesOf({ disciplines: [' 跑步 ', '', '跑步'] })) === '["跑步"]')
+ok('没填专项返回空数组而不是 undefined', JSON.stringify(disciplinesOf(null)) === '[]')
+const multiPayload = toProfilePayload({ ...blankDraft, disciplines: ['力量训练', ' 跑步 ', ''] }, 30)
+ok('保存载荷写数组', JSON.stringify(multiPayload.disciplines) === '["力量训练","跑步"]', JSON.stringify(multiPayload.disciplines))
+ok('保存时清掉旧的单选字段', multiPayload.discipline === undefined)
+ok('多选专项原样回读', JSON.stringify(createProfileDraft({ ...oldProfile, disciplines: ['游泳', '骑行'] }).disciplines) === '["游泳","骑行"]')
+
+ok('时长解析接受「N 分钟」与纯数字', parseTimeMinutes('45 分钟') === 45 && parseTimeMinutes('45') === 45)
+ok('时长解析拒绝非数字与空值', parseTimeMinutes('一小时') === null && parseTimeMinutes('') === null && parseTimeMinutes('0 分钟') === null)
+ok('分钟数转回统一文案', timeLabel(50) === '50 分钟')
+ok('时长按分钟数升序并去重', JSON.stringify(sortTimeLabels(['90 分钟', '20 分钟', '50 分钟', '20 分钟'])) === '["20 分钟","50 分钟","90 分钟"]')
+ok('旧数据里的裸数字补上单位并去重', JSON.stringify(sortTimeLabels(['30', '30 分钟', '75'])) === '["30 分钟","75 分钟"]', JSON.stringify(sortTimeLabels(['30', '30 分钟', '75'])))
+ok('解析不出的历史值原样保留', JSON.stringify(sortTimeLabels(['半小时', '20 分钟'])) === '["20 分钟","半小时"]', JSON.stringify(sortTimeLabels(['半小时', '20 分钟'])))
+ok('自定义时长区间 5–300', customTimeError(4) !== null && customTimeError(301) !== null && customTimeError(5) === null && customTimeError(300) === null)
+ok('自定义时长不接受小数与空值', customTimeError(12.5) !== null && customTimeError('') === null && customTimeError(undefined) === null)
+const longBudget = buildDayPlan(iso(0), p({ availableTimes: ['90 分钟'] }))
+ok('90 分钟档位按预算排得下', longBudget.items.reduce((s, i) => s + (i.plannedDuration ?? 0), 0) <= 90)
+const customBudget = buildDayPlan(iso(0), p({ availableTimes: ['20 分钟', '75 分钟'] }))
+ok('自定义时长参与预算（取最大值）', customBudget.items.reduce((s, i) => s + (i.plannedDuration ?? 0), 0) <= 75)
+ok('预设时长档位覆盖长时段', PROFILE_TIME_OPTIONS.includes('90 分钟') && PROFILE_TIME_OPTIONS.includes('120 分钟'))
+ok('专项候选项包含大众项目与田径项目', PROFILE_DISCIPLINE_OPTIONS.includes('力量训练') && PROFILE_DISCIPLINE_OPTIONS.includes('800m'))
 
 console.log('\n11. 大模型计划：提示词、响应解析、校验')
 ok('未填 base_url 视为未配置', isLlmReady({ baseUrl: '', apiKey: 'k', model: 'm' }) === false)
@@ -628,6 +658,8 @@ ok('提示词不再包含模式标签', !msgs.user.includes('大众模式') && !
 const specialtyMsgs = buildPlanMessages(p({ discipline: '800m', cyclePhase: '强度建立' }), draftDates)
 ok('专项信息填了就进入提示词', specialtyMsgs.user.includes('800m') && specialtyMsgs.user.includes('强度建立'))
 ok('专项信息没填就不出现在提示词', !buildPlanMessages(p({}), draftDates).user.includes('专项：'))
+const multiDisciplineMsgs = buildPlanMessages(p({ disciplines: ['跑步', '力量训练'] }), draftDates)
+ok('多个专项一起进入提示词', multiDisciplineMsgs.user.includes('跑步') && multiDisciplineMsgs.user.includes('力量训练'))
 
 const qMsgs = buildPlanQuestionMessages(p({}), draftDates)
 ok('先问再生成：提示词只让模型问问题', qMsgs.system.includes('先不要生成训练计划') && qMsgs.system.includes('"questions"'))

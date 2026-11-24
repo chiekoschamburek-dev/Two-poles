@@ -443,7 +443,7 @@ import { useDietFeedback, type DietFeedbackSettings } from '@/composables/useDie
 import { DIET_THRESHOLDS } from '@/services/dietFeedbackRules'
 import type { Plan, PlanCompletionStyle, PrivacySettings, ThemePreference } from '@/types/domain'
 import { displayName } from '@/utils/time'
-import { goalSummary } from '@/services/profileRules'
+import { disciplinesOf, goalSummary } from '@/services/profileRules'
 import { canUseLlm, isLlmReady, testLlmConfig, usingDefault } from '@/services/llm'
 import type { LlmConfig } from '@/services/llm'
 import {
@@ -618,7 +618,7 @@ const profileLine = computed(() => {  const p = store.userProfile
 const goalLine = computed(() => {
   const p = store.userProfile
   if (!p) return ''
-  if (!p.targetEvent?.trim() && !p.discipline?.trim() && !p.cyclePhase?.trim()) return ''
+  if (!p.targetEvent?.trim() && !disciplinesOf(p).length && !p.cyclePhase?.trim()) return ''
   return goalSummary(p)
 })
 const rpeMissing = computed(() => store.sessions.filter(s => s.rpe === null).length)

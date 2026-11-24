@@ -146,6 +146,20 @@ function readBody(req) {
   })
 }
 
+/**
+ * 专项的统一读法：新列 disciplines_json 优先；只有旧单选 discipline 的档案折成数组。
+ * 返回空数组表示没填，不返回 null——前端与导出都不必再判两种形状。
+ */
+function disciplinesOfRow(row) {
+  const list = jsonParse(row.disciplines_json, [])
+  const cleaned = Array.isArray(list)
+    ? list.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+    : []
+  if (cleaned.length) return [...new Set(cleaned)]
+  const legacy = typeof row.discipline === 'string' ? row.discipline.trim() : ''
+  return legacy ? [legacy] : []
+}
+
 function profileJson(row) {
   if (!row) return null
   return {
@@ -161,6 +175,7 @@ function profileJson(row) {
     restrictions: jsonParse(row.restrictions_json, []),
     height: row.height ?? undefined,
     weight: row.weight ?? undefined,
+    disciplines: disciplinesOfRow(row),
     discipline: row.discipline ?? undefined,
     cyclePhase: row.cycle_phase ?? undefined,
     cycleStartDate: row.cycle_start ?? undefined,
@@ -426,7 +441,7 @@ function writeProfile(db, userId, raw, current) {
     ...raw
   }
   const age = integerOrNull(profile.age)
-  assert(age !== null && age >= 12 && age <= 90, '年龄必须在 12–90 之间')
+  assert(age !== null && age >= 12 && age <= 100, '年龄必须在 12–100 之间')
   const avatar = profile.avatarDataUrl ?? null
   if (avatar !== null) {
     const prefix = 'data:image/jpeg;base64,'
@@ -446,15 +461,23 @@ function writeProfile(db, userId, raw, current) {
   const weight = numberOrNull(profile.weight)
   assert(height === null || (height >= 80 && height <= 260), '身高超出合理范围')
   assert(weight === null || (weight >= 20 && weight <= 400), '体重超出合理范围')
+  // 专项可多选：显式发数组就以数组为准（空数组＝清空）；只发旧的单选 discipline
+  // 的客户端仍然收得下，折成只有一个元素的数组。档案 PUT 一直按整份覆盖处理，
+  // 两个字段都不发与其它数组字段同一条规则：按空处理。
+  const disciplines = stringArray(raw.disciplines, 30)
+  const legacyDiscipline = stringOrNull(raw.discipline, 80)
+  const disciplineList = Array.isArray(raw.disciplines)
+    ? [...new Set(disciplines)]
+    : (legacyDiscipline ? [legacyDiscipline] : [])
 
   db.prepare(`
     INSERT INTO profiles (
       user_id, nickname, avatar_data_url, age, goal, experience, available_times_json, equipment_json,
       available_venues_json, restrictions_json, height, weight,
-      discipline, cycle_phase, cycle_start, cycle_end, goal_type, target_event,
+      discipline, disciplines_json, cycle_phase, cycle_start, cycle_end, goal_type, target_event,
       target_event_date, target_result, cycle_focus, personal_bests_json,
       gym_records_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       nickname = excluded.nickname,
       avatar_data_url = excluded.avatar_data_url,
@@ -468,6 +491,7 @@ function writeProfile(db, userId, raw, current) {
       height = excluded.height,
       weight = excluded.weight,
       discipline = excluded.discipline,
+      disciplines_json = excluded.disciplines_json,
       cycle_phase = excluded.cycle_phase,
       cycle_start = excluded.cycle_start,
       cycle_end = excluded.cycle_end,
@@ -492,7 +516,9 @@ function writeProfile(db, userId, raw, current) {
     jsonText(restrictions),
     height,
     weight,
-    stringOrNull(profile.discipline, 80),
+    // 旧的单选列保留为镜像（取第一项），旧的读取方与导出仍能看懂
+    disciplineList[0] ?? null,
+    jsonText(disciplineList),
     stringOrNull(profile.cyclePhase, 80),
     stringOrNull(profile.cycleStartDate, 20),
     stringOrNull(profile.cycleEndDate, 20),

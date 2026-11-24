@@ -2,6 +2,7 @@
 // 只负责"把档案变成一份可审核的计划草稿"，不负责落库——落库由 store 在用户确认后做。
 import type { TrainingType, UserProfile } from '@/types/domain'
 import { activeExercises } from '@/services/exercises'
+import { disciplinesOf } from '@/services/profileRules'
 import type { FeedbackPlanDraft } from '@/services/planFeedback'
 import type { DayIntakeFacts, DietFinding } from '@/services/dietFeedbackRules'
 
@@ -251,7 +252,8 @@ function profileSnapshot(profile: UserProfile): Record<string, unknown> {
     体重_kg: profile.weight ?? null
   }
   // 专项与周期信息选填：填了就注入，没填不出现
-  if (profile.discipline) body['专项'] = profile.discipline
+  const disciplines = disciplinesOf(profile)
+  if (disciplines.length) body['专项'] = disciplines
   if (profile.cyclePhase) body['周期阶段'] = profile.cyclePhase
   if (profile.cycleStartDate && profile.cycleEndDate) body['周期'] = `${profile.cycleStartDate} → ${profile.cycleEndDate}`
   if (profile.cycleFocus) body['阶段重点'] = profile.cycleFocus

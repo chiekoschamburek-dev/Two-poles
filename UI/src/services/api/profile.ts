@@ -11,6 +11,9 @@ export async function putProfile(profile: UserProfile): Promise<UserProfile> {
       avatarDataUrl: profile.avatarDataUrl ?? null,
       height: profile.height ?? null,
       weight: profile.weight ?? null,
+      // 专项是多选数组：清空时发空数组而不是 null，服务端按数组复校
+      disciplines: profile.disciplines ?? [],
+      // 旧的单选字段只用于兼容旧服务端，新数据一律以 disciplines 为准
       discipline: profile.discipline ?? null,
       goalType: profile.goalType ?? null,
       cyclePhase: profile.cyclePhase ?? null,
