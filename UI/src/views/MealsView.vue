@@ -28,26 +28,6 @@
       <span class="day-hint">{{ isToday ? '正在查看今天' : '正在查看历史记录；新增会记录到这一天' }}</span>
     </div>
 
-    <BaseCard class="coverage-band">
-      <div class="cov-summary">
-        <span class="micro">Structure</span>
-        <div class="cov-title">
-          <h2>{{ isToday ? '今日' : '当天' }}类别覆盖</h2>
-          <b>{{ summary.coverage.length }}</b><span>/ 8 类</span>
-        </div>
-        <p class="cov-note">只统计记录里出现过的类别，不判断分量或营养摄入量。未记录不代表没吃。</p>
-        <RouterLink to="/report" class="cov-link">看记录报告 <ArrowRight :size="14" /></RouterLink>
-      </div>
-      <ul class="cov-list" :aria-label="`${isToday ? '今日' : '当天'}类别覆盖`">
-        <li v-for="row in coverageRows" :key="row.name" :class="{ on: row.present }">
-          <i aria-hidden="true"></i>{{ row.name }}
-        </li>
-      </ul>
-    </BaseCard>
-
-    <!-- 今日饮食反馈：只看今天，历史日期不给反馈 -->
-    <DietFeedbackCard v-if="isToday" class="diet-feedback-slot" />
-
     <BaseCard class="capture-hero">
       <div class="hero-copy">
         <span class="micro">Photo first</span>
@@ -68,6 +48,26 @@
         <button type="button" class="manual-link" @click="openManual"><PenLine :size="14" /> 手动补录</button>
       </div>
     </BaseCard>
+
+    <BaseCard class="coverage-band">
+      <div class="cov-summary">
+        <span class="micro">Structure</span>
+        <div class="cov-title">
+          <h2>{{ isToday ? '今日' : '当天' }}类别覆盖</h2>
+          <b>{{ summary.coverage.length }}</b><span>/ 8 类</span>
+        </div>
+        <p class="cov-note">只统计记录里出现过的类别，不判断分量或营养摄入量。未记录不代表没吃。</p>
+        <RouterLink to="/report" class="cov-link">看记录报告 <ArrowRight :size="14" /></RouterLink>
+      </div>
+      <ul class="cov-list" :aria-label="`${isToday ? '今日' : '当天'}类别覆盖`">
+        <li v-for="row in coverageRows" :key="row.name" :class="{ on: row.present }">
+          <i aria-hidden="true"></i>{{ row.name }}
+        </li>
+      </ul>
+    </BaseCard>
+
+    <!-- 今日饮食反馈：只看今天，历史日期不给反馈 -->
+    <DietFeedbackCard v-if="isToday" class="diet-feedback-slot" />
 
     <div class="day-grid">
       <BaseCard variant="flush" class="today-card">
@@ -622,7 +622,7 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .day-hint{font-size:11px;color:var(--color-text-muted);line-height:1.6}
 
 /* ——— 拍照主入口 ——— */
-.capture-hero{margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-color:var(--color-accent-line);background:linear-gradient(120deg,var(--color-accent-soft),var(--color-card) 62%)}
+.capture-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;border-color:var(--color-accent-line);background:linear-gradient(120deg,var(--color-accent-soft),var(--color-card) 62%)}
 .diet-feedback-slot{margin-top:14px}
 .hero-copy{min-width:0}
 .hero-copy h2{font-size:24px;margin:6px 0 0;letter-spacing:-.02em}
