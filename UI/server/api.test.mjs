@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { createApiServer, pruneHistory } from './app.mjs'
 import { openDatabase } from './db.mjs'
-import { resolveZone } from './report.mjs'
+import { buildWeeklyReport, isoLocal, resolveZone } from './report.mjs'
 
 const api = createApiServer({ dbPath: ':memory:', secret: 'test-secret', corsOrigins: ['http://localhost:5173'] })
 await new Promise((resolve) => api.server.listen(0, '127.0.0.1', resolve))
@@ -579,6 +579,24 @@ test('weekly report uses server plan and sessions without filling missing RPE wi
   assert.equal(report.loadByDay[0], null)
   assert.equal(report.totalLoad, null)
   assert.ok(report.dataQuality.some((line) => line.includes('未记录 RPE')))
+})
+
+test('server weekly report caps plan coverage at 100% with off-plan days', () => {
+  const start = '2026-11-02'
+  const monday = new Date(`${start}T00:00:00`)
+  const day = (offset) => {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + offset)
+    return isoLocal(date)
+  }
+  const sessions = Array.from({ length: 7 }, (_, index) => ({
+    date: day(index), exerciseName: '跑步', rpe: 5, actualDuration: 10, discomfort: false
+  }))
+  const planItems = [0, 2, 4].map((offset) => ({ date: day(offset) }))
+  const report = buildWeeklyReport({ start, userId: 'u1', sessions, meals: [], planItems })
+  assert.equal(report.completionRate, 1, '非计划日不能把分子做大')
+  assert.equal(report.completedSessions, 7)
+  assert.ok(report.dataQuality.some((line) => line.includes('不在计划日')))
 })
 
 test('privacy settings round-trip', async () => {

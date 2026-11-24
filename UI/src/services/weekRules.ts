@@ -67,7 +67,10 @@ export function buildWeeklyReport(
   })
 
   const plannedDays = days.filter(d => isPlanDay(d, profile)).map(toISODate)
-  const completedDates = [...new Set(inWeek.map(s => s.date))]
+  const recordedDays = [...new Set(inWeek.map(s => s.date))]
+  // 计划覆盖率只看计划日有没有记录；非计划日的训练单独说明，不把分子做大
+  const recordedPlannedDays = plannedDays.filter(date => recordedDays.includes(date))
+  const offPlanDays = recordedDays.filter(date => !plannedDays.includes(date))
   const countedDays = loadByDay.filter(l => l !== null)
   // 合计只累加有 RPE 的天；缺的天不进合计，并在数据质量里说明覆盖范围
   const totalLoad = countedDays.length ? countedDays.reduce((sum, l) => sum + (l ?? 0), 0) : null
@@ -83,12 +86,15 @@ export function buildWeeklyReport(
   if (!inWeek.length) dataQuality.push('本周还没有训练记录，负荷图表为空而不是 0。')
   if (rpeMissing.length) dataQuality.push(`${rpeMissing.length} 条训练未记录 RPE：${rpeMissing.join('、')}。这些条目不参与负荷计算。`)
   if (totalLoad !== null) {
-    dataQuality.push(`负荷合计覆盖 ${countedDays.length} 天（本周有记录的 ${new Set(inWeek.map(s => s.date)).size} 天中）；缺 RPE 的天按未计入处理，不按 0 补齐。`)
+    dataQuality.push(`负荷合计覆盖 ${countedDays.length} 天（本周有记录的 ${recordedDays.length} 天中）；缺 RPE 的天按未计入处理，不按 0 补齐。`)
   }
   if (!plannedDays.length) {
-    dataQuality.push('按你的档案，这一周没有安排训练，因此不计算记录覆盖率。')
-  } else if (completedDates.length < plannedDays.length) {
-    dataQuality.push(`安排 ${plannedDays.length} 天，有记录 ${completedDates.length} 天；未记录不等于没练，也不计入记录覆盖率。`)
+    dataQuality.push('按你的档案，这一周没有安排训练，因此不计算计划记录覆盖率。')
+  } else if (recordedPlannedDays.length < plannedDays.length) {
+    dataQuality.push(`安排 ${plannedDays.length} 天，其中有记录 ${recordedPlannedDays.length} 天；未记录的计划日按未覆盖计。`)
+  }
+  if (offPlanDays.length) {
+    dataQuality.push(`另有 ${offPlanDays.length} 天有训练记录但不在计划日，不计入计划覆盖率。`)
   }
   dataQuality.push(`餐食：本周 ${mealDays.size} 天有记录，其余显示"未记录"，不代表未摄入。`)
 
@@ -97,7 +103,7 @@ export function buildWeeklyReport(
     weekStartDate: isoDays[0],
     weekEndDate: isoDays[6],
     plannedSessions: plannedDays.length,
-    completedSessions: completedDates.length,
+    completedSessions: recordedDays.length,
     totalDuration: inWeek.reduce((sum, s) => sum + (s.actualDuration ?? 0), 0),
     totalDistance: inWeek.reduce((sum, s) => sum + (s.actualDistance ?? 0), 0),
     totalLoad,
@@ -111,8 +117,8 @@ export function buildWeeklyReport(
     ruleVersion: `report-rules-v2 / ${RULE_VERSION}`,
     plannedDays,
     loadDays: countedDays.length,
-    unloadedDays: new Set(inWeek.map(s => s.date)).size - countedDays.length,
-    completionRate: plannedDays.length ? completedDates.length / plannedDays.length : null,
+    unloadedDays: recordedDays.length - countedDays.length,
+    completionRate: plannedDays.length ? recordedPlannedDays.length / plannedDays.length : null,
     blockedByDiscomfort: inWeek.some(s => s.discomfort)
   }
 }

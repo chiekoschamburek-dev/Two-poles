@@ -27,7 +27,7 @@ import type { RepMachineSnapshot } from '@/composables/repMachine'
 import { analyzeMotion, analyzeGait, analyzeHold, classifyAction, classifyTemplate, summarizeMotionFeatures, detectView, precheckMotion, extractMotionFrame, analyzeRep, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
 import { POSE_DETECT_TIMEOUT_MS, POSE_FIRST_DETECT_TIMEOUT_MS, POSE_INPUT_MAX_WIDTH, PoseTimeoutError, isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import { rulesFor } from '@/services/motionRules'
-import { MOTION_TEMPLATES, findingsTemplates, repRuleForTemplate, templateFor, visibleTemplates } from '@/services/motionTemplates'
+import { MOTION_TEMPLATES, findingsTemplates, repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
 import { useAppStore } from '@/stores/app'
@@ -112,6 +112,10 @@ ok('合计只含有 RPE 的天（100 + 40）', rep.totalLoad === 140, String(rep
 ok('缺 RPE 的天记为未计入', rep.unloadedDays === 1, String(rep.unloadedDays))
 ok('数据质量说明覆盖范围', rep.dataQuality.some(q => q.includes('覆盖') && q.includes('不按 0 补齐')))
 ok('完成率有分母才计算', rep.completionRate !== null)
+const fullWeekSessions = Array.from({ length: 7 }, (_, index) => s(toISODate(iso(index)), 10, 3))
+const fullWeekRep = buildWeeklyReport(fullWeekSessions, [], iso(0), { profile: p({}) })
+ok('记录覆盖率不超过 100%', fullWeekRep.completionRate === 1, String(fullWeekRep.completionRate))
+ok('非计划日训练不计入计划覆盖率', fullWeekRep.dataQuality.some(q => q.includes('不在计划日')))
 const idleWeek = buildWeeklyReport([s('2026-10-14', 20, 5)], [], iso(0), { profile: p({ restrictions: ['孕期或产后'] }) })
 ok('未安排训练的一周不计算完成率', idleWeek.completionRate === null && idleWeek.plannedSessions === 0)
 const hurt = buildWeeklyReport([s('2026-10-12', 20, 5, { discomfort: true })], [], iso(0), { profile: p({}) })
@@ -1041,6 +1045,11 @@ ok('缺 RPE 的块标不完整且不补 0', rolling.blocks[1].load === null && r
 ok('无记录块为 none', rolling.blocks[2].load === null && rolling.blocks[2].loadCompleteness === 'none')
 ok('总负荷只累计完整日', rolling.totalLoad === 200 && rolling.loadDays === 3 && rolling.unloadedDays === 1)
 ok('训练天数与总时长', rolling.trainingDays === 4 && rolling.totalSessions === 4 && rolling.totalMinutes === 50)
+const everyDayRolling = Array.from({ length: 28 }, (_, index) =>
+  mkBridgeSession(toISODate(new Date(2026, 9, 6 + index)), 5, 10))
+const rollingFull = buildRollingFourWeeksReport(everyDayRolling, [], new Date(2026, 10, 2), { profile: p({}) })
+ok('近四周计划记录覆盖率不超过 100%', rollingFull.completionRate !== null
+  && rollingFull.completionRate <= 1, String(rollingFull.completionRate))
 ok('餐食天数与完整/部分记录', rolling.mealDays === 3 && rolling.totalMeals === 3
   && rolling.completeMeals === 2 && rolling.partialMeals === 1)
 ok('类别覆盖按条目累计', rolling.categoryCoverage['水果类'] === 2 && rolling.categoryCoverage['谷薯类'] === 1
@@ -1775,6 +1784,9 @@ ok('弯举只出测量值不出关注项', curlResult.findings.length === 0
   && curlResult.metrics.some(metric => metric.id === 'metric-elbow-rom'))
 ok('弯举全程肘角范围可测', curlResult.metrics.some(metric =>
   metric.id === 'metric-elbow-range' && typeof metric.value === 'number' && metric.value >= 90))
+ok('弯举举起/下放时长标签正确', curlResult.metrics.find(metric => metric.id === 'metric-curl-lift')?.label.includes('举起') === true
+  && curlResult.metrics.find(metric => metric.id === 'metric-curl-lower')?.label.includes('下放') === true,
+  JSON.stringify(curlResult.metrics))
 ok('弯举模板标记为只测量', templateFor('curl').findingsReady === false)
 const curlPrecheck = precheckMotion({ fps: 15, frames: curlFrames, templateId: 'curl' })
 ok('预检可指定弯举模板', curlPrecheck.action === 'curl' && curlPrecheck.actionConfident
@@ -1799,7 +1811,7 @@ function plankFrame(timeMs: number): MotionFrame {
   }
 }
 const plankFrames = Array.from({ length: 77 }, (_, index) => plankFrame((index + 1) * (1000 / 15)))
-const holdResult = analyzeHold(plankFrames)
+const holdResult = analyzeHold(plankFrames, 15)
 ok('平板保持时长可测', holdResult.durationSec > 4.9 && holdResult.durationSec < 5.2, String(holdResult.durationSec))
 ok('平板对齐角接近直线', holdResult.meanAlignment !== null && holdResult.meanAlignment > 175, String(holdResult.meanAlignment))
 ok('平板髋部偏离接近 0', holdResult.maxHipSag !== null && holdResult.maxHipSag < 0.02, String(holdResult.maxHipSag))
@@ -1808,6 +1820,35 @@ ok('平板结果没有重复次数', plankResult.repCount === null)
 ok('平板保持时长写入结果', plankResult.holdSeconds !== undefined && plankResult.holdSeconds > 4.8, String(plankResult.holdSeconds))
 ok('平板只出测量值', plankResult.findings.length === 0
   && plankResult.metrics.some(metric => metric.id === 'metric-hold-duration'))
+
+function standingFrame(timeMs: number): MotionFrame {
+  const shoulder = pointAt(0.5, 0.3)
+  const hip = pointAt(0.5, 0.5)
+  const knee = pointAt(0.5, 0.7)
+  const ankle = pointAt(0.5, 0.9)
+  return {
+    timeMs,
+    visibility: 0.95,
+    points: {
+      shoulder: { left: shoulder, right: shoulder },
+      hip: { left: hip, right: hip },
+      knee: { left: knee, right: knee },
+      ankle: { left: ankle, right: ankle },
+      heel: { left: null, right: null },
+      toe: { left: null, right: null }
+    }
+  }
+}
+const prepStep = 1000 / 15
+const prepAndPlank = [
+  ...Array.from({ length: 60 }, (_, index) => standingFrame((index + 1) * prepStep)),
+  ...Array.from({ length: 90 }, (_, index) => plankFrame((61 + index) * prepStep))
+]
+const prepHold = analyzeHold(prepAndPlank, 15)
+ok('平板保持时长不含站立准备', prepHold.durationSec > 5.9 && prepHold.durationSec < 6.1, String(prepHold.durationSec))
+const prepPrecheck = precheckMotion({ fps: 15, frames: prepAndPlank, templateId: 'plank' })
+ok('预检保持时长也只算支撑段', prepPrecheck.holdSeconds !== null
+  && prepPrecheck.holdSeconds > 5.9 && prepPrecheck.holdSeconds < 6.1, JSON.stringify(prepPrecheck))
 const curlFeatures = summarizeMotionFeatures(curlFrames, 15)
 const plankFeatures = summarizeMotionFeatures(plankFrames, 15)
 ok('弯举特征：肘角大幅往返、膝角稳定', (curlFeatures.elbowRange ?? 0) >= 60
@@ -1823,6 +1864,9 @@ const squatAuto = classifyTemplate(goodSquat.frames, 15)
 ok('深蹲不被弯举/平板覆盖', squatAuto.action === 'squat' && squatAuto.confident, JSON.stringify(squatAuto))
 const runningAuto = classifyTemplate(runningFrames, 30)
 ok('跑姿自动识别保持', runningAuto.action === 'running', JSON.stringify(runningAuto))
+ok('跑姿存疑也能开始分析', requiresActionConfirmation('running', false) === false)
+ok('其他动作未确认必须先选动作', requiresActionConfirmation('curl', false) === true
+  && requiresActionConfirmation('plank', false) === true)
 const plankPrecheck = precheckMotion({ fps: 15, frames: plankFrames, templateId: 'plank' })
 ok('平板预检识别保持区间', plankPrecheck.action === 'plank' && plankPrecheck.holdSeconds !== null,
   JSON.stringify(plankPrecheck))
@@ -1831,6 +1875,20 @@ const plankFrontPrecheck = precheckMotion({ fps: 15, frames: plankFrames.map(fra
     hip: { left: pointAt(0.47, 0.6), right: pointAt(0.53, 0.6) } } })), templateId: 'plank' })
 ok('平板正面视角交给用户确认侧面', plankFrontPrecheck.verdict === 'view-unclear'
   && plankFrontPrecheck.suggestedView === 'side', JSON.stringify(plankFrontPrecheck))
+const plankFrontFrames = plankFrames.map(frame => ({
+  ...frame,
+  points: {
+    ...frame.points,
+    shoulder: { left: pointAt(0.34, 0.5), right: pointAt(0.44, 0.5) },
+    hip: { left: pointAt(0.45, 0.55), right: pointAt(0.55, 0.55) },
+    knee: { left: pointAt(0.49, 0.575), right: pointAt(0.59, 0.575) },
+    ankle: { left: pointAt(0.55, 0.6), right: pointAt(0.65, 0.6) }
+  }
+})) as MotionFrame[]
+const autoFrontPlank = precheckMotion({ fps: 15, frames: plankFrontFrames })
+ok('自动识别平板也要确认侧面', autoFrontPlank.verdict === 'view-unclear'
+  && autoFrontPlank.action === 'plank' && autoFrontPlank.suggestedView === 'side',
+  JSON.stringify(autoFrontPlank))
 
 ok('模板 id 唯一', new Set(MOTION_TEMPLATES.map(template => template.id)).size === MOTION_TEMPLATES.length)
 ok('可分析动作列表包含弯举与平板', visibleTemplates().some(template => template.id === 'curl')

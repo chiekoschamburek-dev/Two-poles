@@ -189,6 +189,14 @@ export function autoDetectTemplates(): MotionActionTemplate[] {
   return MOTION_TEMPLATES.filter(template => template.classifier)
 }
 
+/**
+ * 动作未确认时是否必须先选一个动作。
+ * 跑姿没有动作选择器，存疑档也允许按跑姿分析；其他动作必须由用户确认。
+ */
+export function requiresActionConfirmation(action: string, confirmed: boolean): boolean {
+  return !confirmed && action !== 'running'
+}
+
 /** 离线分段规则：优先复用实时配置的同一份阈值 */
 export function repRuleForTemplate(template: MotionActionTemplate): RepRule | null {
   if (!template.segmentation) return null

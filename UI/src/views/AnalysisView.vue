@@ -116,7 +116,8 @@
           <div>
             <dt>动作</dt>
             <dd>
-              <template v-if="actionConfirmed">自动识别：{{ actionLabel }}</template>
+              <template v-if="action === 'running'">自动识别：{{ actionLabel }}<span v-if="!actionConfirmed">（存疑，可按跑姿分析）</span></template>
+              <template v-else-if="actionConfirmed">自动识别：{{ actionLabel }}</template>
               <template v-else>自动识别不确定：请选择实际动作</template>
               <span v-if="canSwitchAction" class="switch-group" role="group" aria-label="切换动作">
                 <button
@@ -135,7 +136,7 @@
           <div><dt>{{ countLabel }}</dt><dd>{{ countValue }}</dd></div>
           <div><dt>时长</dt><dd>{{ duration.toFixed(1) }} 秒</dd></div>
         </dl>
-        <p v-if="!actionConfirmed" class="manual-warning" role="status">自动识别不确定：请选择一个动作；未选择前不会开始分析。</p>
+        <p v-if="needsActionConfirmation" class="manual-warning" role="status">自动识别不确定：请选择一个动作；未选择前不会开始分析。</p>
         <p v-if="!supportsFindings" class="muted">该动作目前只提供测量值，未配置文献阈值，不出关注项。</p>
         <ul v-if="precheckResult.verdict === 'degraded'" class="warn-list">
           <li v-for="reason in precheckResult.reasons" :key="reason">{{ reason }}</li>
@@ -353,7 +354,7 @@ import { buildAllTrends } from '@/services/motionTrends'
 import { useMotionExplanation } from '@/composables/useMotionExplanation'
 import { buildSeriesRecord, saveMotionSeries } from '@/services/motionSeries'
 import { eventsFromFrames } from '@/services/motionEvents'
-import { repRuleForTemplate, templateFor, visibleTemplates } from '@/services/motionTemplates'
+import { repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { isKinematicsMetric } from '@/services/motionKinematics'
 import type { MotionAngleSample } from '@/types/domain'
 import { newId } from '@/utils/id'
@@ -426,8 +427,9 @@ const actionLabel = computed(() => actionTemplate.value.label)
 const supportsFindings = computed(() => actionTemplate.value.findingsReady)
 /** 跑姿由步态特征判定，特征强，不提供改判；其余模板可在预检/结果页换 */
 const canSwitchAction = computed(() => !!precheckResult.value && action.value !== 'running')
-/** 自动识别不可信时，必须由用户选一个动作 */
-const canStartAnalysis = computed(() => actionConfirmed.value && !rechecking.value)
+/** 自动识别不可信时，必须由用户选一个动作；跑姿没有动作选择器，允许按跑姿分析 */
+const needsActionConfirmation = computed(() => requiresActionConfirmation(action.value, actionConfirmed.value))
+const canStartAnalysis = computed(() => !needsActionConfirmation.value && !rechecking.value)
 const countLabel = computed(() =>
   actionTemplate.value.kind === 'gait' ? '步态周期' : actionTemplate.value.kind === 'hold' ? '保持区间' : '完整重复'
 )
@@ -730,7 +732,7 @@ function reconcilePrecheck(analysisResult: MotionAnalysisResult) {
 
 async function startAnalysis() {
   const view = precheckResult.value?.view
-  if (!view || !actionConfirmed.value) return
+  if (!view || needsActionConfirmation.value) return
   rechecking.value = false
   step.value = 'analyzing'
   errorMessage.value = ''

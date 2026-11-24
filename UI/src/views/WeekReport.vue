@@ -223,13 +223,13 @@ const stats = computed<StatItem[]>(() => {
       label: '计划场次',
       value: r.completionRate === null ? '—' : r.plannedSessions,
       unit: r.completionRate === null ? '' : '场',
-      hint: r.completionRate === null ? '这一周没有安排，不计算记录覆盖率' : '按你档案过滤后的安排'
+      hint: r.completionRate === null ? '这一周没有安排，不计算计划记录覆盖率' : '按你档案过滤后的安排'
     },
     {
       label: '有记录场次',
       value: r.completedSessions,
       unit: '场',
-      hint: r.completionRate === null ? '未记录不等于没练' : `记录覆盖率 ${Math.round((r.completionRate ?? 0) * 100)}% · 未记录不计入分母`,
+      hint: r.completionRate === null ? '未记录不等于没练' : `计划记录覆盖率 ${Math.round((r.completionRate ?? 0) * 100)}% · 未记录的计划日按未覆盖计`,
       tone: r.completedSessions ? 'accent' : 'default'
     },
     {

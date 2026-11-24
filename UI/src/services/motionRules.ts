@@ -318,14 +318,15 @@ const curlSideRules: MotionRule[] = [
     evaluate: ({ reps }) => {
       const rom = numbers(reps.map(rep => rep.rangeOfMotion))
       const bottoms = numbers(reps.map(rep => rep.bottomPrimaryAngle))
-      const eccentric = numbers(reps.map(rep => rep.eccentricMs))
-      const concentric = numbers(reps.map(rep => rep.endMs - rep.bottomMs))
+      // 弯举的肘角减小（bottom 之前）是举起；bottom 之后回到伸展是下放
+      const lift = numbers(reps.map(rep => rep.eccentricMs))
+      const lower = numbers(reps.map(rep => rep.endMs - rep.bottomMs))
       return [
         { id: 'metric-rep-count', label: '完整重复次数', value: reps.length },
         { id: 'metric-elbow-rom', label: '平均肘角幅度', value: average(rom) === null ? '—' : Math.round(average(rom)!), unit: '°' },
         { id: 'metric-bottom-elbow', label: '平均底部肘角', value: average(bottoms) === null ? '—' : Math.round(average(bottoms)!), unit: '°' },
-        { id: 'metric-eccentric', label: '平均下放时长', value: seconds(average(eccentric)), unit: '秒' },
-        { id: 'metric-concentric', label: '平均举起时长', value: seconds(average(concentric)), unit: '秒' }
+        { id: 'metric-curl-lift', label: '平均举起时长', value: seconds(average(lift)), unit: '秒' },
+        { id: 'metric-curl-lower', label: '平均下放时长', value: seconds(average(lower)), unit: '秒' }
       ]
     }
   }

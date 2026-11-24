@@ -521,17 +521,59 @@ function bodySide(frame: MotionFrame): 'left' | 'right' {
   return score('right') > score('left') ? 'right' : 'left'
 }
 
-/** 静态保持型动作：只测分析区间、肩-髋-踝对齐、髋部偏离与晃动，不出结论 */
-export function analyzeHold(frames: MotionFrame[]): HoldAnalysis {
+export const HOLD_SEGMENT_THRESHOLDS = {
+  /** 躯干与竖直方向夹角；站立准备约 0°，平板接近 90° */
+  minTrunkAngle: 50,
+  /** 膝盖基本伸直；屈膝准备位不算支撑 */
+  minKneeAngle: 140,
+  /** 肩-髋-踝不能折成锐角；允许一定程度的塌腰 */
+  minAlignment: 120
+} as const
+
+/** 静态保持型动作：只测支撑段、肩-髋-踝对齐、髋部偏离与晃动，不出结论 */
+export function analyzeHold(frames: MotionFrame[], fps: number): HoldAnalysis {
   const usable = frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
   const usableRatio = frames.length ? usable.length / frames.length : 0
-  const durationSec = frames.length > 1
-    ? Math.max(0, (frames[frames.length - 1].timeMs - frames[0].timeMs) / 1000) : 0
+  const frameStep = 1000 / Math.max(1, fps)
+  const isHoldFrame = (frame: MotionFrame): boolean => {
+    if (frame.visibility < MIN_FRAME_VISIBILITY) return false
+    const side = bodySide(frame)
+    const shoulder = frame.points.shoulder[side]
+    const hip = frame.points.hip[side]
+    const ankle = frame.points.ankle[side]
+    if (!shoulder || !hip || !ankle) return false
+    const knee = jointAngle(frame, 'knee').angle
+    const trunk = trunkAngle(shoulder, hip)
+    const alignment = angleAt(shoulder, hip, ankle)
+    return knee !== null && knee >= HOLD_SEGMENT_THRESHOLDS.minKneeAngle
+      && trunk !== null && trunk >= HOLD_SEGMENT_THRESHOLDS.minTrunkAngle
+      && alignment !== null && alignment >= HOLD_SEGMENT_THRESHOLDS.minAlignment
+  }
+
+  // 站立准备/走动进入机位不算保持；取最长的一段连续支撑帧
+  const runs: { start: number; end: number }[] = []
+  let runStart = -1
+  for (let index = 0; index < frames.length; index++) {
+    if (isHoldFrame(frames[index])) {
+      if (runStart < 0) runStart = index
+    } else if (runStart >= 0) {
+      runs.push({ start: runStart, end: index - 1 })
+      runStart = -1
+    }
+  }
+  if (runStart >= 0) runs.push({ start: runStart, end: frames.length - 1 })
+  const best = runs.sort((a, b) => (b.end - b.start) - (a.end - a.start))[0]
+  if (!best) {
+    return { durationSec: 0, usableRatio, meanAlignment: null, maxHipSag: null, sway: null, sampleTimeMs: null }
+  }
+
+  const holdFrames = frames.slice(best.start, best.end + 1)
+  const durationSec = Math.max(0, (holdFrames[holdFrames.length - 1].timeMs - holdFrames[0].timeMs + frameStep) / 1000)
   const alignments: number[] = []
   const sags: number[] = []
   const hipXs: number[] = []
   const torsoLengths: number[] = []
-  for (const frame of usable) {
+  for (const frame of holdFrames) {
     const side = bodySide(frame)
     const shoulder = frame.points.shoulder[side]
     const hip = frame.points.hip[side]
@@ -566,7 +608,7 @@ export function analyzeHold(frames: MotionFrame[]): HoldAnalysis {
     meanAlignment,
     maxHipSag,
     sway,
-    sampleTimeMs: frames[Math.floor(frames.length / 2)]?.timeMs ?? null
+    sampleTimeMs: holdFrames[Math.floor(holdFrames.length / 2)]?.timeMs ?? null
   }
 }
 
@@ -594,7 +636,7 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     ? computeKinematics({ frames: series.frames, action: series.action, fps: series.fps, reps })
     : undefined
   const gait = template.kind === 'gait' ? analyzeGait(series.frames, series.fps) : undefined
-  const hold = template.kind === 'hold' ? analyzeHold(series.frames) : undefined
+  const hold = template.kind === 'hold' ? analyzeHold(series.frames, series.fps) : undefined
   const viewConfidence = detectView(series.frames).confidence
   const context = { action: series.action, view: series.view, reps, fps: series.fps, gait, hold, viewConfidence }
   const findings: MotionAnalysisFinding[] = []
@@ -943,15 +985,29 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
     ? { action: selected.id, confident: true }
     : classifyTemplate(input.frames, input.fps)
   const template = templateFor(classification.action)
-  if (selected && !template.views.includes(viewResult.view)) {
+  if (!template.views.includes(viewResult.view)) {
+    const supported = template.views.map(view => view === 'side' ? '侧面' : '正面').join(' / ')
+    const source = selected ? `「${template.label}」` : `自动识别为「${template.label}」`
     // 平板/静态保持的身体接近水平，detectView 用竖直躯干高度做分母会把侧拍误判成正面；
     // 这类动作不直接拒绝，交给用户确认实际机位（只提供模板支持的视角）。
     if (template.kind === 'hold') {
       return {
         verdict: 'view-unclear',
-        reasons: [...reasons, `「${template.label}」需要侧面视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
+        reasons: [...reasons, `${source} 需要${supported}视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
         view: null,
-        suggestedView: 'side',
+        suggestedView: template.views[0] ?? 'side',
+        repCount: null,
+        gaitCycles: null,
+        holdSeconds: null,
+        action: template.id,
+        actionConfident: classification.confident
+      }
+    }
+    if (selected) {
+      return {
+        verdict: 'rejected',
+        reasons: [`「${template.label}」只支持${supported}视角：请按支持的机位重拍`],
+        view: viewResult.view,
         repCount: null,
         gaitCycles: null,
         holdSeconds: null,
@@ -959,16 +1015,18 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
         actionConfident: true
       }
     }
-    const supported = template.views.map(view => view === 'side' ? '侧面' : '正面').join(' / ')
+    // 自动识别猜到了只支持单一视角的模板时，不按不支持的机位直接分析，
+    // 也不直接拒绝：交给用户确认支持的视角。
     return {
-      verdict: 'rejected',
-      reasons: [`「${template.label}」只支持${supported}视角：请按支持的机位重拍`],
-      view: viewResult.view,
+      verdict: 'view-unclear',
+      reasons: [...reasons, `${source} 只支持${supported}视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
+      view: null,
+      suggestedView: template.views[0] ?? 'side',
       repCount: null,
       gaitCycles: null,
       holdSeconds: null,
       action: template.id,
-      actionConfident: true
+      actionConfident: classification.confident
     }
   }
   let repCount: number | null = null
@@ -988,7 +1046,7 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
       reasons.push('跑步步态特征不够明显：结果按跑姿分析，如这不是跑步视频请重新拍摄')
     }
   } else if (template.kind === 'hold') {
-    const hold = analyzeHold(input.frames)
+    const hold = analyzeHold(input.frames, input.fps)
     holdSeconds = Math.round(hold.durationSec * 10) / 10
     if (hold.durationSec < 3) {
       degraded = true

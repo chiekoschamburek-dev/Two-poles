@@ -117,12 +117,18 @@ function blockOf(
   }
 }
 
-function periodOf(blocks: ReportBlock[], sessions: TrainingSession[], meals: Meal[]): PeriodReport {
+function periodOf(blocks: ReportBlock[], sessions: TrainingSession[], meals: Meal[], ctx: PeriodContext): PeriodReport {
   const start = blocks[0].start
   const end = blocks[blocks.length - 1].end
   const inRange = sessions.filter(s => s.date >= start && s.date <= end)
   const inMeals = meals.filter(m => m.date >= start && m.date <= end)
   const trainingDays = new Set(inRange.map(s => s.date))
+  const allDays = dayList(new Date(`${start}T00:00:00`), new Date(`${end}T00:00:00`))
+  const plannedDayList = allDays.filter(day => isPlanDay(new Date(`${day}T00:00:00`), ctx.profile ?? null))
+  const plannedDays = plannedDayList.length
+  // 计划覆盖率只看计划日；非计划日训练单独说明，避免分子超过分母
+  const recordedPlannedDays = plannedDayList.filter(day => trainingDays.has(day)).length
+  const offPlanDays = [...trainingDays].filter(day => !plannedDayList.includes(day)).length
   let totalLoad: number | null = null
   let loadDays = 0
   let unloadedDays = 0
@@ -135,7 +141,6 @@ function periodOf(blocks: ReportBlock[], sessions: TrainingSession[], meals: Mea
     totalLoad = (totalLoad ?? 0) + loads.reduce<number>((sum, l) => sum + (l ?? 0), 0)
     loadDays++
   }
-  const plannedDays = blocks.reduce((sum, b) => sum + b.plannedDays, 0)
   const categoryCoverage = Object.fromEntries(FOOD_CATEGORIES.map(c => [c, 0])) as Record<FoodCategory, number>
   for (const meal of inMeals) for (const item of meal.items) categoryCoverage[item.category] += 1
   const mealDays = new Set(inMeals.map(m => m.date)).size
@@ -151,10 +156,11 @@ function periodOf(blocks: ReportBlock[], sessions: TrainingSession[], meals: Mea
   if (totalLoad !== null) {
     dataQuality.push(`负荷合计覆盖 ${loadDays} 天（有记录的 ${trainingDays.size} 天中）；缺 RPE 的天按未计入处理，不按 0 补齐。`)
   }
-  if (!plannedDays) dataQuality.push('按你的档案，这段窗口没有安排训练，因此不计算完成率。')
-  else if (trainingDays.size < plannedDays) {
-    dataQuality.push(`安排 ${plannedDays} 天，有记录 ${trainingDays.size} 天；未记录不等于没练，也不计入完成率。`)
+  if (!plannedDays) dataQuality.push('按你的档案，这段窗口没有安排训练，因此不计算计划记录覆盖率。')
+  else if (recordedPlannedDays < plannedDays) {
+    dataQuality.push(`安排 ${plannedDays} 天，其中有记录 ${recordedPlannedDays} 天；未记录的计划日按未覆盖计。`)
   }
+  if (offPlanDays) dataQuality.push(`另有 ${offPlanDays} 天有训练记录但不在计划日，不计入计划覆盖率。`)
   dataQuality.push(`餐食：${mealDays} 天有记录，其余显示"未记录"，不代表未摄入。`)
 
   return {
@@ -168,7 +174,7 @@ function periodOf(blocks: ReportBlock[], sessions: TrainingSession[], meals: Mea
     totalSessions: inRange.length,
     totalMinutes: inRange.reduce((sum, s) => sum + (s.actualDuration ?? 0), 0),
     plannedDays,
-    completionRate: plannedDays ? trainingDays.size / plannedDays : null,
+    completionRate: plannedDays ? recordedPlannedDays / plannedDays : null,
     mealDays,
     totalMeals: inMeals.length,
     completeMeals,
@@ -192,7 +198,7 @@ export function buildRollingFourWeeksReport(
     const blockStart = addDays(start, i * 7)
     return blockOf(blockStart, addDays(blockStart, 6), sessions, meals, ctx)
   })
-  return periodOf(blocks, sessions, meals)
+  return periodOf(blocks, sessions, meals, ctx)
 }
 
 /** 长期趋势：最近 months 个自然月，按月聚合；当前月只统计到今天 */
@@ -258,7 +264,7 @@ export function buildMonthlyReport(
     const blockEnd = addDays(blockStart, 6) > end ? end : addDays(blockStart, 6)
     blocks.push(blockOf(blockStart, blockEnd, sessions, meals, ctx))
   }
-  const report = periodOf(blocks, sessions, meals)
+  const report = periodOf(blocks, sessions, meals, ctx)
   if (current) report.dataQuality.unshift(`当前月统计到 ${now.getMonth() + 1} 月 ${now.getDate()} 日。`)
   return report
 }
