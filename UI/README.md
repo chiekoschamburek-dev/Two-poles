@@ -291,8 +291,9 @@ UI/
 推理管线（本轮改造，`npm run build` 后实测）：
 
 - **取帧**：`video.requestVideoFrameCallback()` 一帧一次回调，喂给 `detectForVideo` 的时间戳用**帧自己的媒体时间**（`metadata.mediaTime`），RVFC 不可用时回落 rAF + `video.currentTime` 去重；重复帧直接跳过，不再靠墙钟猜。
-- **推理落点**：优先经典 worker（`composables/poseInference.worker.ts`），每帧 `createImageBitmap(video)` transfer 过去、推理完 `bitmap.close()`；worker 起不来或单次推理超 2 秒时，**自动回落主线程推理**，不退回演示回放。
-- **后端**：`delegate: 'GPU'` 绑一块专用 `OffscreenCanvas`（`VisionTaskOptions.canvas`），初始化或推理抛错就重建为 CPU。实测 worker 内 GPU 生效（console：`GL version: 3.0 (WebGL 2.0 …)` + `Graph successfully started running`）。实际生效的后端与推理落点如实显示在跟练页状态文案里。
+- **推理落点**：优先经典 worker（`composables/poseInference.worker.ts`），每帧 `createImageBitmap(video)` transfer 过去、推理完 `bitmap.close()`；worker 起不来或推理抛错时自动回落主线程 / CPU，不退回演示回放。
+- **离线分析的降级路径**：送模型前先把帧缩到 960 宽（模型输入只有 256，1080p 原图白烧解码和显存）；单帧预算常规 8 秒、首帧 12 秒（首帧要建 GL 图、编译 shader）。超时不再等于整段失败——关掉 worker、换主线程 CPU 引擎重跑当前帧，只有 CPU 也失败才报错（`services/analysisRuntime.ts` + `composables/useVideoAnalysis.ts`）。
+- **后端**：`delegate: 'GPU'` 绑一块专用 `OffscreenCanvas`（`VisionTaskOptions.canvas`），初始化或推理抛错就重建为 CPU（降级时直接按 CPU 创建，不再重试 GPU；新引擎建好后才释放旧的）。实测 worker 内 GPU 生效（console：`GL version: 3.0 (WebGL 2.0 …)` + `Graph successfully started running`）。实际生效的后端与推理落点如实显示在跟练页状态文案里。
 - **绘制仍留主线程**：`DrawingUtils` 要的是 DOM canvas 的 2D 上下文与现有 CSS 镜像（画面与叠加层都 `scaleX(-1)`）。**画面不出本机，无上传。**
 
 两条已知边界：

@@ -1,7 +1,8 @@
 import { ref, onUnmounted } from 'vue'
-import { createPoseEngine } from './poseEngine'
+import { createMainThreadPoseEngine, createPoseEngine } from './poseEngine'
 import type { PoseEngine } from './poseEngine'
 import { POSE_MODEL_PATHS, POSE_ASSETS_HINT } from './poseLandmarkerFactory'
+import { isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import { analyzeMotion, extractMotionFrame, precheckMotion, type MotionFrame } from '@/services/motionAnalysis'
 import type {
   AnalysisAction,
@@ -220,27 +221,78 @@ export function useVideoAnalysis() {
     })
   }
 
-  async function detectAt(timeSec: number, seq?: number): Promise<MotionFrame> {
+  /** 送进模型前先把 1080p 缩到 960 宽：模型输入只有 256，原图白烧解码和显存 */
+  async function createAnalysisBitmap(): Promise<ImageBitmap> {
     const element = video
     if (!element) throw new VideoAnalysisError('decode', '视频尚未准备好')
-    await seekTo(timeSec)
-    throwIfCancelled(seq)
-    let bitmap: ImageBitmap
+    const target = poseInputSize(element.videoWidth, element.videoHeight)
+    if (target) {
+      try {
+        return await createImageBitmap(element, {
+          resizeWidth: target.width,
+          resizeHeight: target.height,
+          resizeQuality: 'medium'
+        })
+      } catch {
+        // 个别内核不支持对视频源缩放，退回原图；不能因此判成解码失败
+      }
+    }
     try {
-      bitmap = await createImageBitmap(element)
+      return await createImageBitmap(element)
     } catch {
       throw new VideoAnalysisError('decode', '视频解码失败，请转码为 H.264 MP4 后重试')
     }
+  }
+
+  /**
+   * GPU 图卡死时 detect 既不返回也不抛错，只会超时；这时 worker 已经不可信。
+   * 关掉它、换主线程 CPU 引擎，把当前帧重跑一次；只有 CPU 也起不来/也失败才向上报错。
+   */
+  async function downgradeToCpuEngine(seq?: number): Promise<PoseEngine> {
+    engine?.close()
+    engine = null
+    let next: PoseEngine
+    try {
+      next = await createMainThreadPoseEngine(MODEL_PATHS)
+    } catch (err) {
+      throw new VideoAnalysisError('model', `端侧姿态模型加载失败：${(err as Error)?.message || '未知错误'}。${POSE_ASSETS_HINT}后重试`)
+    }
+    if (cancelled || (seq !== undefined && seq !== runSeq)) {
+      next.close()
+      throw new VideoAnalysisError('cancelled', '已取消分析')
+    }
+    engine = next
+    return next
+  }
+
+  async function detectAt(timeSec: number, seq?: number): Promise<MotionFrame> {
+    if (!video) throw new VideoAnalysisError('decode', '视频尚未准备好')
+    await seekTo(timeSec)
+    throwIfCancelled(seq)
+    const timeMs = Math.round(timeSec * 1000)
     const pose = await ensureEngine()
     // 两个时钟刻意分开：engineClock 只喂 MediaPipe（趟内按真实帧间隔递增），
     // 帧记录用真实视频时间——状态机拿它判 minStageMs/minRepMs，绝不能是伪造时间。
-    const timeMs = Math.round(timeSec * 1000)
     engineClock = Math.max(passBase + timeMs, engineClock + 1)
+    let bitmap = await createAnalysisBitmap()
     try {
       const result = await pose.detect(bitmap, engineClock)
       return extractMotionFrame(result.landmarks, timeMs)
     } catch (err) {
-      throw new VideoAnalysisError('model', `端侧推理失败：${(err as Error)?.message || '请重试'}`)
+      bitmap.close()
+      if (!isPoseTimeoutError(err)) {
+        throw new VideoAnalysisError('model', `端侧推理失败：${(err as Error)?.message || '请重试'}`)
+      }
+      // 首帧把 GPU 图跑死：换 CPU 引擎重跑这一帧，别让整段分析直接失败
+      const cpuEngine = await downgradeToCpuEngine(seq)
+      bitmap = await createAnalysisBitmap()
+      try {
+        const result = await cpuEngine.detect(bitmap, engineClock)
+        return extractMotionFrame(result.landmarks, timeMs)
+      } catch (retryErr) {
+        bitmap.close()
+        throw new VideoAnalysisError('model', `端侧推理失败：${(retryErr as Error)?.message || '请重试'}`)
+      }
     }
   }
 

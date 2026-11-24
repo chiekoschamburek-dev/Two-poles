@@ -58,8 +58,11 @@ async function handleInit(req: Extract<WorkerRequest, { type: 'init' }>) {
 /** GPU 图跑不动时降级重建：丢掉这一帧继续跑，不能让整条链路退成演示回放 */
 async function downgradeToCpu(reason: string) {
   if (!vision || !paths) return
+  // 传 null 才是真的「不再试 GPU」。之前传 bindCanvas() 会让工厂先重建一次 GPU，
+  // GPU 上下文本身坏掉时等于把同一个坑再踩一遍。
+  const created = await createPoseLandmarker(vision, paths, null)
+  // 先建好 CPU 再释放旧的：重建失败时至少别把唯一能用的引擎也丢掉
   disposeLandmarker()
-  const created = await createPoseLandmarker(vision, paths, bindCanvas())
   landmarker = created.landmarker
   delegate = created.delegate
   emit({ type: 'delegate', delegate, gpuError: `${reason}；已退回 CPU` })

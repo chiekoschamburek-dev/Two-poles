@@ -6,6 +6,7 @@ import type { PoseMetrics } from './poseMath'
 import { createPoseLandmarker } from './poseLandmarkerFactory'
 import type { PoseDelegate, PoseModelPaths } from './poseLandmarkerFactory'
 import type { WorkerResponse } from './poseInference.worker'
+import { POSE_DETECT_TIMEOUT_MS, POSE_FIRST_DETECT_TIMEOUT_MS, PoseTimeoutError } from '@/services/analysisRuntime'
 // 必须是经典 worker：MediaPipe 的 wasm 加载器在 worker 里走 importScripts，
 // 而 module worker 下 Vite 不会把 public/ 里的 glue 当模块解析（dev 直接 500）。
 import PoseInferenceWorker from './poseInference.worker?worker'
@@ -18,14 +19,18 @@ export type PoseEngine = {
   close(): void
 }
 
-const DETECT_TIMEOUT_MS = 2000
-
 async function createWorkerEngine(paths: PoseModelPaths): Promise<PoseEngine> {
   if (typeof Worker === 'undefined') throw new Error('当前浏览器不支持工作线程')
   const worker = new PoseInferenceWorker()
   const state = { delegate: 'CPU' as PoseDelegate, runsIn: 'worker' as const, gpuError: null as string | null }
   const pending = new Map<number, { resolve: (r: PoseFrameResult) => void; reject: (e: Error) => void }>()
   let seq = 0
+  /**
+   * 首帧要建 GL 图、编译 shader，预算单独放宽；只对本引擎实例的第一次 detect 生效。
+   * 超时抛 PoseTimeoutError（不是普通 Error），让调用方换 CPU 重跑这一帧，
+   * 而不是把「首帧慢」当成整段视频不可分析。
+   */
+  let firstDetect = true
 
   const ready = new Promise<void>((resolve, reject) => {
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
@@ -55,11 +60,13 @@ async function createWorkerEngine(paths: PoseModelPaths): Promise<PoseEngine> {
     state,
     detect(bitmap, timestamp) {
       const id = ++seq
+      const timeoutMs = firstDetect ? POSE_FIRST_DETECT_TIMEOUT_MS : POSE_DETECT_TIMEOUT_MS
+      firstDetect = false
       return new Promise<PoseFrameResult>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(id)
-          reject(new Error('姿态推理超时'))
-        }, DETECT_TIMEOUT_MS)
+          reject(new PoseTimeoutError())
+        }, timeoutMs)
         pending.set(id, {
           resolve: result => { clearTimeout(timer); resolve(result) },
           reject: error => { clearTimeout(timer); reject(error) }

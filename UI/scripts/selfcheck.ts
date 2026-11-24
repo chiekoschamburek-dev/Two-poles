@@ -25,6 +25,7 @@ import { saveMotionSeries, getMotionSeries, listMotionSeriesKeys, deleteMotionSe
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
 import type { RepMachineSnapshot } from '@/composables/repMachine'
 import { analyzeMotion, analyzeGait, classifyAction, detectView, precheckMotion, extractMotionFrame, analyzeRep, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
+import { POSE_DETECT_TIMEOUT_MS, POSE_FIRST_DETECT_TIMEOUT_MS, POSE_INPUT_MAX_WIDTH, PoseTimeoutError, isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import { rulesFor } from '@/services/motionRules'
 import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
@@ -2462,6 +2463,21 @@ const resReloaded = loadStoredState()
 ok('已处理记录随状态落盘并保留时间戳',
   resReloaded.adjustmentResolutions?.['k|1']?.status === 'dismissed'
   && resReloaded.adjustmentResolutions?.['k|1']?.updatedAt === '2026-11-12T00:00:00.000Z')
+
+console.log('\n54. 端侧分析超时降级：首帧预算放宽、1080p 缩帧、超时错误可识别')
+ok('首帧预算大于常规帧', POSE_FIRST_DETECT_TIMEOUT_MS > POSE_DETECT_TIMEOUT_MS)
+ok('常规帧预算不低于 8 秒', POSE_DETECT_TIMEOUT_MS >= 8000)
+ok('1080p 缩到 960 宽并保留 16:9',
+  JSON.stringify(poseInputSize(1920, 1080)) === JSON.stringify({ width: 960, height: 540 }),
+  JSON.stringify(poseInputSize(1920, 1080)))
+ok('竖屏 4K 只按宽度缩', poseInputSize(2160, 3840)?.width === POSE_INPUT_MAX_WIDTH)
+ok('已在阈值内的相机帧不重复缩放',
+  poseInputSize(640, 480) === null && poseInputSize(POSE_INPUT_MAX_WIDTH, 720) === null)
+ok('尺寸非法时返回 null', poseInputSize(0, 0) === null && poseInputSize(Number.NaN, 480) === null)
+ok('超时错误可识别', isPoseTimeoutError(new PoseTimeoutError()))
+ok('跨线程丢失原型链后仍按 name 识别',
+  isPoseTimeoutError(Object.assign(new Error('姿态推理超时'), { name: 'PoseTimeoutError' })))
+ok('普通错误不误判为超时', !isPoseTimeoutError(new Error('模型初始化失败')))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1
