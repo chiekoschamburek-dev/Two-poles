@@ -57,17 +57,27 @@
       <BaseCard class="panel">
         <h2 class="q">训练偏好</h2>
         <div class="grid2">
-          <label class="field">
+          <div class="field">
             <span class="field-label">主要目标（可留空）</span>
-            <input v-model="goal" type="text" list="profile-goals" maxlength="200" placeholder="例如 保持活力" />
-          </label>
-          <label class="field">
+            <SuggestionInput
+              v-model="goal"
+              label="主要目标（可留空）"
+              :suggestions="goals"
+              placeholder="例如 保持活力"
+              :maxlength="200"
+            />
+          </div>
+          <div class="field">
             <span class="field-label">运动经验（可留空）</span>
-            <input v-model="experience" type="text" list="profile-experience" maxlength="200" placeholder="例如 每周慢跑两次" />
-          </label>
+            <SuggestionInput
+              v-model="experience"
+              label="运动经验（可留空）"
+              :suggestions="experiences"
+              placeholder="例如 每周慢跑两次"
+              :maxlength="200"
+            />
+          </div>
         </div>
-        <datalist id="profile-goals"><option v-for="g in goals" :key="g" :value="g" /></datalist>
-        <datalist id="profile-experience"><option v-for="e in experiences" :key="e" :value="e" /></datalist>
 
         <div class="field">
           <span class="field-label">每次能用的时间（选填，可多选）</span>
@@ -212,6 +222,7 @@ import { useRouter } from 'vue-router'
 import { Check } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
+import SuggestionInput from '@/components/common/SuggestionInput.vue'
 import PbList from '@/components/profile/PbList.vue'
 import GymList from '@/components/profile/GymList.vue'
 import { useAppStore } from '@/stores/app'
