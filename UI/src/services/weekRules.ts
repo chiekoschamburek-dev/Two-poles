@@ -86,9 +86,9 @@ export function buildWeeklyReport(
     dataQuality.push(`负荷合计覆盖 ${countedDays.length} 天（本周有记录的 ${new Set(inWeek.map(s => s.date)).size} 天中）；缺 RPE 的天按未计入处理，不按 0 补齐。`)
   }
   if (!plannedDays.length) {
-    dataQuality.push('按你的档案，这一周没有安排训练，因此不计算完成率。')
+    dataQuality.push('按你的档案，这一周没有安排训练，因此不计算记录覆盖率。')
   } else if (completedDates.length < plannedDays.length) {
-    dataQuality.push(`安排 ${plannedDays.length} 天，有记录 ${completedDates.length} 天；未记录不等于没练，也不计入完成率。`)
+    dataQuality.push(`安排 ${plannedDays.length} 天，有记录 ${completedDates.length} 天；未记录不等于没练，也不计入记录覆盖率。`)
   }
   dataQuality.push(`餐食：本周 ${mealDays.size} 天有记录，其余显示"未记录"，不代表未摄入。`)
 

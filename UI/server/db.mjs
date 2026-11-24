@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS motion_analyses (
   client_id TEXT NOT NULL,
   user_id TEXT NOT NULL REFERENCES users(id),
   date TEXT NOT NULL,
-  action TEXT NOT NULL CHECK(action IN ('squat','deadlift','running')),
+  action TEXT NOT NULL,
   exercise_name TEXT NOT NULL,
   view TEXT NOT NULL CHECK(view IN ('side','front')),
   status TEXT NOT NULL CHECK(status IN ('completed','low-confidence')),
@@ -273,8 +273,62 @@ export function openDatabase(path = ':memory:') {
     })
   }
   migrateRemoveMode(db)
+  migrateMotionActionCheck(db)
   dropUnusedTablesOnce(db)
   return db
+}
+
+/**
+ * 旧库的 motion_analyses.action 带 CHECK(action IN ('squat','deadlift','running'))，
+ * 新增分析模板会被数据库直接拒绝。SQLite 不能 DROP CHECK，只能重建表；
+ * 新库由 SCHEMA 直接建出无 CHECK 版本，这里用 sqlite_master 的 SQL 做幂等探针。
+ */
+function migrateMotionActionCheck(db) {
+  const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get()?.sql ?? ''
+  if (!tableSql.includes("CHECK(action IN")) return
+  const columns = new Set(db.prepare('PRAGMA table_info(motion_analyses)').all().map(column => column.name))
+  const copyColumn = (name) => columns.has(name) ? name : 'NULL'
+  const columnsToCopy = [
+    'id', 'client_id', 'user_id', 'date', 'action', 'exercise_name', 'view', 'status',
+    'low_confidence_reasons', 'findings', 'metrics', 'rep_count', 'gait_cycles', 'usable_ratio',
+    'session_id', 'rule_version', 'created_at', 'updated_at', 'deleted_at'
+  ]
+  db.exec('PRAGMA foreign_keys = OFF')
+  try {
+    transaction(db, () => {
+      db.exec(`
+        CREATE TABLE motion_analyses_new (
+          id TEXT PRIMARY KEY,
+          client_id TEXT NOT NULL,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          date TEXT NOT NULL,
+          action TEXT NOT NULL,
+          exercise_name TEXT NOT NULL,
+          view TEXT NOT NULL CHECK(view IN ('side','front')),
+          status TEXT NOT NULL CHECK(status IN ('completed','low-confidence')),
+          low_confidence_reasons TEXT NOT NULL DEFAULT '[]',
+          findings TEXT NOT NULL DEFAULT '[]',
+          metrics TEXT NOT NULL DEFAULT '[]',
+          rep_count INTEGER,
+          gait_cycles INTEGER,
+          usable_ratio REAL,
+          session_id TEXT,
+          rule_version TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          UNIQUE (user_id, client_id)
+        )
+      `)
+      db.exec(`INSERT INTO motion_analyses_new (${columnsToCopy.join(', ')})
+        SELECT ${columnsToCopy.map(copyColumn).join(', ')} FROM motion_analyses`)
+      db.exec('DROP TABLE motion_analyses')
+      db.exec('ALTER TABLE motion_analyses_new RENAME TO motion_analyses')
+      db.exec('CREATE INDEX IF NOT EXISTS idx_motion_analyses_user_date ON motion_analyses(user_id, date)')
+    })
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON')
+  }
 }
 
 /**

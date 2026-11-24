@@ -75,6 +75,8 @@ async function main() {
   await sleep(2500)
   await cdp.evaluate(`(async () => {
     localStorage.clear();
+    // 首屏引导会挡住 /analysis；验证只关心分析页，直接把引导标成已完成
+    localStorage.setItem('twopoles.v1.meta', JSON.stringify({ onboardingCompleted: true }));
     const wipe = name => new Promise(res => { const r = indexedDB.deleteDatabase(name); r.onsuccess = r.onerror = r.onblocked = () => res(); });
     await wipe('twopoles_motion_series'); await wipe('twopoles_analysis_keyframes');
     return true;

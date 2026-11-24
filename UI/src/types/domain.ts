@@ -28,7 +28,12 @@ export type ExercisePhase = 'idle' | 'ready' | 'down' | 'up' | 'occluded' | 'com
 
 // === Motion Analysis ===
 
-export type AnalysisAction = 'squat' | 'deadlift' | 'running'
+/**
+ * 分析动作 id。权威列表在 services/motionTemplates.ts（MOTION_TEMPLATES）；
+ * 这里用 string 是为了让同步回来的新动作/历史记录不因旧客户端的联合类型而崩，
+ * 界面展示一律走 templateFor()，对未登记 id 有明确兜底。
+ */
+export type AnalysisAction = string
 export type AnalysisView = 'side' | 'front'
 export type AnalysisStatus = 'completed' | 'low-confidence'
 
@@ -61,6 +66,8 @@ export interface MotionAnalysisResult {
   metrics: MotionAnalysisMetric[]
   repCount: number | null
   gaitCycles: number | null
+  /** 静态保持型动作的分析区间秒数；计次/步态动作为 null */
+  holdSeconds?: number | null
   usableRatio: number
   /** 本次分析的实际采样帧率；曲线断线判定与缺口阈值都依赖它 */
   fps: number
@@ -93,6 +100,14 @@ export interface RepAnalysisRecord {
   eccentricMs: number | null
   bottomHoldMs: number | null
   visibilityMean: number | null
+  /** 通用分段口径：本次实际用的主关节与底部/结束角度；旧记录没有这些字段 */
+  primaryJoint?: 'knee' | 'hip' | 'elbow'
+  bottomPrimaryAngle?: number | null
+  endPrimaryAngle?: number | null
+  rangeOfMotion?: number | null
+  bodyAlignment?: number | null
+  leftPrimaryAngle?: number | null
+  rightPrimaryAngle?: number | null
 }
 
 export interface MotionAngleSample {
@@ -101,6 +116,8 @@ export interface MotionAngleSample {
   kneeAngle: number | null
   hipAngle: number | null
   trunkAngle: number | null
+  /** 弯举等上肢动作的肘角；下肢动作通常为 null */
+  elbowAngle?: number | null
 }
 
 // === Motion Kinematics ===
@@ -176,9 +193,11 @@ export interface MotionPrecheckResult {
   suggestedView?: AnalysisView | null
   repCount: number | null
   gaitCycles: number | null
+  /** 静态保持型动作在预检区间内检测到的秒数；其他类型为 null/缺省 */
+  holdSeconds?: number | null
   /** 自动识别的动作；连人体都没过时为 null */
   action: AnalysisAction | null
-  /** false = 深蹲/硬拉特征不明确，默认按深蹲分析，允许改判 */
+  /** false = 自动识别特征不明确，需要用户确认或改选动作 */
   actionConfident: boolean
 }
 

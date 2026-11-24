@@ -1258,7 +1258,11 @@ export function createApiServer(options = {}) {
         return sendJson(res, result.status, result.body)
       }
       const date = isDate(raw.date) ? raw.date : null
-      const action = ['squat', 'deadlift', 'running'].includes(raw.action) ? raw.action : null
+      const action = typeof raw.action === 'string'
+        && raw.action.trim().length > 0
+        && raw.action.trim().length <= 80
+        ? raw.action.trim()
+        : null
       const view = ['side', 'front'].includes(raw.view) ? raw.view : null
       const status = ['completed', 'low-confidence'].includes(raw.status) ? raw.status : null
       const exerciseName = stringOrNull(raw.exerciseName, 120)

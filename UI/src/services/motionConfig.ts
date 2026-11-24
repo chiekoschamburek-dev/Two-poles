@@ -47,7 +47,7 @@ export interface MotionExerciseConfig {
   calibratable: boolean
   calibration: CalibrationConfig
   countable: boolean
-  /** 受服务端 CHECK 约束，只有 squat/deadlift/running 三个值，不可扩 */
+  /** 该实时动作对应的分析模板 id；动作模板的权威列表在 motionTemplates.ts */
   analysisAction?: AnalysisAction
   figureKind: MotionFigureKind
   phaseText: { down: string; up: string }

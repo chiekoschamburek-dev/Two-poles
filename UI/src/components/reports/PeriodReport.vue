@@ -132,13 +132,13 @@ const stats = computed<StatItem[]>(() => {
       label: '计划天数',
       value: r.plannedDays,
       unit: r.plannedDays ? '天' : '',
-      hint: r.plannedDays ? '按你档案过滤后的安排' : '这段窗口没有安排，不计算完成率'
+      hint: r.plannedDays ? '按你档案过滤后的安排' : '这段窗口没有安排，不计算记录覆盖率'
     },
     {
       label: '有记录天数',
       value: r.trainingDays,
       unit: '天',
-      hint: r.completionRate === null ? '未记录不等于没练' : `完成率 ${Math.round(r.completionRate * 100)}% · 未记录不计入分母`,
+      hint: r.completionRate === null ? '未记录不等于没练' : `记录覆盖率 ${Math.round(r.completionRate * 100)}% · 未记录不计入分母`,
       tone: r.trainingDays ? 'accent' : 'default'
     },
     {

@@ -4,7 +4,9 @@ import { unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { DatabaseSync } from 'node:sqlite'
 import { createApiServer, pruneHistory } from './app.mjs'
+import { openDatabase } from './db.mjs'
 import { resolveZone } from './report.mjs'
 
 const api = createApiServer({ dbPath: ':memory:', secret: 'test-secret', corsOrigins: ['http://localhost:5173'] })
@@ -268,16 +270,90 @@ test('motion analyses are idempotent, linkable and soft-deleted', async () => {
   })
   assert.equal(badSession.status, 404)
 
-  const invalidAction = await request('/analyses', {
-    method: 'POST', body: { ...analysis, id: 'bad-analysis', clientId: 'bad-analysis', action: 'bench' }
+  const otherAction = await request('/analyses', {
+    method: 'POST', body: { ...analysis, id: 'other-action-analysis', clientId: 'other-action-analysis', action: 'bench' }
   })
-  assert.equal(invalidAction.status, 400)
+  assert.equal(otherAction.status, 201)
+  assert.equal(otherAction.body.analysis.action, 'bench')
+  const emptyAction = await request('/analyses', {
+    method: 'POST', body: { ...analysis, id: 'empty-action-analysis', clientId: 'empty-action-analysis', action: '   ' }
+  })
+  assert.equal(emptyAction.status, 400)
+  const longAction = await request('/analyses', {
+    method: 'POST', body: { ...analysis, id: 'long-action-analysis', clientId: 'long-action-analysis', action: 'x'.repeat(81) }
+  })
+  assert.equal(longAction.status, 400)
   const hugeFindings = await request('/analyses', {
     method: 'POST',
     body: { ...analysis, id: 'huge-analysis', clientId: 'huge-analysis', findings: Array.from({ length: 40 }, () => ({ ruleId: 'x' })) }
   })
   assert.equal(hugeFindings.status, 201)
   assert.equal(hugeFindings.body.analysis.findings.length, 20)
+})
+
+test('old motion analyses action CHECK is migrated without data loss', () => {
+  const path = join(tmpdir(), `twopoles-migration-${randomUUID()}.db`)
+  try {
+    const legacy = new DatabaseSync(path)
+    legacy.exec(`
+      CREATE TABLE users (id TEXT PRIMARY KEY);
+      CREATE TABLE motion_analyses (
+        id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        date TEXT NOT NULL,
+        action TEXT NOT NULL CHECK(action IN ('squat','deadlift','running')),
+        exercise_name TEXT NOT NULL,
+        view TEXT NOT NULL CHECK(view IN ('side','front')),
+        status TEXT NOT NULL CHECK(status IN ('completed','low-confidence')),
+        low_confidence_reasons TEXT NOT NULL DEFAULT '[]',
+        findings TEXT NOT NULL DEFAULT '[]',
+        metrics TEXT NOT NULL DEFAULT '[]',
+        rep_count INTEGER,
+        gait_cycles INTEGER,
+        usable_ratio REAL,
+        session_id TEXT,
+        rule_version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        UNIQUE (user_id, client_id)
+      );
+      INSERT INTO users (id) VALUES ('u1');
+      INSERT INTO motion_analyses (
+        id, client_id, user_id, date, action, exercise_name, view, status,
+        low_confidence_reasons, findings, metrics, rep_count, gait_cycles, usable_ratio,
+        session_id, rule_version, created_at, updated_at
+      ) VALUES (
+        'old-analysis', 'old-client', 'u1', '2026-11-01', 'squat', '深蹲', 'side', 'completed',
+        '[]', '[]', '[]', 3, NULL, 0.9, NULL, 'motion-analysis-rules-v2',
+        '2026-11-01T08:00:00.000Z', '2026-11-01T08:00:00.000Z'
+      );
+    `)
+    legacy.close()
+
+    const migrated = openDatabase(path)
+    const tableSql = migrated.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get().sql
+    assert.equal(tableSql.includes('CHECK(action IN'), false)
+    const kept = migrated.prepare('SELECT action, exercise_name, usable_ratio FROM motion_analyses WHERE id = ?').get('old-analysis')
+    assert.equal(kept.action, 'squat')
+    assert.equal(kept.exercise_name, '深蹲')
+    assert.equal(kept.usable_ratio, 0.9)
+    migrated.prepare(`
+      INSERT INTO motion_analyses (
+        id, client_id, user_id, date, action, exercise_name, view, status,
+        low_confidence_reasons, findings, metrics, rep_count, gait_cycles, usable_ratio,
+        session_id, rule_version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', NULL, NULL, NULL, NULL, ?, ?, ?)
+    `).run(
+      'new-analysis', 'new-client', 'u1', '2026-11-02', 'bench', '卧推', 'side', 'completed',
+      'motion-analysis-rules-v3', '2026-11-02T08:00:00.000Z', '2026-11-02T08:00:00.000Z'
+    )
+    assert.equal(migrated.prepare('SELECT action FROM motion_analyses WHERE id = ?').get('new-analysis').action, 'bench')
+    migrated.close()
+  } finally {
+    try { unlinkSync(path) } catch { /* 文件可能未创建 */ }
+  }
 })
 
 test('adjustment resolutions sync across devices with last-write-wins', async () => {

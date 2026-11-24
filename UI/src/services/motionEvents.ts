@@ -115,15 +115,17 @@ function tripleFor(frame: MotionFrame, joint: JointName, side: 'left' | 'right')
   const knee = frame.points.knee[side]
   const ankle = frame.points.ankle[side]
   const shoulder = frame.points.shoulder[side]
+  const elbow = frame.points.elbow?.[side]
+  const wrist = frame.points.wrist?.[side]
   if (joint === 'hip') return shoulder && hip && knee ? [shoulder, hip, knee] : null
-  // 肘角需要 13/14/15/16，MotionFrame 目前只提取下肢与肩髋；弯举类不走离线分析路径
-  if (joint === 'elbow') return null
+  if (joint === 'elbow') return shoulder && elbow && wrist ? [shoulder, elbow, wrist] : null
   return hip && knee && ankle ? [hip, knee, ankle] : null
 }
 
 /** 逐帧驱动关节角与三点可见度最小值，与 segmentReps 同口径 */
 export function jointSample(frame: MotionFrame, joint: JointName): { angle: number | null; visibility: number } {
-  const sides = frame.points[joint === 'hip' ? 'hip' : 'knee']
+  const sides = frame.points[joint]
+  if (!sides) return { angle: null, visibility: 0 }
   const side = sides.right && sides.left
     ? (sides.right.visibility > sides.left.visibility ? 'right' : 'left')
     : (sides.right ? 'right' : 'left')

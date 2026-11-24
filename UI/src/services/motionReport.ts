@@ -2,6 +2,7 @@
 // 纯函数接缝：不碰 DOM、不依赖 Vue，selfcheck 可直接断言。
 // 契约照 useDietFeedback：engine='rules' 先渲染，模型在超时内返回才替换为 'llm'，任何失败静默回落。
 import type { AnalysisAction, MotionAnalysisFinding, MotionAnalysisMetric } from '@/types/domain'
+import { templateFor } from '@/services/motionTemplates'
 
 export const MOTION_PHRASE_TIMEOUT_MS = 15_000
 /** 单条解读文案上限；超长直接丢弃退回规则原文 */
@@ -39,15 +40,16 @@ export interface MotionReport {
 
 export const MOTION_REPORT_DISCLAIMER = '解读只是把测量结果换一种说法，不新增结论。阈值由本项目自行翻译，未经运动医学或体能专业人士审核；不构成诊断或训练处方。'
 
-const ACTION_LABEL: Record<AnalysisAction, string> = { squat: '深蹲', deadlift: '硬拉', running: '跑姿' }
-
 export function buildMotionReport(input: {
   action: AnalysisAction
   findings: MotionAnalysisFinding[]
   metrics: MotionAnalysisMetric[]
   repCount: number | null
   gaitCycles: number | null
+  /** 静态保持型动作的分析区间秒数；计次/步态动作可省略 */
+  holdSeconds?: number | null
 }): MotionReport {
+  const template = templateFor(input.action)
   const lines: ReportLine[] = input.findings.map((finding, index) => ({
     id: finding.id ?? `${input.action}-f${index}`,
     ruleId: finding.ruleId,
@@ -65,10 +67,15 @@ export function buildMotionReport(input: {
   }))
   const counted = input.repCount !== null
     ? `识别到 ${input.repCount} 次完整重复`
-    : input.gaitCycles !== null ? `识别到 ${input.gaitCycles} 个步态周期` : '已完成分析'
+    : input.gaitCycles !== null
+      ? `识别到 ${input.gaitCycles} 个步态周期`
+      : input.holdSeconds !== null && input.holdSeconds !== undefined
+        ? `分析区间 ${Math.round(input.holdSeconds * 10) / 10} 秒`
+        : '已完成分析'
+  const emptyLabel = template.findingsReady ? '本次没有命中关注项' : '本次只提供测量值'
   const headline = lines.length
-    ? `${ACTION_LABEL[input.action]} · ${counted} · ${lines.length} 项关注`
-    : `${ACTION_LABEL[input.action]} · ${counted} · 本次没有命中关注项`
+    ? `${template.label} · ${counted} · ${lines.length} 项关注`
+    : `${template.label} · ${counted} · ${emptyLabel}`
   return {
     action: input.action,
     headline,
@@ -102,8 +109,12 @@ export function buildMotionReportMessages(report: MotionReport): MotionReportMes
   ].join('\n')
 
   const user = [
-    `动作：${ACTION_LABEL[report.action]}`,
-    report.repCount !== null ? `完整重复：${report.repCount} 次` : `步态周期：${report.gaitCycles ?? '—'} 个`,
+    `动作：${templateFor(report.action).label}`,
+    report.repCount !== null
+      ? `完整重复：${report.repCount} 次`
+      : report.gaitCycles !== null
+        ? `步态周期：${report.gaitCycles} 个`
+        : '静态保持或测量型动作：见下方测量值',
     '',
     `规则结论：${JSON.stringify(report.lines.map(line => ({
       id: line.id, title: line.title, text: line.ruleText,

@@ -4,10 +4,10 @@ import type {
   MotionAnalysisFinding,
   MotionAnalysisMetric
 } from '@/types/domain'
-import type { GaitAnalysis, RepAnalysis } from '@/services/motionAnalysis'
+import type { GaitAnalysis, HoldAnalysis, RepAnalysis } from '@/services/motionAnalysis'
 import { findingConfidence } from '@/services/motionConsistency'
 
-export const MOTION_RULES_VERSION = 'motion-analysis-rules-v2'
+export const MOTION_RULES_VERSION = 'motion-analysis-rules-v3'
 
 export interface MotionRuleContext {
   action: AnalysisAction
@@ -15,6 +15,8 @@ export interface MotionRuleContext {
   reps: RepAnalysis[]
   fps: number
   gait?: GaitAnalysis
+  /** 静态保持型动作的测量结果 */
+  hold?: HoldAnalysis
   /** detectView 的判定置信度，参与 finding 置信度推导 */
   viewConfidence?: number
 }
@@ -302,9 +304,63 @@ const runningFrontRules: MotionRule[] = [
   }
 ]
 
+const numbers = (values: (number | null | undefined)[]) =>
+  values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+
+/**
+ * 站姿弯举：只做测量，不设阈值。
+ * 本项目没有可核验的弯举“标准肘角”文献，按 ADR-0003 不得进入关注项。
+ */
+const curlSideRules: MotionRule[] = [
+  {
+    id: 'CURL-SE-METRICS',
+    output: 'metric',
+    evaluate: ({ reps }) => {
+      const rom = numbers(reps.map(rep => rep.rangeOfMotion))
+      const bottoms = numbers(reps.map(rep => rep.bottomPrimaryAngle))
+      const eccentric = numbers(reps.map(rep => rep.eccentricMs))
+      const concentric = numbers(reps.map(rep => rep.endMs - rep.bottomMs))
+      return [
+        { id: 'metric-rep-count', label: '完整重复次数', value: reps.length },
+        { id: 'metric-elbow-rom', label: '平均肘角幅度', value: average(rom) === null ? '—' : Math.round(average(rom)!), unit: '°' },
+        { id: 'metric-bottom-elbow', label: '平均底部肘角', value: average(bottoms) === null ? '—' : Math.round(average(bottoms)!), unit: '°' },
+        { id: 'metric-eccentric', label: '平均下放时长', value: seconds(average(eccentric)), unit: '秒' },
+        { id: 'metric-concentric', label: '平均举起时长', value: seconds(average(concentric)), unit: '秒' }
+      ]
+    }
+  }
+]
+
+const curlFrontRules: MotionRule[] = [
+  {
+    id: 'CURL-FR-METRICS',
+    output: 'metric',
+    evaluate: ({ reps }) => {
+      const rom = numbers(reps.map(rep => rep.rangeOfMotion))
+      const bottoms = numbers(reps.map(rep => rep.bottomPrimaryAngle))
+      const diffs = numbers(reps.map(rep =>
+        rep.leftPrimaryAngle != null && rep.rightPrimaryAngle != null
+          ? Math.abs(rep.leftPrimaryAngle - rep.rightPrimaryAngle) : null
+      ))
+      const shoulders = numbers(reps.map(rep => rep.shoulderHeightDiff))
+      return [
+        { id: 'metric-rep-count', label: '完整重复次数', value: reps.length },
+        { id: 'metric-elbow-rom', label: '平均肘角幅度', value: average(rom) === null ? '—' : Math.round(average(rom)!), unit: '°' },
+        { id: 'metric-bottom-elbow', label: '平均底部肘角', value: average(bottoms) === null ? '—' : Math.round(average(bottoms)!), unit: '°' },
+        { id: 'metric-elbow-asymmetry', label: '左右肘角差', value: average(diffs) === null ? '—' : Math.round(average(diffs)!), unit: '°' },
+        { id: 'metric-shoulder-diff', label: '双肩高度差', value: average(shoulders) === null ? '—' : round2(average(shoulders)!), unit: '（归一化）' }
+      ]
+    }
+  }
+]
+
+const RULES_BY_ACTION: Record<string, Record<AnalysisView, MotionRule[]>> = {
+  squat: { side: squatSideRules, front: squatFrontRules },
+  deadlift: { side: deadliftSideRules, front: deadliftFrontRules },
+  running: { side: runningSideRules, front: runningFrontRules },
+  curl: { side: curlSideRules, front: curlFrontRules }
+}
+
 export function rulesFor(action: AnalysisAction, view: AnalysisView): MotionRule[] {
-  if (action === 'squat') return view === 'side' ? squatSideRules : squatFrontRules
-  if (action === 'deadlift') return view === 'side' ? deadliftSideRules : deadliftFrontRules
-  if (action === 'running') return view === 'side' ? runningSideRules : runningFrontRules
-  return []
+  return RULES_BY_ACTION[action]?.[view] ?? []
 }

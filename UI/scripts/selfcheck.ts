@@ -10,7 +10,7 @@ import { dayIntakeFacts, dietFindings, limitImmediate, meetsImmediateGate, meets
 import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
 import { validateRecognitionObject, validateRecognitionText } from '@/services/foodRecognition'
 import { activeExercises, CAMERA_COUNTABLE, exercises, EXERCISE_CATALOG_VERSION, findExercise, gateReason } from '@/services/exercises'
-import { applyPlanOverrides, getDemoExercise, guideExercise, readPlanOverrides, summarizeSession } from '@/services/demoCameraService'
+import { applyPlanOverrides, getDemoExercise, getPhaseText, guideExercise, readPlanOverrides, summarizeSession } from '@/services/demoCameraService'
 import { useRepCounter } from '@/composables/useRepCounter'
 import { createRepMachine } from '@/composables/repMachine'
 import { configForName, configForId, configsForAction, repRuleFor } from '@/services/motionConfig'
@@ -24,9 +24,10 @@ import { useMotionExplanation } from '@/composables/useMotionExplanation'
 import { saveMotionSeries, getMotionSeries, listMotionSeriesKeys, deleteMotionSeries, clearMotionSeries, buildSeriesRecord } from '@/services/motionSeries'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
 import type { RepMachineSnapshot } from '@/composables/repMachine'
-import { analyzeMotion, analyzeGait, classifyAction, detectView, precheckMotion, extractMotionFrame, analyzeRep, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
+import { analyzeMotion, analyzeGait, analyzeHold, classifyAction, classifyTemplate, summarizeMotionFeatures, detectView, precheckMotion, extractMotionFrame, analyzeRep, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
 import { POSE_DETECT_TIMEOUT_MS, POSE_FIRST_DETECT_TIMEOUT_MS, POSE_INPUT_MAX_WIDTH, PoseTimeoutError, isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import { rulesFor } from '@/services/motionRules'
+import { MOTION_TEMPLATES, findingsTemplates, repRuleForTemplate, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
 import { useAppStore } from '@/stores/app'
@@ -231,8 +232,10 @@ ok('本周计划落盘', store.plans.length === 1 && plan.items.length > 0)
 ok('重复取同一周不新建', store.ensureWeekPlan(monday).id === plan.id)
 
 const firstItem = plan.items[0]
+const reasonBeforeCompletion = plan.reason
 store.markItemCompleted(plan.id, firstItem.id, true)
 ok('完成标记生成新版本', plan.version === v1 + 1 && store.planHistory.length === 1)
+ok('完成标记不改写计划说明', plan.reason === reasonBeforeCompletion, plan.reason)
 ok('历史版本保留改动前的状态', store.planHistory[0].items.find(i => i.id === firstItem.id)!.completed === false)
 
 store.acceptAdjustment(plan.id, plan.items.map(i => ({
@@ -789,6 +792,12 @@ const intervalItem = {
   id: 'interval', planId: 'follow', date: '2026-11-10', exerciseName: '坐站训练', type: '坐站训练' as const,
   plannedSets: 2, plannedReps: 5, plannedDuration: 2, completed: false
 }
+const datedSession = summarizeSession({
+  exercise: sitOverride, setsCompleted: 1, repsBySet: [5],
+  averageConfidence: 0, manualCorrections: 0, elapsedMs: 60_000, date: '2026-11-24'
+})
+ok('训练记录可显式指定本地日期', datedSession.date === '2026-11-24', datedSession.date)
+ok('训练记录默认使用本地日期', customSession.date === toISODate(new Date()), customSession.date)
 const timedGuide = guideExercise(sitDemo, 'timer', intervalItem)
 const cameraGuide = guideExercise(sitDemo, 'camera', intervalItem)
 ok('同一计次计划可按时长跟练或保留摄像头计数规格', timedGuide.mode === 'time'
@@ -1571,7 +1580,7 @@ ok('合格深蹲自动识别且不再提示歧义', goodPrecheck.verdict === 'ok
 const deadliftSeries = buildSquatSeries({ reps: 2, bottomKnee: 150, lean: 65 })
 const deadliftPrecheck = precheckMotion({ fps: deadliftSeries.fps, frames: deadliftSeries.frames })
 ok('髋铰链大前倾识别为硬拉', deadliftPrecheck.action === 'deadlift' && deadliftPrecheck.actionConfident === true
-  && !deadliftPrecheck.reasons.some(reason => reason.includes('深蹲与硬拉')))
+  && !deadliftPrecheck.reasons.some(reason => reason.includes('深蹲与硬拉')), JSON.stringify(deadliftPrecheck))
 const ambiguousStrength = buildSquatSeries({ reps: 2, bottomKnee: 120, lean: 40 })
 const ambiguousClass = classifyAction(ambiguousStrength.frames, ambiguousStrength.fps)
 ok('特征不明确时默认深蹲并标注低置信', ambiguousClass.action === 'squat' && !ambiguousClass.confident)
@@ -1719,6 +1728,129 @@ ok('正面跑姿膝内扣命中', frontRunResult.findings.some(finding => findin
 ok('正面跑姿不出侧面步频关注项', !frontRunResult.findings.some(finding => finding.ruleId.startsWith('RUN-SE')))
 ok('正面跑姿左右对称进测量值', frontRunResult.metrics.some(metric => metric.id === 'metric-shoulder-diff')
   && frontRunResult.metrics.some(metric => metric.id === 'metric-hip-diff'))
+
+console.log('\n33A. 动作模板：弯举与平板只测量')
+
+function armFrame(timeMs: number, elbowAngle: number): MotionFrame {
+  const shoulder = pointAt(0.5, 0.4)
+  const elbow = pointAt(0.5, 0.55)
+  const theta = (-90 + elbowAngle) * Math.PI / 180
+  const wrist = pointAt(elbow.x + 0.15 * Math.cos(theta), elbow.y + 0.15 * Math.sin(theta))
+  const hip = pointAt(0.5, 0.75)
+  const knee = pointAt(0.5, 0.95)
+  const ankle = pointAt(0.5, 1.1)
+  return {
+    timeMs,
+    visibility: 0.95,
+    points: {
+      shoulder: { left: shoulder, right: shoulder },
+      elbow: { left: elbow, right: elbow },
+      wrist: { left: wrist, right: wrist },
+      hip: { left: hip, right: hip },
+      knee: { left: knee, right: knee },
+      ankle: { left: ankle, right: ankle },
+      heel: { left: null, right: null },
+      toe: { left: null, right: null }
+    }
+  }
+}
+function curlAngleAt(ms: number): number {
+  const cycle = 1400
+  const phase = ms % cycle
+  if (phase < 250) return 165
+  if (phase < 700) return 165 - (165 - 60) * ((phase - 250) / 450)
+  if (phase < 1000) return 60
+  if (phase < 1300) return 60 + (165 - 60) * ((phase - 1000) / 300)
+  return 165
+}
+const curlFrames = Array.from({ length: Math.ceil((3 * 1400 / 1000) * 15) }, (_, index) => {
+  const timeMs = (index + 1) * (1000 / 15)
+  return armFrame(timeMs, curlAngleAt(timeMs))
+})
+const curlResult = analyzeMotion({ action: 'curl', view: 'side', fps: 15, frames: curlFrames })
+ok('弯举模板可分段计数', curlResult.repCount === 3, String(curlResult.repCount))
+ok('弯举逐次摘要用肘角主关节', curlResult.reps?.[0]?.primaryJoint === 'elbow'
+  && (curlResult.reps?.[0]?.bottomPrimaryAngle ?? 999) < 70, JSON.stringify(curlResult.reps?.[0]))
+ok('弯举只出测量值不出关注项', curlResult.findings.length === 0
+  && curlResult.metrics.some(metric => metric.id === 'metric-elbow-rom'))
+ok('弯举全程肘角范围可测', curlResult.metrics.some(metric =>
+  metric.id === 'metric-elbow-range' && typeof metric.value === 'number' && metric.value >= 90))
+ok('弯举模板标记为只测量', templateFor('curl').findingsReady === false)
+const curlPrecheck = precheckMotion({ fps: 15, frames: curlFrames, templateId: 'curl' })
+ok('预检可指定弯举模板', curlPrecheck.action === 'curl' && curlPrecheck.actionConfident
+  && curlPrecheck.repCount === 3, JSON.stringify(curlPrecheck))
+
+function plankFrame(timeMs: number): MotionFrame {
+  const shoulder = pointAt(0.39, 0.5)
+  const hip = pointAt(0.5, 0.55)
+  const knee = pointAt(0.545, 0.575)
+  const ankle = pointAt(0.6, 0.6)
+  return {
+    timeMs,
+    visibility: 0.95,
+    points: {
+      shoulder: { left: shoulder, right: shoulder },
+      hip: { left: hip, right: hip },
+      knee: { left: knee, right: knee },
+      ankle: { left: ankle, right: ankle },
+      heel: { left: null, right: null },
+      toe: { left: null, right: null }
+    }
+  }
+}
+const plankFrames = Array.from({ length: 77 }, (_, index) => plankFrame((index + 1) * (1000 / 15)))
+const holdResult = analyzeHold(plankFrames)
+ok('平板保持时长可测', holdResult.durationSec > 4.9 && holdResult.durationSec < 5.2, String(holdResult.durationSec))
+ok('平板对齐角接近直线', holdResult.meanAlignment !== null && holdResult.meanAlignment > 175, String(holdResult.meanAlignment))
+ok('平板髋部偏离接近 0', holdResult.maxHipSag !== null && holdResult.maxHipSag < 0.02, String(holdResult.maxHipSag))
+const plankResult = analyzeMotion({ action: 'plank', view: 'side', fps: 15, frames: plankFrames })
+ok('平板结果没有重复次数', plankResult.repCount === null)
+ok('平板保持时长写入结果', plankResult.holdSeconds !== undefined && plankResult.holdSeconds > 4.8, String(plankResult.holdSeconds))
+ok('平板只出测量值', plankResult.findings.length === 0
+  && plankResult.metrics.some(metric => metric.id === 'metric-hold-duration'))
+const curlFeatures = summarizeMotionFeatures(curlFrames, 15)
+const plankFeatures = summarizeMotionFeatures(plankFrames, 15)
+ok('弯举特征：肘角大幅往返、膝角稳定', (curlFeatures.elbowRange ?? 0) >= 60
+  && (curlFeatures.kneeRange ?? 99) <= 30, JSON.stringify(curlFeatures))
+ok('平板特征：近水平、髋部静止、膝角伸直', (plankFeatures.meanTrunkAngle ?? 0) >= 65
+  && (plankFeatures.hipVerticalRange ?? 99) <= 0.12
+  && (plankFeatures.meanKneeAngle ?? 0) >= 150, JSON.stringify(plankFeatures))
+const curlAuto = classifyTemplate(curlFrames, 15)
+ok('弯举可自动识别', curlAuto.action === 'curl' && curlAuto.confident, JSON.stringify(curlAuto))
+const plankAuto = classifyTemplate(plankFrames, 15)
+ok('平板可自动识别', plankAuto.action === 'plank' && plankAuto.confident, JSON.stringify(plankAuto))
+const squatAuto = classifyTemplate(goodSquat.frames, 15)
+ok('深蹲不被弯举/平板覆盖', squatAuto.action === 'squat' && squatAuto.confident, JSON.stringify(squatAuto))
+const runningAuto = classifyTemplate(runningFrames, 30)
+ok('跑姿自动识别保持', runningAuto.action === 'running', JSON.stringify(runningAuto))
+const plankPrecheck = precheckMotion({ fps: 15, frames: plankFrames, templateId: 'plank' })
+ok('平板预检识别保持区间', plankPrecheck.action === 'plank' && plankPrecheck.holdSeconds !== null,
+  JSON.stringify(plankPrecheck))
+const plankFrontPrecheck = precheckMotion({ fps: 15, frames: plankFrames.map(frame => ({ ...frame,
+  points: { ...frame.points, shoulder: { left: pointAt(0.45, 0.5), right: pointAt(0.55, 0.5) },
+    hip: { left: pointAt(0.47, 0.6), right: pointAt(0.53, 0.6) } } })), templateId: 'plank' })
+ok('平板正面视角交给用户确认侧面', plankFrontPrecheck.verdict === 'view-unclear'
+  && plankFrontPrecheck.suggestedView === 'side', JSON.stringify(plankFrontPrecheck))
+
+ok('模板 id 唯一', new Set(MOTION_TEMPLATES.map(template => template.id)).size === MOTION_TEMPLATES.length)
+ok('可分析动作列表包含弯举与平板', visibleTemplates().some(template => template.id === 'curl')
+  && visibleTemplates().some(template => template.id === 'plank'))
+for (const template of MOTION_TEMPLATES.filter(item => item.kind === 'reps')) {
+  ok(`计数模板 ${template.id} 有分段规则`, repRuleForTemplate(template) !== null)
+}
+for (const template of findingsTemplates()) {
+  ok(`关注项模板 ${template.id} 至少有一条 finding 规则`,
+    rulesFor(template.id, 'side').some(rule => rule.output === 'finding'))
+}
+for (const template of MOTION_TEMPLATES.filter(item => !item.findingsReady && item.views.length)) {
+  ok(`${template.id} 不出 finding`, template.views.every(view =>
+    rulesFor(template.id, view).every(rule => rule.output === 'metric')))
+}
+ok('未登记动作有兜底标签', templateFor('mystery').id === 'mystery' && templateFor('').label === '未识别动作')
+ok('未知动作规则为空', rulesFor('mystery', 'side').length === 0)
+const deadliftDemo = getDemoExercise('硬拉')
+ok('硬拉跟练用髋部阶段文案', deadliftDemo.kind === 'hip'
+  && getPhaseText('down', 'hip') === '俯身' && getPhaseText('up', 'hip') === '站直')
 
 console.log('\n34. 分析记录持久化与关键帧')
 const analysisRecord: MotionAnalysis = {
@@ -1997,7 +2129,7 @@ ok('finding 置信度可随 findings 一起过服务端（无模式 JSON）', ((
   return payload.includes('"confidence"') && payload.length < 4000
 })())
 ok('绝对阈值规则也带置信度', valgusFindings[0].confidence !== undefined)
-ok('规则版本已升到 v2', MOTION_RULES_VERSION === 'motion-analysis-rules-v2')
+ok('规则版本已升到 v3', MOTION_RULES_VERSION === 'motion-analysis-rules-v3')
 
 console.log('\n42. 置信度推导：质量/视角/幅度/基线四环')
 ok('关键点质量差则置信度低', findingConfidence({ repVisibilityMean: 0.3, viewConfidence: 0.9, measured: 112, threshold: 88, scale: 15, priorCount: 4 })
@@ -2140,7 +2272,7 @@ const seriesRecord = buildSeriesRecord({
   angles: [{ timeMs: 0, visibility: 0.9, kneeAngle: 172, hipAngle: 170, trunkAngle: 5 }],
   reps: [], events: []
 })
-ok('只存 12 关节并集不存 33 点', seriesRecord.landmarks.every(row => row.points.length === 12))
+ok('只存 16 关节并集不存 33 点', seriesRecord.landmarks.every(row => row.points.length === 16))
 ok('坐标保留 4 位小数', seriesRecord.landmarks.every(row => row.points.every(p => Number.isFinite(p.x) && Math.abs(p.x * 1e4 - Math.round(p.x * 1e4)) < 1e-6)))
 ok('留存记录带 ruleVersion 供跨版本比较', seriesRecord.ruleVersion === MOTION_RULES_VERSION)
 
