@@ -487,7 +487,7 @@ async function requestSupplementPermission(): Promise<SupplementPermission> {
   return permission.value
 }
 
-async function scheduleSupplementTest(title: string, body: string, delayMs = 12_000): Promise<number> {
+async function scheduleSupplementTest(title: string, body: string, delayMs = 12_000): Promise<{ at: number; id: number }> {
   if (await refreshNativePermission() !== 'granted') throw new Error('请先允许「两仪」发送通知。')
   const channel = await ensureChannel()
   const importance = channel?.importance ?? -1
@@ -516,7 +516,17 @@ async function scheduleSupplementTest(title: string, body: string, delayMs = 12_
   // 把这次测试实际用的档位写回状态：exact=false 时页面立刻出现「开启准时提醒」，
   // 用户不用去翻每日提醒的预约结果才知道为什么后台没弹。
   scheduleStatus.value = { ...scheduleStatus.value, exact }
-  return at.getTime()
+  return { at: at.getTime(), id }
+}
+
+/**
+ * 约定时间过后，系统队列里还在不在这条测试？
+ * 插件的 TimedNotificationPublisher 触发后会从 storage 删掉这条记录——所以：
+ * 还在 = 闹钟没响（后台限制/自启动被关），不在 = 已触发（看不到就是显示被拦截）。
+ */
+async function isNotificationQueued(id: number): Promise<boolean> {
+  const { notifications } = await LocalNotifications.getPending()
+  return notifications.some(notification => notification.id === id)
 }
 
 async function sendSupplementNotification(title: string, body: string, tag = 'supplement'): Promise<boolean> {
@@ -665,6 +675,7 @@ export function useSupplementReminders() {
     removeReminder,
     requestSupplementPermission,
     scheduleSupplementTest,
+    isNotificationQueued,
     sendSupplementNotification,
     nextReminderLabel
   }

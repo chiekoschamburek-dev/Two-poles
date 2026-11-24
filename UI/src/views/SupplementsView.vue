@@ -42,6 +42,10 @@
         <template v-if="testCountdown > 0">测试提醒将在 {{ testCountdown }} 秒后送达，请现在按 Home 键回到桌面。<template v-if="scheduleStatus.exact === false">（未开启准时提醒，系统可能延后送达）</template></template>
         <template v-else>测试提醒应已送达：顶部横幅才算通过；只在通知栏说明横幅被系统关掉了。</template>
       </p>
+      <p v-if="testOutcome !== 'idle'" class="sup-hint" :class="{ warn: testOutcome === 'queued' }" role="status">
+        <template v-if="testOutcome === 'fired'">系统已在预定时间触发这条测试：通知已经交给系统。若仍看不到，问题在显示环节——检查「补剂提醒」类别是否允许横幅/锁屏通知。</template>
+        <template v-else>预定时间已过，这条测试仍留在系统队列里：系统没有把这次提醒走完。常见原因是后台限制（自启动/电池策略）、测试后把 App 划掉，或通知发出时被系统拦截。</template>
+      </p>
       <div class="sup-actions">
         <button
           v-if="permission !== 'granted' && permission !== 'unsupported'"
@@ -214,6 +218,7 @@ const {
   removeReminder,
   requestSupplementPermission,
   scheduleSupplementTest,
+  isNotificationQueued,
   sendSupplementNotification,
   nextReminderLabel
 } = useSupplementReminders()
@@ -232,6 +237,33 @@ let formScrollLock: symbol | null = null
 const nowTick = ref(Date.now())
 /** 测试提醒的计划送达时刻，用于在页面上倒计时，用户不必猜「约 30 秒」到底是多久 */
 const pendingTestAt = ref<number | null>(null)
+/** 本次测试通知的系统 id：约定时间后查它还在不在队列里，判断「没触发」还是「被显示拦截」 */
+const pendingTestId = ref<number | null>(null)
+const testOutcome = ref<'idle' | 'fired' | 'queued'>('idle')
+let testCheckTimer: number | undefined
+/** 后台被系统杀掉后页面会重建，待判定的测试要能跨刷新恢复 */
+const TEST_PENDING_KEY = 'twopoles.v1.supplementTestPending'
+
+function rememberTest(at: number, id: number) {
+  try { localStorage.setItem(TEST_PENDING_KEY, JSON.stringify({ at, id })) } catch { /* 隐私模式忽略 */ }
+}
+function forgetTest() {
+  try { localStorage.removeItem(TEST_PENDING_KEY) } catch { /* 同上 */ }
+}
+function restoreTest() {
+  try {
+    const raw = localStorage.getItem(TEST_PENDING_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as { at?: number; id?: number }
+    if (typeof parsed.at !== 'number' || typeof parsed.id !== 'number') return
+    pendingTestAt.value = parsed.at
+    pendingTestId.value = parsed.id
+    if (Date.now() > parsed.at + 5_000) void checkTestOutcome()
+    else scheduleTestOutcomeCheck(parsed.at)
+  } catch {
+    // 坏数据直接忽略，下次测试会覆盖
+  }
+}
 /** 从通知点进来时要高亮的那条提醒；非空期间加一圈提示框 */
 const focusedId = ref<string | null>(null)
 let clockTimer: number | undefined
@@ -240,6 +272,8 @@ let focusTimer: number | undefined
 onMounted(() => {
   clockTimer = window.setInterval(() => { nowTick.value = Date.now() }, 1_000)
   void refreshNotificationDiagnostics()
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  restoreTest()
   const target = typeof route.query.focus === 'string' ? route.query.focus : ''
   if (target) {
     focusedId.value = target
@@ -253,6 +287,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (clockTimer !== undefined) window.clearInterval(clockTimer)
   if (focusTimer !== undefined) window.clearTimeout(focusTimer)
+  if (testCheckTimer !== undefined) window.clearTimeout(testCheckTimer)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 const testCountdown = computed(() => {
@@ -261,6 +297,28 @@ const testCountdown = computed(() => {
   const rest = Math.ceil((at - nowTick.value) / 1000)
   return rest > 0 ? rest : 0
 })
+
+/** 测试通知的「到底谁没干活」判定：到点后查系统队列，见 isNotificationQueued 的注释 */
+function scheduleTestOutcomeCheck(at: number) {
+  if (testCheckTimer !== undefined) window.clearTimeout(testCheckTimer)
+  testCheckTimer = window.setTimeout(() => { void checkTestOutcome() }, Math.max(0, at - Date.now()) + 8_000)
+}
+
+async function checkTestOutcome() {
+  if (pendingTestId.value === null || testOutcome.value !== 'idle') return
+  try {
+    const queued = await isNotificationQueued(pendingTestId.value)
+    testOutcome.value = queued ? 'queued' : 'fired'
+    forgetTest()
+  } catch {
+    // 读不到队列就保持 idle，不给出错误结论
+  }
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState !== 'visible') return
+  if (pendingTestAt.value !== null && Date.now() > pendingTestAt.value + 5_000) void checkTestOutcome()
+}
 
 /** 系统里下一次会响的时刻：用户不必猜「到底排上了没有」 */
 const nextReminderAt = computed(() => {
@@ -541,8 +599,12 @@ async function testNotification() {
   const message = '看到这条，说明后台提醒正常。'
   if (isNativeSupplements) {
     try {
-      const at = await scheduleSupplementTest(title, message)
+      const { at, id } = await scheduleSupplementTest(title, message)
       pendingTestAt.value = at
+      pendingTestId.value = id
+      testOutcome.value = 'idle'
+      rememberTest(at, id)
+      scheduleTestOutcomeCheck(at)
       const exact = scheduleStatus.value.exact
       store.showToast({
         type: exact === false ? 'warning' : 'success',
