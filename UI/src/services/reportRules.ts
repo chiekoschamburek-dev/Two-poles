@@ -1,8 +1,7 @@
 // 期间报告：近四周与自然月共用同一套聚合口径。
 // 负荷只在“当天所有场次都有 RPE 与时长”时计算；缺失的一天不计入，也不补 0。
-import type { FoodCategory, Meal, TrainingSession, UserProfile } from '@/types/domain'
+import type { FoodCategory, Meal, TrainingSession } from '@/types/domain'
 import { toISODate } from '@/utils/time'
-import { isPlanDay } from '@/services/planRules'
 import { FOOD_CATEGORIES, RULE_VERSION } from '@/services/mealRules'
 import { loadOf } from '@/services/weekRules'
 
@@ -45,6 +44,10 @@ export interface PeriodReport {
   totalSessions: number
   totalMinutes: number
   plannedDays: number
+  /** 计划日中有记录的天数：completionRate 的分子，单独给出来才能被复算 */
+  recordedPlannedSessions: number
+  /** 有记录但不在计划日的天数：解释"有记录天数 > 计划天数"时用 */
+  offPlanSessions: number
   completionRate: number | null
   mealDays: number
   totalMeals: number
@@ -56,7 +59,8 @@ export interface PeriodReport {
 }
 
 export interface PeriodContext {
-  profile?: UserProfile | null
+  /** 区间内的计划日（ISO 日期），来自计划条目；空数组＝这段时间没有计划 */
+  plannedDates?: string[]
 }
 
 const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate())
@@ -110,7 +114,7 @@ function blockOf(
     trainingDays: trainingDays.size,
     sessions: inBlock.length,
     minutes: inBlock.reduce((sum, s) => sum + (s.actualDuration ?? 0), 0),
-    plannedDays: days.filter(day => isPlanDay(new Date(`${day}T00:00:00`), ctx.profile ?? null)).length,
+    plannedDays: (ctx.plannedDates ?? []).filter(day => days.includes(day)).length,
     mealDays: new Set(blockMeals.map(m => m.date)).size,
     completeMeals,
     partialMeals: blockMeals.length - completeMeals
@@ -123,8 +127,8 @@ function periodOf(blocks: ReportBlock[], sessions: TrainingSession[], meals: Mea
   const inRange = sessions.filter(s => s.date >= start && s.date <= end)
   const inMeals = meals.filter(m => m.date >= start && m.date <= end)
   const trainingDays = new Set(inRange.map(s => s.date))
-  const allDays = dayList(new Date(`${start}T00:00:00`), new Date(`${end}T00:00:00`))
-  const plannedDayList = allDays.filter(day => isPlanDay(new Date(`${day}T00:00:00`), ctx.profile ?? null))
+  // 计划日一律取计划条目所在日期，与服务端 /reports/weekly 同口径
+  const plannedDayList = (ctx.plannedDates ?? []).filter(day => day >= start && day <= end).sort()
   const plannedDays = plannedDayList.length
   // 计划覆盖率只看计划日；非计划日训练单独说明，避免分子超过分母
   const recordedPlannedDays = plannedDayList.filter(day => trainingDays.has(day)).length
@@ -156,11 +160,11 @@ function periodOf(blocks: ReportBlock[], sessions: TrainingSession[], meals: Mea
   if (totalLoad !== null) {
     dataQuality.push(`负荷合计覆盖 ${loadDays} 天（有记录的 ${trainingDays.size} 天中）；缺 RPE 的天按未计入处理，不按 0 补齐。`)
   }
-  if (!plannedDays) dataQuality.push('按你的档案，这段窗口没有安排训练，因此不计算计划记录覆盖率。')
+  if (!plannedDays) dataQuality.push('这段窗口没有计划条目，因此不计算计划记录覆盖率。')
   else if (recordedPlannedDays < plannedDays) {
-    dataQuality.push(`安排 ${plannedDays} 天，其中有记录 ${recordedPlannedDays} 天；未记录的计划日按未覆盖计。`)
+    dataQuality.push(`计划 ${plannedDays} 天，其中有记录 ${recordedPlannedDays} 天；未记录的计划日按未覆盖计（未记录不等于没练）。`)
   }
-  if (offPlanDays) dataQuality.push(`另有 ${offPlanDays} 天有训练记录但不在计划日，不计入计划覆盖率。`)
+  if (offPlanDays) dataQuality.push(`另有 ${offPlanDays} 天有训练记录但不在计划日，不计入计划记录覆盖率。`)
   dataQuality.push(`餐食：${mealDays} 天有记录，其余显示"未记录"，不代表未摄入。`)
 
   return {
@@ -174,6 +178,9 @@ function periodOf(blocks: ReportBlock[], sessions: TrainingSession[], meals: Mea
     totalSessions: inRange.length,
     totalMinutes: inRange.reduce((sum, s) => sum + (s.actualDuration ?? 0), 0),
     plannedDays,
+    // 有记录天数含非计划日；与计划天数不是同一个分母，比率只用下面两个字段复算
+    recordedPlannedSessions: recordedPlannedDays,
+    offPlanSessions: offPlanDays,
     completionRate: plannedDays ? recordedPlannedDays / plannedDays : null,
     mealDays,
     totalMeals: inMeals.length,

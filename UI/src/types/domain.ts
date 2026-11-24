@@ -524,8 +524,14 @@ export interface WeeklyReport {
   weekEndDate: string
 
   // Training summary
+  /** 计划场次：计划条目所在的天数 */
   plannedSessions: number
+  /** 有记录场次：本周有训练记录的天数，含非计划日 */
   completedSessions: number
+  /** 计划日中有记录的天数：completionRate 的分子，单独给出来才能被复算 */
+  recordedPlannedSessions?: number
+  /** 有记录但不在计划日的天数 */
+  offPlanSessions?: number
   totalDuration: number
   totalDistance: number
 

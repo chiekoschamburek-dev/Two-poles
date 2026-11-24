@@ -277,7 +277,8 @@ function segmentReps(frames: MotionFrame[], template: MotionActionTemplate): { i
 /** 供实时模式复用：rep 结束时该次所有帧都是过去/当前，摘要与离线逐位相同 */
 export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: number, fps: number, action: AnalysisAction): RepAnalysis {
   const template = templateFor(action)
-  const joint: 'knee' | 'hip' | 'elbow' = template.segmentation?.joint ?? (action === 'deadlift' ? 'hip' : 'knee')
+  // 主关节只由模板决定；未登记动作退回膝角，不再按动作名特判
+  const joint: 'knee' | 'hip' | 'elbow' = template.segmentation?.joint ?? 'knee'
   const repFrames = frames.filter(frame => frame.timeMs >= interval.startMs && frame.timeMs <= interval.endMs)
   let bottomFrame: MotionFrame | null = null
   let bottomAngle: number | null = null
@@ -351,9 +352,9 @@ export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: 
     startMs: interval.startMs,
     endMs: interval.endMs,
     bottomMs: bottomFrame.timeMs,
-    bottomKneeAngle: joint === 'knee'
-      ? bottomAngle
-      : (knee.angle ?? (action === 'deadlift' ? bottomAngle : null)),
+    // 膝角只在主关节是膝时取主关节角；否则老实读膝角，读不到就留空。
+    // 这里绝不拿髋角去顶膝角：那会让"最低点膝角"显示成髋角数值。
+    bottomKneeAngle: joint === 'knee' ? bottomAngle : knee.angle,
     bottomHipAngle: hipJoint.angle,
     bottomTrunkAngle: trunk,
     endKneeAngle: endKnee.angle,
@@ -648,7 +649,10 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   }
   if (kinematics) metrics.push(...kinematicsMetrics(kinematics, series.action))
   if (hold) metrics.push(...holdMetrics(hold))
-  const primaryJoint = template.segmentation?.joint ?? (series.action === 'deadlift' ? 'hip' : 'knee')
+  // 模板没配可核验阈值时一律不出关注项：即使将来有人给该动作加了 finding 规则，
+  // 也不会把测量值包装成结论（ADR-0003 的最后一道闸）
+  if (!template.findingsReady) findings.length = 0
+  const primaryJoint = template.segmentation?.joint ?? 'knee'
   const angles = series.frames.map(frame => {
     const knee = jointAngle(frame, 'knee')
     const hip = jointAngle(frame, 'hip')
@@ -671,7 +675,7 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     if (elbowAngles.length) {
       metrics.push({
         id: 'metric-elbow-range',
-        label: '肘角全程范围',
+        label: '全程肘角极差',
         value: Math.round(Math.max(...elbowAngles) - Math.min(...elbowAngles)),
         unit: '°'
       })
@@ -946,6 +950,27 @@ export function classifyTemplate(frames: MotionFrame[], fps: number): TemplateCl
 }
 
 export function precheckMotion(input: { fps: number; frames: MotionFrame[]; templateId?: string }): MotionPrecheckResult {
+  /**
+   * 视角判不准或模板不支持该视角时的统一返回形状：不直接拒绝，把视角交给用户选。
+   * 三条分支（判不出视角 / hold 模板 / 自动识别到单视角模板）都走这里，
+   * 免得字段各拼一份、漏一个就少一个 null。
+   */
+  const viewUnclear = (args: {
+    reasons: string[]
+    suggestedView?: AnalysisView | null
+    action: AnalysisAction
+    actionConfident: boolean
+  }): MotionPrecheckResult => ({
+    verdict: 'view-unclear',
+    reasons: args.reasons,
+    view: null,
+    suggestedView: args.suggestedView ?? null,
+    repCount: null,
+    gaitCycles: null,
+    holdSeconds: null,
+    action: args.action,
+    actionConfident: args.actionConfident
+  })
   const selected = input.templateId ? templateFor(input.templateId) : undefined
   const usable = input.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
   if (!input.frames.length || !usable.length) {
@@ -969,17 +994,12 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
     const classification = selected
       ? { action: selected.id, confident: true }
       : classifyTemplate(input.frames, input.fps)
-    return {
-      verdict: 'view-unclear',
+    return viewUnclear({
       reasons: [...reasons, '无法自动判定拍摄视角：请确认这段视频是侧面还是正面，选完按低置信度分析'],
-      view: null,
       suggestedView: viewResult.suggested,
-      repCount: null,
-      gaitCycles: null,
-      holdSeconds: null,
       action: classification.action,
       actionConfident: classification.confident
-    }
+    })
   }
   const classification = selected
     ? { action: selected.id, confident: true }
@@ -991,17 +1011,12 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
     // 平板/静态保持的身体接近水平，detectView 用竖直躯干高度做分母会把侧拍误判成正面；
     // 这类动作不直接拒绝，交给用户确认实际机位（只提供模板支持的视角）。
     if (template.kind === 'hold') {
-      return {
-        verdict: 'view-unclear',
+      return viewUnclear({
         reasons: [...reasons, `${source} 需要${supported}视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
-        view: null,
         suggestedView: template.views[0] ?? 'side',
-        repCount: null,
-        gaitCycles: null,
-        holdSeconds: null,
         action: template.id,
         actionConfident: classification.confident
-      }
+      })
     }
     if (selected) {
       return {
@@ -1017,17 +1032,12 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
     }
     // 自动识别猜到了只支持单一视角的模板时，不按不支持的机位直接分析，
     // 也不直接拒绝：交给用户确认支持的视角。
-    return {
-      verdict: 'view-unclear',
+    return viewUnclear({
       reasons: [...reasons, `${source} 只支持${supported}视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
-      view: null,
       suggestedView: template.views[0] ?? 'side',
-      repCount: null,
-      gaitCycles: null,
-      holdSeconds: null,
       action: template.id,
       actionConfident: classification.confident
-    }
+    })
   }
   let repCount: number | null = null
   let gaitCycles: number | null = null
@@ -1060,7 +1070,8 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
     }
     if (!classification.confident) {
       degraded = true
-      reasons.push('动作特征不明确：已按深蹲预检，请在分析前选择实际动作')
+      // 文案必须用实际模板名：自动识别可能预选的是弯举/平板候选，不是深蹲
+      reasons.push(`动作特征不明确：已按「${template.label}」预检，请在分析前选择实际动作`)
     }
   }
   return {

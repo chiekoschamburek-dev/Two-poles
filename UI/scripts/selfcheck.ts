@@ -2,7 +2,7 @@
 // 运行：npm run selfcheck
 import { createPinia, setActivePinia } from 'pinia'
 import { buildDayPlan, alternativesFor, isPlanDay } from '@/services/planRules'
-import { buildWeeklyReport, loadOf, weekStart } from '@/services/weekRules'
+import { buildWeeklyReport, loadOf, plannedDatesOf, weekStart } from '@/services/weekRules'
 import { buildLoadSeries, intensitySplit, loadZone } from '@/services/loadRules'
 import { analyzeMeal, buildLimitations, deriveCompleteness, frequentFoods, inferMealType, suggestCategory, RULE_VERSION } from '@/services/mealRules'
 import { buildDietPhraseMessages, validateDietPhrases } from '@/services/llm'
@@ -28,7 +28,7 @@ import type { RepMachineSnapshot } from '@/composables/repMachine'
 import { analyzeMotion, analyzeGait, analyzeHold, classifyAction, classifyTemplate, summarizeMotionFeatures, detectView, precheckMotion, extractMotionFrame, analyzeRep, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
 import { POSE_DETECT_TIMEOUT_MS, POSE_FIRST_DETECT_TIMEOUT_MS, POSE_INPUT_MAX_WIDTH, PoseTimeoutError, isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import { rulesFor } from '@/services/motionRules'
-import { MOTION_TEMPLATES, findingsTemplates, repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
+import { MOTION_TEMPLATES, findingsTemplates, motionTemplateProblems, repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
 import { useAppStore } from '@/stores/app'
@@ -106,20 +106,41 @@ const s = (date: string, dur: number, rpe: number | null, extra: Partial<Trainin
   cameraUsed: false, manualCorrections: 0, createdAt: `${date}T09:00:00.000Z`, ...extra
 })
 const sessions = [s('2026-10-12', 20, 5), s('2026-10-14', 30, null), s('2026-10-16', 10, 4)]
-const rep = buildWeeklyReport(sessions, [], iso(0), { profile: p({}) })
+// 计划日只来自计划条目：这一周排了周一/周三/周五三天
+const plannedWeek = ['2026-10-12', '2026-10-14', '2026-10-16']
+const rep = buildWeeklyReport(sessions, [], iso(0), { plannedDates: plannedWeek })
 ok('单日负荷 = 时长 × RPE', loadOf(sessions[0]) === 100)
 ok('缺 RPE 的单次不可算', loadOf(sessions[1]) === null)
 ok('合计只含有 RPE 的天（100 + 40）', rep.totalLoad === 140, String(rep.totalLoad))
 ok('缺 RPE 的天记为未计入', rep.unloadedDays === 1, String(rep.unloadedDays))
 ok('数据质量说明覆盖范围', rep.dataQuality.some(q => q.includes('覆盖') && q.includes('不按 0 补齐')))
 ok('完成率有分母才计算', rep.completionRate !== null)
+ok('完成率可由字段复算', rep.completionRate === rep.recordedPlannedSessions / rep.plannedSessions, String(rep.completionRate))
+const noPlanWeek = buildWeeklyReport(sessions, [], iso(0))
+ok('没有计划条目就不按档案推算计划日', noPlanWeek.plannedSessions === 0 && noPlanWeek.completionRate === null)
+ok('没有计划时说明是"没有计划条目"而不是"档案没有安排"',
+  noPlanWeek.dataQuality.some(q => q.includes('没有计划条目')))
 const fullWeekSessions = Array.from({ length: 7 }, (_, index) => s(toISODate(iso(index)), 10, 3))
-const fullWeekRep = buildWeeklyReport(fullWeekSessions, [], iso(0), { profile: p({}) })
-ok('记录覆盖率不超过 100%', fullWeekRep.completionRate === 1, String(fullWeekRep.completionRate))
+const fullWeekRep = buildWeeklyReport(fullWeekSessions, [], iso(0), { plannedDates: plannedWeek })
+ok('计划日之外的训练不把比率推过 100%', fullWeekRep.completionRate === 1, String(fullWeekRep.completionRate))
+ok('有记录场次仍按全部记录天数（含非计划日）', fullWeekRep.completedSessions === 7, String(fullWeekRep.completedSessions))
+ok('计划日有记录单独计数', fullWeekRep.recordedPlannedSessions === 3, String(fullWeekRep.recordedPlannedSessions))
+ok('非计划日记录单独计数', fullWeekRep.offPlanSessions === 4, String(fullWeekRep.offPlanSessions))
+ok('三个数字能对上：计划日记录 + 非计划日 = 有记录场次',
+  fullWeekRep.recordedPlannedSessions + fullWeekRep.offPlanSessions === fullWeekRep.completedSessions)
 ok('非计划日训练不计入计划覆盖率', fullWeekRep.dataQuality.some(q => q.includes('不在计划日')))
-const idleWeek = buildWeeklyReport([s('2026-10-14', 20, 5)], [], iso(0), { profile: p({ restrictions: ['孕期或产后'] }) })
+const idleWeek = buildWeeklyReport([s('2026-10-14', 20, 5)], [], iso(0), { plannedDates: [] })
 ok('未安排训练的一周不计算完成率', idleWeek.completionRate === null && idleWeek.plannedSessions === 0)
-const hurt = buildWeeklyReport([s('2026-10-12', 20, 5, { discomfort: true })], [], iso(0), { profile: p({}) })
+const plannedDatesDeduped = plannedDatesOf([
+  { id: 'p1', userId: 'u1', version: 1, createdAt: '', reason: '', weekStartDate: '2026-10-12', weekEndDate: '2026-10-18',
+    items: [{ id: 'a', planId: 'p1', date: '2026-10-14', exerciseName: '深蹲', type: '其他', completed: false },
+            { id: 'b', planId: 'p1', date: '2026-10-12', exerciseName: '快走', type: '跑步', completed: false }] },
+  { id: 'p2', userId: 'u1', version: 2, createdAt: '', reason: '', weekStartDate: '2026-10-12', weekEndDate: '2026-10-18',
+    items: [{ id: 'c', planId: 'p2', date: '2026-10-14', exerciseName: '深蹲', type: '其他', completed: false },
+            { id: 'd', planId: 'p2', date: '2026-10-25', exerciseName: '快走', type: '跑步', completed: false }] }
+] as Plan[], '2026-10-12', '2026-10-18')
+ok('计划日在多个版本之间去重并排序', JSON.stringify(plannedDatesDeduped) === '["2026-10-12","2026-10-14"]', JSON.stringify(plannedDatesDeduped))
+const hurt = buildWeeklyReport([s('2026-10-12', 20, 5, { discomfort: true })], [], iso(0), {})
 ok('报了不适则阻止自动加量', hurt.blockedByDiscomfort === true)
 
 console.log('\n4. 饮食口径（类别推断 / 混合菜 / 免责清单）')
@@ -1035,7 +1056,7 @@ const reportMeals = [
 ]
 const rolling = buildRollingFourWeeksReport(
   reportSessions, reportMeals, new Date(2026, 10, 2),
-  { profile: p({ availableTimes: ['20 分钟'] }) }
+  { plannedDates: ['2026-10-07', '2026-10-14', '2026-10-21'] }
 )
 ok('近四周结束于今天、开始于 27 天前', rolling.start === '2026-10-06' && rolling.end === '2026-11-02')
 ok('近四周切成 4 个 7 天块', rolling.blocks.length === 4
@@ -1048,9 +1069,19 @@ ok('总负荷只累计完整日', rolling.totalLoad === 200 && rolling.loadDays 
 ok('训练天数与总时长', rolling.trainingDays === 4 && rolling.totalSessions === 4 && rolling.totalMinutes === 50)
 const everyDayRolling = Array.from({ length: 28 }, (_, index) =>
   mkBridgeSession(toISODate(new Date(2026, 9, 6 + index)), 5, 10))
-const rollingFull = buildRollingFourWeeksReport(everyDayRolling, [], new Date(2026, 10, 2), { profile: p({}) })
-ok('近四周计划记录覆盖率不超过 100%', rollingFull.completionRate !== null
-  && rollingFull.completionRate <= 1, String(rollingFull.completionRate))
+const rollingFull = buildRollingFourWeeksReport(
+  everyDayRolling, [], new Date(2026, 10, 2),
+  { plannedDates: ['2026-10-07', '2026-10-08'] }
+)
+ok('计划日之外的训练不把比率推过 100%', rollingFull.completionRate === 1, String(rollingFull.completionRate))
+ok('区间报告也能用字段复算覆盖率',
+  rollingFull.completionRate === rollingFull.recordedPlannedSessions / rollingFull.plannedDays,
+  String(rollingFull.completionRate))
+ok('区间报告里三个数字同样能对上',
+  rollingFull.recordedPlannedSessions + rollingFull.offPlanSessions === rollingFull.trainingDays,
+  `${rollingFull.recordedPlannedSessions}+${rollingFull.offPlanSessions} vs ${rollingFull.trainingDays}`)
+const noPlanRolling = buildRollingFourWeeksReport(everyDayRolling, [], new Date(2026, 10, 2))
+ok('区间报告没有计划时不计算覆盖率', noPlanRolling.completionRate === null && noPlanRolling.plannedDays === 0)
 ok('餐食天数与完整/部分记录', rolling.mealDays === 3 && rolling.totalMeals === 3
   && rolling.completeMeals === 2 && rolling.partialMeals === 1)
 ok('类别覆盖按条目累计', rolling.categoryCoverage['水果类'] === 2 && rolling.categoryCoverage['谷薯类'] === 1
@@ -1058,25 +1089,25 @@ ok('类别覆盖按条目累计', rolling.categoryCoverage['水果类'] === 2 &&
 ok('数据质量说明缺 RPE 不计入', rolling.dataQuality.some(q => q.includes('不参与负荷计算')))
 ok('数据质量说明餐食未记录口径', rolling.dataQuality.some(q => q.includes('未记录') && q.includes('不代表未摄入')))
 const emptyRolling = buildRollingFourWeeksReport(
-  [], [], new Date(2026, 10, 2), { profile: p({ availableTimes: ['20 分钟'] }) }
+  [], [], new Date(2026, 10, 2), {}
 )
 ok('空窗口负荷留空而不是 0', emptyRolling.totalLoad === null && emptyRolling.trainingDays === 0
   && emptyRolling.blocks.every(b => b.loadCompleteness === 'none' && b.load === null))
 ok('空窗口数据质量说明空着合法', emptyRolling.dataQuality.some(q => q.includes('还没有训练记录')))
 
 console.log('\n20. 月报')
-const feb = buildMonthlyReport([], [], new Date(2026, 1, 1), { profile: p({}) }, new Date(2026, 2, 15))
+const feb = buildMonthlyReport([], [], new Date(2026, 1, 1), {}, new Date(2026, 2, 15))
 ok('2 月按 4 个块切分', feb.blocks.length === 4 && feb.start === '2026-02-01' && feb.end === '2026-02-28'
   && feb.blocks[3].start === '2026-02-22' && feb.blocks[3].end === '2026-02-28')
-const oct = buildMonthlyReport([], [], new Date(2026, 9, 1), { profile: p({}) }, new Date(2026, 10, 2))
+const oct = buildMonthlyReport([], [], new Date(2026, 9, 1), {}, new Date(2026, 10, 2))
 ok('31 天月份按 5 个块切分', oct.blocks.length === 5 && oct.blocks[4].start === '2026-10-29'
   && oct.blocks[4].end === '2026-10-31')
-const apr = buildMonthlyReport([], [], new Date(2026, 3, 1), { profile: p({}) }, new Date(2026, 4, 2))
+const apr = buildMonthlyReport([], [], new Date(2026, 3, 1), {}, new Date(2026, 4, 2))
 ok('30 天月份最后一块只到月末', apr.blocks.length === 5 && apr.blocks[4].start === '2026-04-29'
   && apr.blocks[4].end === '2026-04-30')
 const currentNov = buildMonthlyReport(
   reportSessions, reportMeals, new Date(2026, 10, 1),
-  { profile: p({ availableTimes: ['20 分钟'] }) }, new Date(2026, 10, 2)
+  {}, new Date(2026, 10, 2)
 )
 ok('当前月只统计到今天', currentNov.start === '2026-11-01' && currentNov.end === '2026-11-02'
   && currentNov.blocks.length === 1 && currentNov.blocks[0].end === '2026-11-02')
@@ -1161,7 +1192,7 @@ ok('旧模式切换记录被移除', !mem.has('twopoles.v1.modeLog'))
 clearStoredState()
 saveStoredState({ profile: p({}), onboardingCompleted: true })
 ok('引导完成标记写入现有 meta key', loadStoredState().onboardingCompleted === true && mem.has(STORAGE_KEYS.meta))
-saveStoredState({ profile: p({}) })
+saveStoredState({})
 ok('局部状态写入不会抹掉完成标记', loadStoredState().onboardingCompleted === true)
 clearStoredState()
 
@@ -1907,6 +1938,68 @@ for (const template of MOTION_TEMPLATES.filter(item => !item.findingsReady && it
 }
 ok('未登记动作有兜底标签', templateFor('mystery').id === 'mystery' && templateFor('').label === '未识别动作')
 ok('未知动作规则为空', rulesFor('mystery', 'side').length === 0)
+ok('模板注册表自检为空', motionTemplateProblems().length === 0, motionTemplateProblems().join('；'))
+ok('兜底模板不冒充深蹲模式', templateFor('mystery').pattern === undefined)
+
+// 弱弯举：肘角只往返 75°、膝盖在动、躯干前倾 → 只够候选分，不应自称认准了
+function weakCurlFrame(timeMs: number, elbowAngle: number): MotionFrame {
+  const swing = Math.sin(timeMs / 260)
+  const shoulder = pointAt(0.42, 0.3)
+  const hip = pointAt(0.62 + swing * 0.02, 0.5)
+  const knee = pointAt(0.66 + swing * 0.1, 0.66 + swing * 0.12)
+  const ankle = pointAt(0.7, 0.95)
+  const elbow = pointAt(hip.x + 0.02, hip.y + 0.08)
+  const theta = (-90 + elbowAngle) * Math.PI / 180
+  const wrist = pointAt(elbow.x + 0.14 * Math.cos(theta), elbow.y + 0.14 * Math.sin(theta))
+  return {
+    timeMs,
+    visibility: 0.95,
+    points: {
+      shoulder: { left: shoulder, right: shoulder },
+      elbow: { left: elbow, right: elbow },
+      wrist: { left: wrist, right: wrist },
+      hip: { left: hip, right: hip },
+      knee: { left: knee, right: knee },
+      ankle: { left: ankle, right: ankle },
+      heel: { left: null, right: null },
+      toe: { left: null, right: null }
+    }
+  }
+}
+function weakCurlAngleAt(ms: number): number {
+  const cycle = 1200
+  const phase = ms % cycle
+  if (phase < 200) return 135
+  if (phase < 600) return 135 - (135 - 60) * ((phase - 200) / 400)
+  if (phase < 900) return 60
+  return 60 + (135 - 60) * ((phase - 900) / 300)
+}
+const weakCurlFrames = Array.from({ length: 60 }, (_, index) =>
+  weakCurlFrame((index + 1) * (1000 / 15), weakCurlAngleAt((index + 1) * (1000 / 15))))
+const weakCurlAuto = classifyTemplate(weakCurlFrames, 15)
+ok('特征不够强的弯举只给候选、不自称认准', weakCurlAuto.action === 'curl' && weakCurlAuto.confident === false,
+  JSON.stringify(weakCurlAuto))
+const weakCurlPrecheck = precheckMotion({ fps: 15, frames: weakCurlFrames })
+ok('弱弯举预检落在弯举而不是深蹲', weakCurlPrecheck.action === 'curl', JSON.stringify(weakCurlPrecheck))
+ok('不确定的预检文案用的是实际模板名，不写死深蹲',
+  weakCurlPrecheck.reasons.some(reason => reason.includes('弯举'))
+  && !weakCurlPrecheck.reasons.some(reason => reason.includes('深蹲')), JSON.stringify(weakCurlPrecheck.reasons))
+
+// 膝角测不到（脚踝出画）时留空，不拿髋角顶替。
+// 这一段合成序列是膝主导的，硬拉的髋角不跨过分段阈值、数不出重复，
+// 所以直接在 analyzeRep 上验这条不变量：主关节读髋角，膝盖单独读，读不到就是 null。
+const noAnkleFrames = deadliftSeries.frames.map(frame => ({
+  ...frame,
+  points: { ...frame.points, ankle: { left: null, right: null } }
+})) as MotionFrame[]
+const noAnkleRep = analyzeRep(
+  noAnkleFrames,
+  { startMs: noAnkleFrames[0].timeMs, endMs: noAnkleFrames[noAnkleFrames.length - 1].timeMs },
+  1, 15, 'deadlift'
+)
+ok('单次摘要里主关节仍可测且膝角为空',
+  noAnkleRep.primaryJoint === 'hip' && noAnkleRep.bottomPrimaryAngle !== null && noAnkleRep.bottomKneeAngle === null,
+  JSON.stringify({ joint: noAnkleRep.primaryJoint, primary: noAnkleRep.bottomPrimaryAngle, knee: noAnkleRep.bottomKneeAngle }))
 const deadliftDemo = getDemoExercise('硬拉')
 ok('硬拉跟练用髋部阶段文案', deadliftDemo.kind === 'hip'
   && getPhaseText('down', 'hip') === '俯身' && getPhaseText('up', 'hip') === '站直')

@@ -323,7 +323,7 @@ const curlSideRules: MotionRule[] = [
       const lower = numbers(reps.map(rep => rep.endMs - rep.bottomMs))
       return [
         { id: 'metric-rep-count', label: '完整重复次数', value: reps.length },
-        { id: 'metric-elbow-rom', label: '平均肘角幅度', value: average(rom) === null ? '—' : Math.round(average(rom)!), unit: '°' },
+        { id: 'metric-elbow-rom', label: '平均每次肘角幅度', value: average(rom) === null ? '—' : Math.round(average(rom)!), unit: '°' },
         { id: 'metric-bottom-elbow', label: '平均底部肘角', value: average(bottoms) === null ? '—' : Math.round(average(bottoms)!), unit: '°' },
         { id: 'metric-curl-lift', label: '平均举起时长', value: seconds(average(lift)), unit: '秒' },
         { id: 'metric-curl-lower', label: '平均下放时长', value: seconds(average(lower)), unit: '秒' }
@@ -346,7 +346,7 @@ const curlFrontRules: MotionRule[] = [
       const shoulders = numbers(reps.map(rep => rep.shoulderHeightDiff))
       return [
         { id: 'metric-rep-count', label: '完整重复次数', value: reps.length },
-        { id: 'metric-elbow-rom', label: '平均肘角幅度', value: average(rom) === null ? '—' : Math.round(average(rom)!), unit: '°' },
+        { id: 'metric-elbow-rom', label: '平均每次肘角幅度', value: average(rom) === null ? '—' : Math.round(average(rom)!), unit: '°' },
         { id: 'metric-bottom-elbow', label: '平均底部肘角', value: average(bottoms) === null ? '—' : Math.round(average(bottoms)!), unit: '°' },
         { id: 'metric-elbow-asymmetry', label: '左右肘角差', value: average(diffs) === null ? '—' : Math.round(average(diffs)!), unit: '°' },
         { id: 'metric-shoulder-diff', label: '双肩高度差', value: average(shoulders) === null ? '—' : round2(average(shoulders)!), unit: '（归一化）' }

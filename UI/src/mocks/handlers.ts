@@ -2,7 +2,7 @@ import { http, HttpResponse } from 'msw'
 import type { AuthUser } from '@/services/api/auth'
 import type { RemoteSyncSnapshot } from '@/services/api/sync'
 import type { Meal, MotionAnalysis, Plan, PrivacySettings, TrainingSession, UserProfile } from '@/types/domain'
-import { buildWeeklyReport } from '@/services/weekRules'
+import { buildWeeklyReport, plannedDatesOf } from '@/services/weekRules'
 
 /** 仅供开发联调的单账号内存适配器；测试和浏览器使用同一份 v1 契约。 */
 export function createMockApi() {
@@ -139,7 +139,7 @@ export function createMockApi() {
       return HttpResponse.json({ plan, newVersion: plan.version, adjustmentId: adjustment.id })
     }
     if (path === '/reports/weekly') return HttpResponse.json({ report: buildWeeklyReport(state.sessions, state.meals,
-      new Date(`${url.searchParams.get('start')}T00:00:00`), { profile: state.profile }) })
+      new Date(`${url.searchParams.get('start')}T00:00:00`), { plannedDates: plannedDatesOf(state.plans, '0000-01-01', '9999-12-31') }) })
     if (path === '/export' && method === 'POST') {
       const id = crypto.randomUUID()
       state.exports.set(id, { format: body.format, content: JSON.stringify({ profile: state.profile, sessions: state.sessions, meals: state.meals, plans: state.plans }) })

@@ -32,7 +32,7 @@
         <button type="button" class="mh-btn ghost" @click="router.push('/plan')">完整计划</button>
       </div>
       <div class="mh-stats">
-        <div><b>{{ week.completedSessions }}/{{ week.plannedSessions }}</b><span>本周完成 · 场</span></div>
+        <div><b>{{ week.recordedPlannedSessions ?? week.completedSessions }}/{{ week.plannedSessions }}</b><span>计划日已记录 · 场</span></div>
         <div><b>{{ week.totalDuration }}</b><span>本周时长 · min</span></div>
         <div><b>{{ week.totalLoad ?? '—' }}</b><span>本周负荷 · AU</span></div>
       </div>
@@ -95,7 +95,7 @@ import { useAppStore } from '@/stores/app'
 import { useWellnessDock } from '@/composables/useWellnessDock'
 import { MAIN_MEAL_SLOTS, buildWeekFacts, readDayFacts } from '@/services/bridgeRules'
 import { MEAL_SLOTS, summarizeDay } from '@/services/mealRules'
-import { buildWeeklyReport } from '@/services/weekRules'
+ import { buildWeeklyReport, allPlannedDates } from '@/services/weekRules'
 import { eyebrowDate, toISODate } from '@/utils/time'
 
 const emit = defineEmits<{ (e: 'open-bridge'): void }>()
@@ -115,18 +115,18 @@ const mainItem = computed(() => {
 const totalMinutes = computed(() => items.value.reduce((sum, item) => sum + (item.plannedDuration ?? 0), 0))
 
 const week = computed(() => buildWeeklyReport(store.sessions, store.meals, now, {
-  profile: store.userProfile
+  plannedDates: allPlannedDates([...store.planHistory, ...store.plans])
 }))
 const dayFacts = computed(() => readDayFacts(store.sessions, store.meals, today))
 const weekFacts = computed(() => buildWeekFacts(store.sessions, store.meals, now))
 const nutritionDay = computed(() => summarizeDay(store.meals, today))
 
 const movementChip = computed(() => week.value.plannedSessions
-  ? `${week.value.completedSessions}/${week.value.plannedSessions} 场`
+  ? `${week.value.recordedPlannedSessions ?? week.value.completedSessions}/${week.value.plannedSessions} 场`
   : '本周无安排')
 const movementChipTone = computed<'' | 'ok' | 'part'>(() => {
   if (!week.value.plannedSessions) return ''
-  if (week.value.completedSessions >= week.value.plannedSessions) return 'ok'
+  if ((week.value.recordedPlannedSessions ?? week.value.completedSessions) >= week.value.plannedSessions) return 'ok'
   return week.value.completedSessions > 0 ? 'part' : ''
 })
 const nutritionChipTone = computed<'' | 'nut-ok' | 'part'>(() => {

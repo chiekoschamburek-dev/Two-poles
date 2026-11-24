@@ -285,7 +285,7 @@ export function openDatabase(path = ':memory:') {
  */
 function migrateMotionActionCheck(db) {
   const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get()?.sql ?? ''
-  if (!tableSql.includes("CHECK(action IN")) return
+  if (!/CHECK\s*\(\s*action\s+IN/i.test(tableSql)) return
   const columns = new Set(db.prepare('PRAGMA table_info(motion_analyses)').all().map(column => column.name))
   const copyColumn = (name) => columns.has(name) ? name : 'NULL'
   const columnsToCopy = [

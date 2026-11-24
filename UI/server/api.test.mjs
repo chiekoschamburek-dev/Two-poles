@@ -596,6 +596,10 @@ test('server weekly report caps plan coverage at 100% with off-plan days', () =>
   const report = buildWeeklyReport({ start, userId: 'u1', sessions, meals: [], planItems })
   assert.equal(report.completionRate, 1, '非计划日不能把分子做大')
   assert.equal(report.completedSessions, 7)
+  assert.equal(report.recordedPlannedSessions, 3, '计划日有记录的天数单独给出')
+  assert.equal(report.offPlanSessions, 4, '非计划日的记录单独计数')
+  assert.equal(report.recordedPlannedSessions / report.plannedSessions, report.completionRate,
+    'completionRate 必须能用字段复算')
   assert.ok(report.dataQuality.some((line) => line.includes('不在计划日')))
 })
 

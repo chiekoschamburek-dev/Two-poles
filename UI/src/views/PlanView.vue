@@ -427,7 +427,7 @@ const cyclePhases = computed(() => {
     if (!start) return null
     const ref = new Date(start)
     ref.setDate(start.getDate() + i * 7)
-    return buildWeeklyReport(store.sessions, store.meals, ref, { profile: store.userProfile }).totalLoad
+    return buildWeeklyReport(store.sessions, store.meals, ref).totalLoad
   })
   const peak = Math.max(0, ...loads.filter((l): l is number => l !== null))
   const activeIndex = start ? Math.floor(Math.max(0, now.getTime() - start.getTime()) / 604800000) : -1

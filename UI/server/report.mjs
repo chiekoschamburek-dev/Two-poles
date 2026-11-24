@@ -140,6 +140,9 @@ export function buildWeeklyReport({ start, userId, sessions, meals, planItems })
     weekEndDate: isoDays[6],
     plannedSessions: plannedDays.length,
     completedSessions: recordedDays.length,
+    // 有记录场次含非计划日；比率只用下面两个字段复算，避免与 completedSessions/plannedSessions 打架
+    recordedPlannedSessions: recordedPlannedDays.length,
+    offPlanSessions: offPlanDays.length,
     totalDuration: inWeek.reduce((sum, session) => sum + (session.actualDuration ?? 0), 0),
     totalDistance: inWeek.reduce((sum, session) => sum + (session.actualDistance ?? 0), 0),
     totalLoad,

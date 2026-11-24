@@ -28,7 +28,8 @@ export interface MotionActionTemplate {
   id: string
   label: string
   category: MotionCategory
-  pattern: MotionPattern
+  /** 动作模式；未登记动作的兜底模板没有模式，不假装是深蹲 */
+  pattern?: MotionPattern
   kind: AnalysisKind
   /** 该动作支持的拍摄视角；不支持的视角在预检阶段拒绝 */
   views: AnalysisView[]
@@ -52,7 +53,6 @@ export interface MotionActionTemplate {
   note?: string
 }
 
-/** 从实时计数的统一配置里取离线分段阈值，避免两处各写一套 */
 function segmentationFrom(exerciseId: string): TemplateSegmentation | undefined {
   const config = configForId(exerciseId)
   if (!config) return undefined
@@ -65,10 +65,22 @@ function segmentationFrom(exerciseId: string): TemplateSegmentation | undefined 
   }
 }
 
-function requireSegmentation(exerciseId: string): TemplateSegmentation {
+/**
+ * 缺配置时不在模块加载期 throw：那会让整个应用启动即崩，而问题只是一个动作不能分析。
+ * 这里降级返回 undefined，并把问题记下来，由 motionTemplateProblems() 与 selfcheck 报出来。
+ */
+const SEGMENTATION_PROBLEMS: string[] = []
+
+function segmentationOrProblem(exerciseId: string): TemplateSegmentation | undefined {
   const segmentation = segmentationFrom(exerciseId)
-  if (!segmentation) throw new Error(`动作模板缺少计数配置：${exerciseId}`)
+  if (!segmentation) SEGMENTATION_PROBLEMS.push(`动作模板缺少计数配置：${exerciseId}`)
   return segmentation
+}
+
+/** 只覆盖单项时序（例如弯举的底部停留比深蹲短），关节与阈值仍来自统一配置 */
+function segmentationWithMinStage(exerciseId: string, minStageMs: number): TemplateSegmentation | undefined {
+  const base = segmentationOrProblem(exerciseId)
+  return base ? { ...base, minStageMs } : undefined
 }
 
 export const MOTION_TEMPLATES: MotionActionTemplate[] = [
@@ -80,7 +92,7 @@ export const MOTION_TEMPLATES: MotionActionTemplate[] = [
     kind: 'reps',
     views: ['side', 'front'],
     requiredPoints: ['shoulder', 'hip', 'knee', 'ankle'],
-    segmentation: requireSegmentation('ex-squat'),
+    segmentation: segmentationOrProblem('ex-squat'),
     ruleSet: 'squat',
     classifier: 'squat-hinge',
     findingsReady: true,
@@ -97,7 +109,7 @@ export const MOTION_TEMPLATES: MotionActionTemplate[] = [
     kind: 'reps',
     views: ['side', 'front'],
     requiredPoints: ['shoulder', 'hip', 'knee', 'ankle'],
-    segmentation: requireSegmentation('ex-deadlift'),
+    segmentation: segmentationOrProblem('ex-deadlift'),
     ruleSet: 'deadlift',
     classifier: 'squat-hinge',
     findingsReady: true,
@@ -129,7 +141,7 @@ export const MOTION_TEMPLATES: MotionActionTemplate[] = [
     kind: 'reps',
     views: ['side', 'front'],
     requiredPoints: ['shoulder', 'elbow', 'wrist'],
-    segmentation: { ...requireSegmentation('ex-stand-curl'), minStageMs: 120 },
+    segmentation: segmentationWithMinStage('ex-stand-curl', 120),
     ruleSet: 'curl',
     classifier: 'elbow-curl',
     findingsReady: false,
@@ -165,7 +177,6 @@ export function templateFor(id: string): MotionActionTemplate {
     id: id || 'unknown',
     label: id && id !== 'unknown' ? id : '未识别动作',
     category: 'strength',
-    pattern: 'squat',
     kind: 'reps',
     views: ['side', 'front'],
     requiredPoints: [],
@@ -185,8 +196,22 @@ export function findingsTemplates(): MotionActionTemplate[] {
   return MOTION_TEMPLATES.filter(template => template.findingsReady)
 }
 
-export function autoDetectTemplates(): MotionActionTemplate[] {
-  return MOTION_TEMPLATES.filter(template => template.classifier)
+/**
+ * 模板注册表自检：缺计数配置、id 重复、没有视角、承诺出关注项却没有规则集。
+ * 这些都不该让应用启动失败，而是要在构建期/自检里暴露；selfcheck 断言它恒为空。
+ */
+export function motionTemplateProblems(): string[] {
+  const problems = [...SEGMENTATION_PROBLEMS]
+  const ids = new Set<string>()
+  for (const template of MOTION_TEMPLATES) {
+    if (ids.has(template.id)) problems.push(`模板 id 重复：${template.id}`)
+    ids.add(template.id)
+    if (!template.views.length) problems.push(`模板没有可用视角：${template.id}`)
+    if (template.kind === 'reps' && !template.segmentation) problems.push(`计次模板缺少分段配置：${template.id}`)
+    if (template.findingsReady && !template.ruleSet) problems.push(`承诺出关注项却没有规则集：${template.id}`)
+    if (template.visible && !template.note) problems.push(`选择器里的模板要有一句说明：${template.id}`)
+  }
+  return problems
 }
 
 /**
