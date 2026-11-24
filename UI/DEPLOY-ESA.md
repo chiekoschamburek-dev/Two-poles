@@ -34,6 +34,39 @@ location /api/v1/ {
 - `server/llm.js` 在 `/api/*` 兜底之前，把 `GET/POST/PATCH/DELETE /api/v1/*` 原样（方法、头、体、Cookie）转发到函数变量 `API_ORIGIN`（默认 `http://origin.bupt-empty-classrom.top`），响应连同 Set-Cookie 原样返回。**ESA 运行时禁止 fetch 裸 IP（防 SSRF）**，源站必须用域名：`origin.bupt-empty-classrom.top` 是一条 A 记录直指 Node 主机、**代理加速关闭**（DNS 仅解析）的记录；换服务器时改这条记录的值，或改 `API_ORIGIN` 函数变量，无需重新发版。
 - `/apk/twopoles-debug.apk` 由 ESA Pages 作为静态资源分发。签名 APK 放在 `UI/public/apk/`，构建后应出现在 `UI/dist/apk/`。这样直接点击链接会命中安装包，避免缺失资源被 SPA 回退为 `index.html`。边缘函数仍保留原有 nginx 源站转发，`sw.js` 对 `/apk/` 直连放行。发布后应实际下载文件并核对大小或 SHA-256，避免把 `200 OK` 的网页回退误判为成功。
 - Node 主机侧：systemd 常驻 `npm run server`，nginx :80 反代 `127.0.0.1:8787`；SQLite 在 `/opt/twopoles/data/`，每日 `VACUUM INTO` 快照备份（保留 7 份）。
+
+### 更新 Node API（`/opt/twopoles`，主机 `8.160.176.215`）
+
+ESA 的构建只产出前端静态资源，**不会更新这台主机上的 API**。改了 `UI/server/*` 之后必须单独操作：
+
+```bash
+# 1. 上传（只传改动的文件；先在本地 node --check 或 scp 后在服务器上 --check）
+scp UI/server/app.mjs UI/server/db.mjs root@8.160.176.215:/tmp/
+ssh root@8.160.176.215 '/opt/node/current/bin/node --check /tmp/app.mjs'
+
+# 2. 备份 + 安装 + 重启（目录名带时间戳，出问题可整体回滚）
+ssh root@8.160.176.215 'set -e; cd /opt/twopoles
+  cp -a server server.bak-$(date +%Y%m%d-%H%M)
+  install -m 644 /tmp/app.mjs server/app.mjs
+  install -m 644 /tmp/db.mjs server/db.mjs
+  systemctl restart twopoles-api
+  sleep 3; systemctl is-active twopoles-api
+  curl -s http://127.0.0.1:8787/api/v1/health'
+
+# 3. 验证新表（db.mjs 用 CREATE TABLE IF NOT EXISTS 自动建表，不需要手工迁移）
+ssh root@8.160.176.215 '/opt/node/current/bin/node -e "…见下…"'
+```
+
+验证要点：
+
+- `GET /api/v1/health` 返回 `{"ok":true,...}`，`systemctl is-active` 为 `active`。
+- 新表已存在：对 `/opt/twopoles/data/twopoles.sqlite` 查 `sqlite_master`。**注意 WAL**：只读打开带 `-wal` 的库可能读到 checkpoint 前的旧快照，把 `.sqlite`、`-wal`、`-shm` 三个文件一起复制到 `/tmp` 再查。
+- 需要真实 HTTP 断言时，用**临时库**另起一个实例（`PORT=8799 TWOPOLES_DB=/tmp/verify.sqlite AUTH_SECRET=verify-secret`），跑完即删；不要在生产库里建测试账号。
+- 从公网域名验证时，未登录请求应返回 `application/json` 的 `401 {"code":"unauthorized"}`；返回 HTML 说明请求被 SPA 回退截走，函数转发没生效。
+
+回滚：`cd /opt/twopoles && rm -rf server && cp -a server.bak-<时间戳> server && systemctl restart twopoles-api`。
+
+Node API 是**旧版本也能跑**的：客户端对未部署的新接口做 404 兜底（队列延后重试、不产生冲突），所以可以前端先发、API 后跟进。
 - 试用期内 `COOKIE_SECURE=false`（与 http 直连 IP 的调试入口共用一套环境）；IP 入口退役后切 `true`。
 - 安卓 App（Capacitor）的构建顺序与镜像配置见 [README.md](README.md) 的「安卓 App（Capacitor）」一节；改原生代码/图标才需要重出 APK，纯网页更新对 App 零发版。
 
