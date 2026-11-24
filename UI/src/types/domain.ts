@@ -332,8 +332,22 @@ export interface PlanChange {
 
 export type AdjustmentResolutionStatus = 'accepted' | 'dismissed'
 
-/** 已处理的调整建议 key → 用户当时的选择；仅存本机 */
-export type AdjustmentResolutions = Record<string, AdjustmentResolutionStatus>
+/**
+ * 一条已处理的调整建议。带 updatedAt 是为了跨设备合并：
+ * 同一条建议在两台设备上都点过时，按时间取较新的那次，而不是谁后同步谁赢。
+ */
+export interface AdjustmentResolutionEntry {
+  status: AdjustmentResolutionStatus
+  /** ISO 时间；旧版本记录没有该字段时为 '' */
+  updatedAt: string
+}
+
+/**
+ * 已处理的调整建议 key → 用户当时的选择。
+ * key 里的场次用 clientId（跨设备稳定），计划项用 item.id（服务端按 client_item_id 回传，同样稳定），
+ * 因此同一批证据在不同设备上算出的 key 一致，可以安全同步。
+ */
+export type AdjustmentResolutions = Record<string, AdjustmentResolutionEntry>
 
 // === Training & Sessions ===
 

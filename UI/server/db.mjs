@@ -235,11 +235,22 @@ CREATE TABLE IF NOT EXISTS motion_analyses (
   UNIQUE (user_id, client_id)
 );
 
+-- 已处理的计划调整建议：跨设备共享，避免同一条建议在另一台设备上又弹一次。
+-- status 只有 accepted / dismissed；按 updated_at 做 last-write-wins。
+CREATE TABLE IF NOT EXISTS adjustment_resolutions (
+  user_id TEXT NOT NULL REFERENCES users(id),
+  resolution_key TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('accepted','dismissed')),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, resolution_key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON training_sessions(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meal_records(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_plans_user_week ON plans(user_id, week_start);
 CREATE INDEX IF NOT EXISTS idx_adjustments_plan ON plan_adjustments(plan_id);
 CREATE INDEX IF NOT EXISTS idx_motion_analyses_user_date ON motion_analyses(user_id, date);
+CREATE INDEX IF NOT EXISTS idx_adjustment_resolutions_user ON adjustment_resolutions(user_id, updated_at);
 `
 
 export function openDatabase(path = ':memory:') {

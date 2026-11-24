@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, MotionAnalysis, Plan, PlanChange, PlanCompletionStyle, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
+import type { AdjustmentResolutionEntry, AdjustmentResolutions, FoodCategory, Meal, MealItem, MealType, MotionAnalysis, Plan, PlanChange, PlanCompletionStyle, UserProfile, Toast, TrainingSession, SessionFeedback, PrivacySettings, SpeechSettings, PlanItem, ThemePreference, ModelEnergyEstimate } from '@/types/domain'
 import { newId } from '@/utils/id'
 import { analyzeMeal, deriveCompleteness } from '@/services/mealRules'
 import { estimateEnergy, unitKey } from '@/services/foodComposition'
@@ -31,8 +31,9 @@ import type { LlmConfig, LlmDefaultStatus, PlanDraft, PlanDraftState, PlanSource
 import { weekDates, weekStart } from '@/services/weekRules'
 import { WELLNESS_DISMISS_KEY } from '@/services/wellnessCards'
 import { toISODate } from '@/utils/time'
-import { clearStoredState, loadStoredState, saveStoredState, clearSyncMeta } from '@/services/storage'
+import { clearStoredState, loadStoredState, normalizeAdjustmentResolutions, saveStoredState, clearSyncMeta } from '@/services/storage'
 import { addConflict, bootstrapSync, canUploadRecord, clearAllConflicts, clearConflict, configureSync, enqueueSync, refreshPending, syncState } from '@/services/sync'
+import type { RemoteAdjustmentResolution } from '@/services/api/adjustments'
 import { listOutbox, removeOp } from '@/services/outbox'
 import type { UploadBatch } from '@/services/sync'
 import type { RemoteSyncSnapshot } from '@/services/api/sync'
@@ -154,11 +155,8 @@ export const useAppStore = defineStore('app', () => {
       unitGrams.value = clean
     }
     if (data.adjustmentResolutions && typeof data.adjustmentResolutions === 'object') {
-      const clean: AdjustmentResolutions = {}
-      for (const [k, v] of Object.entries(data.adjustmentResolutions)) {
-        if (v === 'accepted' || v === 'dismissed') clean[k] = v
-      }
-      adjustmentResolutions.value = clean
+      // 旧版本只有裸字符串，新版本是 { status, updatedAt }；统一格式在 storage 里做完
+      adjustmentResolutions.value = normalizeAdjustmentResolutions(data.adjustmentResolutions)
     }
     initialized.value = true
     configureSyncHandlers()
@@ -274,7 +272,13 @@ export const useAppStore = defineStore('app', () => {
         ...item,
         findings: item.findings.map((finding) => ({ ...finding })),
         metrics: item.metrics.map((metric) => ({ ...metric }))
-      }))
+      })),
+      // 建议处理记录：首次同步全量补传，之后只传本次同步窗口里更新过的。
+      // 服务端按 updatedAt 做 LWW，重复上传同一条是幂等的，不会被误判成新改动。
+      adjustmentResolutions: Object.entries(adjustmentResolutions.value)
+        .filter(([, entry]) => firstSync || entry.updatedAt > since)
+        .slice(0, 200)
+        .map(([key, entry]) => ({ key, status: entry.status, updatedAt: entry.updatedAt }))
     }
   }
 
@@ -344,7 +348,12 @@ export const useAppStore = defineStore('app', () => {
     persistState()
   }
 
-  function markConflict(kind: 'session' | 'meal' | 'analysis' | 'plan' | 'profile', clientId: string, _message: string) {
+  function markConflict(kind: 'session' | 'meal' | 'analysis' | 'plan' | 'adjustment' | 'profile', clientId: string, _message: string) {
+    if (kind === 'adjustment') {
+      // 建议处理记录没有「冲突」可合并：保留本机选择，下次同步会按时间戳重试覆盖
+      persistState()
+      return
+    }
     if (kind === 'session') {
       const local = allSessions.value.find((item) => (item.clientId ?? item.id) === clientId || item.id === clientId)
       if (local) local._sync = 'conflict'
@@ -476,6 +485,21 @@ export const useAppStore = defineStore('app', () => {
       }
     }
 
+    // 「已处理调整建议」按 updatedAt 取较新的一条：
+    // 两台设备都可能对同一条建议点过，不能让后拉到的记录盖掉本机刚做的选择。
+    if (Array.isArray(snapshot.adjustmentResolutions) && snapshot.adjustmentResolutions.length) {
+      const merged: AdjustmentResolutions = { ...adjustmentResolutions.value }
+      for (const remote of snapshot.adjustmentResolutions) {
+        if (!remote?.key) continue
+        const local = merged[remote.key]
+        const remoteAt = typeof remote.updatedAt === 'string' ? remote.updatedAt : ''
+        if (!local || remoteAt > local.updatedAt) {
+          merged[remote.key] = { status: remote.status, updatedAt: remoteAt }
+        }
+      }
+      adjustmentResolutions.value = merged
+    }
+
     const remotePlans = snapshot.plans ?? []
     const grouped = new Map<string, Plan[]>()
     for (const plan of remotePlans) {
@@ -532,6 +556,7 @@ export const useAppStore = defineStore('app', () => {
       markMealSynced,
       markPlanSynced,
       markAnalysisSynced,
+      markAdjustmentResolved,
       markConflict
     })
   }
@@ -1190,7 +1215,25 @@ export const useAppStore = defineStore('app', () => {
   /** 记录一条建议已处理：accepted = 已接受并生成新版本；dismissed = 暂不调整 */
   function resolveAdjustment(key: string, status: 'accepted' | 'dismissed') {
     if (!key) return
-    adjustmentResolutions.value = { ...adjustmentResolutions.value, [key]: status }
+    const entry: AdjustmentResolutionEntry = { status, updatedAt: new Date().toISOString() }
+    adjustmentResolutions.value = { ...adjustmentResolutions.value, [key]: entry }
+    persistState()
+    // 登录状态下立即入队：这样另一台设备拉一次同步就能看到「已处理」，不会重复弹同一条建议
+    if (syncState.apiEnabled && syncState.user && !syncState.adoptingLocalData) {
+      enqueueSync('adjustment.resolve', key, { key, status, updatedAt: entry.updatedAt })
+    }
+  }
+
+  /** 服务端按 updatedAt 判胜后回写：只有当它确实更新时才覆盖本机选择 */
+  function markAdjustmentResolved(remote: RemoteAdjustmentResolution) {
+    if (!remote?.key) return
+    const local = adjustmentResolutions.value[remote.key]
+    const remoteAt = typeof remote.updatedAt === 'string' ? remote.updatedAt : ''
+    if (local && remoteAt <= local.updatedAt) return
+    adjustmentResolutions.value = {
+      ...adjustmentResolutions.value,
+      [remote.key]: { status: remote.status, updatedAt: remoteAt }
+    }
     persistState()
   }
 

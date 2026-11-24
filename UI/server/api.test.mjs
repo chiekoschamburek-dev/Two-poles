@@ -280,6 +280,69 @@ test('motion analyses are idempotent, linkable and soft-deleted', async () => {
   assert.equal(hugeFindings.body.analysis.findings.length, 20)
 })
 
+test('adjustment resolutions sync across devices with last-write-wins', async () => {
+  const key = 'feedback|站姿弯举|sess-a|sess-b|item-1'
+  assert.equal((await request('/sync')).body.adjustmentResolutions.length, 0)
+
+  const first = await request('/adjustment-resolutions', {
+    method: 'PUT',
+    body: { key, status: 'accepted', updatedAt: '2026-11-10T08:00:00.000Z' }
+  })
+  assert.equal(first.status, 200)
+  assert.equal(first.body.resolution.status, 'accepted')
+  assert.equal(first.body.resolution.key, key)
+
+  // 重复上报同一条（客户端每次同步都会补传）必须幂等，不能把 updatedAt 刷新成服务端现在
+  const replay = await request('/adjustment-resolutions', {
+    method: 'PUT',
+    body: { key, status: 'accepted', updatedAt: '2026-11-10T08:00:00.000Z' }
+  })
+  assert.equal(replay.status, 200)
+  assert.equal(replay.body.resolution.updatedAt, '2026-11-10T08:00:00.000Z')
+
+  // 更旧的选择不能盖掉更新的
+  const stale = await request('/adjustment-resolutions', {
+    method: 'PUT',
+    body: { key, status: 'dismissed', updatedAt: '2026-11-01T08:00:00.000Z' }
+  })
+  assert.equal(stale.body.resolution.status, 'accepted')
+  assert.equal(stale.body.resolution.updatedAt, '2026-11-10T08:00:00.000Z')
+
+  // 更新的选择要生效
+  const newer = await request('/adjustment-resolutions', {
+    method: 'PUT',
+    body: { key, status: 'dismissed', updatedAt: '2026-11-12T08:00:00.000Z' }
+  })
+  assert.equal(newer.body.resolution.status, 'dismissed')
+  assert.equal(newer.body.resolution.updatedAt, '2026-11-12T08:00:00.000Z')
+
+  // 老版本本地记录没有时间戳：只在服务端没有这条时才能写入
+  const legacyNewKey = 'feedback|深蹲|sess-c|sess-d|item-2'
+  const legacy = await request('/adjustment-resolutions', {
+    method: 'PUT', body: { key: legacyNewKey, status: 'dismissed', updatedAt: '' }
+  })
+  assert.equal(legacy.body.resolution.status, 'dismissed')
+  assert.equal(legacy.body.resolution.updatedAt.length > 0, true)
+  const legacyAgainstNewer = await request('/adjustment-resolutions', {
+    method: 'PUT', body: { key, status: 'accepted', updatedAt: '' }
+  })
+  assert.equal(legacyAgainstNewer.body.resolution.status, 'dismissed', '空时间戳不能覆盖已有选择')
+
+  const synced = await request('/sync')
+  const rows = synced.body.adjustmentResolutions
+  assert.equal(rows.length, 2)
+  assert.equal(rows.find((row) => row.key === key).status, 'dismissed')
+
+  assert.equal((await request('/adjustment-resolutions', {
+    method: 'PUT', body: { key, status: 'maybe', updatedAt: '2026-11-13T08:00:00.000Z' }
+  })).status, 400)
+  assert.equal((await request('/adjustment-resolutions', {
+    method: 'PUT', body: { status: 'accepted', updatedAt: '2026-11-13T08:00:00.000Z' }
+  })).status, 400)
+  assert.equal((await request('/adjustment-resolutions', { method: 'PUT', body: { key, status: 'accepted' } })).status, 200,
+    '缺少 updatedAt 按空串处理：不报错，也不会覆盖已有选择')
+})
+
 test('meals store items and support update/delete', async () => {
   const meal = {
     id: 'local-meal-1',

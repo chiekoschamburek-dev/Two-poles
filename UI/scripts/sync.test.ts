@@ -156,6 +156,28 @@ test('store: plan completion, adjustments and regeneration persist as distinct v
   assert.equal(mock.state.plans[0].version, 1, '旧版本不覆盖')
 })
 
+test('store: 调整建议的处理记录会推到服务端，并能在另一台设备上拉回', async () => {
+  const store = useAppStore()
+  await deviceLogin()
+  const key = 'feedback|站姿弯举|c1|c2|item-x'
+
+  store.resolveAdjustment(key, 'accepted')
+  await syncNow()
+  const pushed = mock.state.resolutions.find((row) => row.key === key)
+  assert.equal(pushed?.status, 'accepted', '登录状态下接受调整要立刻入队并上行')
+
+  // 另一端：本机没有这条记录，拉一次同步后应当被拦住
+  store.adjustmentResolutions = {}
+  await syncNow()
+  assert.equal(store.adjustmentResolutions[key]?.status, 'accepted', '拉取后合并回本机')
+
+  // 更旧的选择不能覆盖服务端更新的记录
+  mock.state.resolutions = [{ key, status: 'accepted', updatedAt: '2026-11-20T00:00:00.000Z' }]
+  store.adjustmentResolutions = { [key]: { status: 'dismissed', updatedAt: '2026-11-01T00:00:00.000Z' } }
+  await syncNow()
+  assert.equal(store.adjustmentResolutions[key]?.status, 'accepted', '按 updatedAt 判胜，旧的不覆盖新的')
+})
+
 test('store: clearing optional profile fields clears their saved account values', async () => {
   const store = useAppStore()
   store.updateProfile({ age: 30, nickname: '测试档案', height: 172, targetEvent: '测试比赛' })

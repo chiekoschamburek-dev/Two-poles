@@ -521,7 +521,7 @@ async function mergePlanConflict(conflict: SyncConflict) {
 }
 
 async function resaveConflict(conflict: SyncConflict) {
-  if (conflict.kind === 'plan' || conflict.kind === 'profile') return
+  if (conflict.kind === 'plan' || conflict.kind === 'profile' || conflict.kind === 'adjustment') return
   if (!store.resaveConflictRecord(conflict.kind, conflict.clientId)) return
   await syncNow()
   store.showToast({
@@ -829,6 +829,8 @@ function conflictLabel(kind: string): string {
   if (kind === 'session') return '训练记录'
   if (kind === 'meal') return '餐食记录'
   if (kind === 'plan') return '计划版本'
+  if (kind === 'analysis') return '分析记录'
+  if (kind === 'adjustment') return '调整建议'
   return '档案'
 }
 

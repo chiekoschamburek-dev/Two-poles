@@ -672,6 +672,7 @@ function wipeUser(db, userId, deleteUser) {
     db.prepare('DELETE FROM training_sessions WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM motion_analyses WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM plan_adjustments WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM adjustment_resolutions WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM plans WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM profiles WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM privacy_settings WHERE user_id = ?').run(userId)
@@ -1103,6 +1104,34 @@ export function createApiServer(options = {}) {
         `).run(user.id, JSON.stringify(merged), updatedAt)
         return sendJson(res, 200, { privacy: { ...merged, updatedAt } })
       }
+    }
+
+    /**
+     * 已处理的计划调整建议：单条上报，按 updatedAt 做 last-write-wins。
+     * 客户端会按「首次全量 + 之后按同步窗口」重复上报，重复同一条必须是幂等的：
+     * 时间戳相同视为没有更新，直接回现有行。
+     */
+    if (path === '/adjustment-resolutions' && method === 'PUT') {
+      const key = stringOrNull(body.key, 400)
+      const status = body.status
+      if (!key) fail('invalid_key', 400, '缺少建议标识')
+      if (status !== 'accepted' && status !== 'dismissed') fail('invalid_status', 400, '状态只能是 accepted 或 dismissed')
+      const incomingAt = isIso(body.updatedAt) ? body.updatedAt : ''
+      const existing = db.prepare(
+        'SELECT * FROM adjustment_resolutions WHERE user_id = ? AND resolution_key = ?'
+      ).get(user.id, key)
+      // 空时间戳是老版本迁移上来的记录：只在服务端还没有这条时才写入，绝不覆盖别的设备的明确选择
+      if (!existing || (incomingAt && incomingAt > existing.updated_at)) {
+        db.prepare(`
+          INSERT INTO adjustment_resolutions (user_id, resolution_key, status, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(user_id, resolution_key) DO UPDATE
+            SET status = excluded.status, updated_at = excluded.updated_at
+        `).run(user.id, key, status, incomingAt || nowIso())
+        const row = db.prepare('SELECT * FROM adjustment_resolutions WHERE user_id = ? AND resolution_key = ?').get(user.id, key)
+        return sendJson(res, 200, { resolution: { key: row.resolution_key, status: row.status, updatedAt: row.updated_at } })
+      }
+      return sendJson(res, 200, { resolution: { key: existing.resolution_key, status: existing.status, updatedAt: existing.updated_at } })
     }
 
     if (path === '/sessions' && method === 'GET') {
@@ -1626,6 +1655,13 @@ export function createApiServer(options = {}) {
           `).all(user.id, since)
         : db.prepare('SELECT * FROM plans WHERE user_id = ? AND deleted_at IS NULL ORDER BY week_start ASC, version ASC').all(user.id))
         .map((row) => planJson(row, readItems(db, 'plan_items', 'plan_id', row.id)))
+      const resolutionRows = since
+        ? db.prepare(`
+            SELECT * FROM adjustment_resolutions
+            WHERE user_id = ? AND updated_at > ?
+            ORDER BY updated_at ASC
+          `).all(user.id, since)
+        : db.prepare('SELECT * FROM adjustment_resolutions WHERE user_id = ? ORDER BY updated_at ASC').all(user.id)
       const deleted = {
         sessions: sessionRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
         meals: mealRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
@@ -1644,6 +1680,11 @@ export function createApiServer(options = {}) {
         meals: mealRows.filter((row) => !row.deleted_at).map((row) => mealJson(row, readItems(db, 'meal_items', 'meal_record_id', row.id))),
         analyses: analysisRows.filter((row) => !row.deleted_at).map(analysisJson),
         plans,
+        adjustmentResolutions: resolutionRows.map((row) => ({
+          key: row.resolution_key,
+          status: row.status,
+          updatedAt: row.updated_at
+        })),
         deleted
       })
     }

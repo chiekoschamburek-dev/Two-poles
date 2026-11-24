@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import type { Meal, MotionAnalysis, Plan, PlanChange, PrivacySettings, SessionFeedback, TrainingSession, UserProfile } from '@/types/domain'
+import type { AdjustmentResolutionStatus, Meal, MotionAnalysis, Plan, PlanChange, PrivacySettings, SessionFeedback, TrainingSession, UserProfile } from '@/types/domain'
 import { ApiError, apiEnabled, clearAccessToken } from './api/http'
 import * as authApi from './api/auth'
 import type { AuthUser } from './api/auth'
@@ -8,8 +8,10 @@ import * as sessionsApi from './api/sessions'
 import * as mealsApi from './api/meals'
 import * as plansApi from './api/plans'
 import * as analysesApi from './api/analyses'
+import * as adjustmentsApi from './api/adjustments'
 import * as settingsApi from './api/settings'
 import * as remoteSync from './api/sync'
+import type { RemoteAdjustmentResolution } from './api/adjustments'
 import type { RemoteSyncSnapshot } from './api/sync'
 import { clearOutbox, enqueue, listOutbox, pendingCount, removeOp, setOpInFlight, updateOp } from './outbox'
 import type { OutboxKind, OutboxOp } from './outbox'
@@ -19,7 +21,7 @@ export type SyncStatus = 'local' | 'idle' | 'syncing' | 'offline' | 'error' | 'u
 
 export interface SyncConflict {
   id: string
-  kind: 'session' | 'meal' | 'analysis' | 'plan' | 'profile'
+  kind: 'session' | 'meal' | 'analysis' | 'plan' | 'adjustment' | 'profile'
   clientId: string
   message: string
   at: string
@@ -33,6 +35,8 @@ export interface UploadBatch {
   meals: Meal[]
   plans: Plan[]
   analyses?: MotionAnalysis[]
+  /** 待上报的「已处理调整建议」；缺省视为没有 */
+  adjustmentResolutions?: { key: string; status: AdjustmentResolutionStatus; updatedAt: string }[]
 }
 
 export interface SyncHandlers {
@@ -44,6 +48,8 @@ export interface SyncHandlers {
   markMealSynced: (clientId: string, meal: Meal, pending: boolean) => void
   markPlanSynced: (clientId: string, plan: Plan, pending: boolean) => void
   markAnalysisSynced?: (clientId: string, analysis: MotionAnalysis, pending: boolean) => void
+  /** 服务端回写了「已处理调整建议」的胜出结果，本机按它覆盖 */
+  markAdjustmentResolved?: (resolution: RemoteAdjustmentResolution) => void
   markConflict: (kind: SyncConflict['kind'], clientId: string, message: string) => void
 }
 
@@ -294,6 +300,7 @@ function conflictKind(op: OutboxOp): SyncConflict['kind'] {
   if (op.kind.startsWith('meal')) return 'meal'
   if (op.kind.startsWith('analysis')) return 'analysis'
   if (op.kind.startsWith('plan')) return 'plan'
+  if (op.kind.startsWith('adjustment')) return 'adjustment'
   return 'profile'
 }
 
@@ -368,6 +375,18 @@ async function executeOp(op: OutboxOp): Promise<void> {
       const adjustment = await plansApi.createAdjustment(payload.plan, payload.baseVersion, payload.changes, payload.reason, op.id)
       const accepted = await plansApi.acceptAdjustment(adjustment.id, payload.baseVersion)
       handlers?.markPlanSynced(op.clientId, accepted.plan, hasNewer())
+      return
+    }
+    case 'adjustment.resolve': {
+      const payload = op.payload as { key: string; status: AdjustmentResolutionStatus; updatedAt: string }
+      try {
+        // 服务端按 updatedAt 做 LWW：回来的是胜出的那条，写回本机而不是盲目相信上传值
+        const remote = await adjustmentsApi.resolve(payload)
+        handlers?.markAdjustmentResolved?.(remote)
+      } catch (error) {
+        // 旧版服务端没有这个接口：静默跳过，不要把「服务端还没升级」变成一条用户可见的冲突
+        if (!(error instanceof ApiError) || error.status !== 404) throw error
+      }
       return
     }
   }
@@ -449,6 +468,10 @@ function pushLocal(firstSync: boolean) {
     const id = analysis.clientId ?? analysis.id
     if (has('analysis.', id)) continue
     enqueue(analysis.serverId ? 'analysis.update' : 'analysis.create', id, analysis)
+  }
+  for (const resolution of batch.adjustmentResolutions ?? []) {
+    if (has('adjustment.', resolution.key)) continue
+    enqueue('adjustment.resolve', resolution.key, resolution)
   }
   syncState.pending = pendingCount()
 }

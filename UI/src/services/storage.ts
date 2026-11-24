@@ -95,6 +95,31 @@ function removeKey(key: string) {
 }
 
 /**
+ * 调整建议的已处理记录：新格式是 { status, updatedAt }，旧版本只有裸字符串。
+ * 这里统一成新格式，旧记录补一个空 updatedAt（同步时服务端按「空串最旧」处理，
+ * 不会拿它盖掉别的设备上更新过的记录）。
+ */
+export function normalizeAdjustmentResolutions(raw: unknown): AdjustmentResolutions {
+  const out: AdjustmentResolutions = {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key) continue
+    if (value === 'accepted' || value === 'dismissed') {
+      out[key] = { status: value, updatedAt: '' }
+      continue
+    }
+    if (!value || typeof value !== 'object') continue
+    const row = value as Record<string, unknown>
+    if (row.status !== 'accepted' && row.status !== 'dismissed') continue
+    out[key] = {
+      status: row.status,
+      updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : ''
+    }
+  }
+  return out
+}
+
+/**
  * 模式分类取消后的存量数据合并：同一周若有双模式两份计划，保留最后使用模式的那份，
  * 另一份进历史；所有计划与档案去掉 mode 字段。幂等，每次读取都过一遍。
  */
@@ -163,9 +188,7 @@ function migrateLegacy(): StoredState | null {
     plans: Array.isArray(parsed.plans) ? parsed.plans as Plan[] : [],
     planHistory: Array.isArray(parsed.planHistory) ? parsed.planHistory as Plan[] : [],
     unitGrams: (parsed.unitGrams && typeof parsed.unitGrams === 'object') ? parsed.unitGrams as Record<string, number> : {},
-    adjustmentResolutions: (parsed.adjustmentResolutions && typeof parsed.adjustmentResolutions === 'object')
-      ? parsed.adjustmentResolutions as AdjustmentResolutions
-      : {},
+    adjustmentResolutions: normalizeAdjustmentResolutions(parsed.adjustmentResolutions),
     analyses: Array.isArray(parsed.analyses) ? parsed.analyses as MotionAnalysis[] : []
   }, parsed.mode)
   const failed = saveStoredState(state, { removeLegacy: false })
@@ -198,7 +221,7 @@ export function loadStoredState(): StoredState {
     plans: readJson<Plan[]>(KEYS.plans, []),
     planHistory: readJson<Plan[]>(KEYS.planHistory, []),
     unitGrams: readJson<Record<string, number>>(KEYS.unitGrams, {}),
-    adjustmentResolutions: readJson<AdjustmentResolutions>(KEYS.adjustmentResolutions, {}),
+    adjustmentResolutions: normalizeAdjustmentResolutions(readJson<unknown>(KEYS.adjustmentResolutions, {})),
     analyses: readJson<MotionAnalysis[]>(KEYS.analyses, [])
   }, lastMode)
 }

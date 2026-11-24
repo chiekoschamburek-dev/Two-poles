@@ -12,7 +12,7 @@
 | 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好按类别存在 `twopoles.v1.*`；登录后可同步到 `UI/server` 的 SQLite。开启照片保存时，餐食记录带一张 256px JPEG 缩略图，原图另存本机 IndexedDB。可从设置页导出 JSON/CSV（JSON 含缩略图、不含原图，CSV 不含图片）或一键清除 |
 | 训练反馈 | ✅ 跟练结束可填 RPE（**0–10**，或留空=未记录）、不适、部分完成原因与备注，写回该条 session 并持久化 |
 | 建档 | ✅ 三步表单写入 `store.updateProfile()`，含场地多选；12–17 岁与勾选孕期/伤病限制者只保留记录与手工录入，不生成自动推荐 |
-| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **678 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘，**第 12 节双极同期对照**，**第 22 节同步 outbox 合并**，**第 51 节运动学 SG 求导/固定侧别/指标**，以及**第 52 节补剂通知文案**）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
+| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **689 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘，**第 12 节双极同期对照**，**第 22 节同步 outbox 合并**，**第 51 节运动学 SG 求导/固定侧别/指标**，**第 52 节补剂通知文案**，以及**第 53 节已处理调整建议的跨设备 key**）。`npm run build` 需要 esbuild 子进程，**在受限沙箱下会 `spawn EPERM`**，只在本机正常环境跑 |
 | 动作分析 · 运动学 | ✅ 端侧分析在关注项/测量值之外新增膝/髋/躯干的角速度（°/s）与角加速度（°/s²）、髋部归一化竖直速度/加速度（躯干长/秒），以及组内起身峰值角速度对比。Savitzky–Golay 局部二次拟合求导，缺失/遮挡帧断线不补 0；力量动作的峰值只统计识别到的完整重复区间。聚合指标进分析记录并同步；逐帧曲线只在开启「保存动作数据」时存本机 IndexedDB。线速度不是 m/s，不声称对地速度 |
 | 摄像头 | **真联动 + 未实测**：实时摄像头分支由 MediaPipe 关键点角度驱动 `useRepCounter` 状态机计数（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），支持机位校准与手工修正，模型计数与修正值分别保留。**未在任何真机上验证过计数准确率**，90% 误差指标待隔离测试集实测；权限被拒、无设备或非安全上下文时自动退回"演示回放"，界面明确标注计数来源。取帧用 `requestVideoFrameCallback` 的真实帧时间戳，推理默认在经典 worker 内跑 **GPU delegate**（构建后实测生效），两者任一不可用则自动回落主线程 / CPU，状态文案如实显示实际后端 |
 | 记录入口（调研 P1-6） | ✅ 饮食页只有一个主入口「记录饮食」：拍照/选图 → 项目已有模型（设置页或服务端默认，需支持图片输入；无模型时走端侧 EfficientDet 9 类）→ 按拍摄时间自动判餐次 → 默认直接保存。结果页不展示完整表单，低置信度/待确认项明确标出，想改再展开；保存后的记录仍保留查看、编辑、删除与常吃/搜索/单位↔克数换算。模型识别要求在拍照前勾选发送同意，原图不保存；失败不生成记录。 |
@@ -310,7 +310,9 @@ npm run camera:assets
 运行前提：`https` 或 `localhost`。用 `vite --host` 得到的局域网 http 地址里 `navigator.mediaDevices` 不存在，会走 "unsupported" 分支并退回演示模式。
 
 ### 后端API集成
-`src/services/api/` 已有 `http.ts`（超时、token、401 单次 refresh、`ApiError`）与 auth/profile/sessions/meals/plans/reports/settings/sync 客户端；`services/sync.ts` 负责首次补传、增量拉取、outbox 与冲突标记，`services/outbox.ts` 按 clientId 合并。未配置后端时这些层完全不参与，数据只进分类 localStorage。
+`src/services/api/` 已有 `http.ts`（超时、token、401 单次 refresh、`ApiError`）与 auth/profile/sessions/meals/plans/reports/settings/adjustments/sync 客户端；`services/sync.ts` 负责首次补传、增量拉取、outbox 与冲突标记，`services/outbox.ts` 按 clientId 合并。未配置后端时这些层完全不参与，数据只进分类 localStorage。
+
+**已处理的计划调整建议也会同步**：`adjustmentResolutions` 从「仅本机」改为跨设备共享，服务端表 `adjustment_resolutions(user_id, resolution_key, status, updated_at)` 按 `updated_at` 做 last-write-wins。为了保证两台设备算出同一个 key，建议 key 里的场次一律用 `session.clientId`（本机新建时等于 id，同步到别的设备后只有 clientId 保持原值），计划项用 `item.id`（服务端以 `client_item_id` 原样回传）。旧版本只存裸字符串 `'accepted' | 'dismissed'`，读取时统一升级成 `{ status, updatedAt }`；这类没有时间戳的历史记录在服务端只在「这条还不存在」时写入，不会覆盖别的设备上更新的选择。
 
 服务端实现与端到端测试见 [`server/README.md`](server/README.md)。最关键的一条约束仍然是：**`VITE_API_BASE_URL` 未配置时必须保持纯本机行为**，后端上线不能把离线可用性弄没。
 

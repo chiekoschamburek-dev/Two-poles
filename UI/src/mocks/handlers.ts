@@ -16,6 +16,8 @@ export function createMockApi() {
     meals: [] as Meal[],
     analyses: [] as MotionAnalysis[],
     plans: [] as Plan[],
+    /** 已处理的调整建议：跨设备共享，按 updatedAt 判胜 */
+    resolutions: [] as { key: string; status: 'accepted' | 'dismissed'; updatedAt: string }[],
     deleted: {
       sessions: [] as { id: string; clientId?: string }[],
       meals: [] as { id: string; clientId?: string }[],
@@ -56,9 +58,24 @@ export function createMockApi() {
       if (method === 'PUT') state.privacy = { ...state.privacy, ...body, updatedAt: stamp() } as PrivacySettings
       return HttpResponse.json({ privacy: state.privacy })
     }
+    if (path === '/adjustment-resolutions' && method === 'PUT') {
+      // 与真实服务端一致：按 updatedAt 做 LWW，空时间戳只在首次插入时使用
+      const key = typeof body.key === 'string' ? body.key : ''
+      if (!key) return error(400, 'invalid_key', '缺少建议标识')
+      if (body.status !== 'accepted' && body.status !== 'dismissed') return error(400, 'invalid_status', '状态非法')
+      const incomingAt = typeof body.updatedAt === 'string' ? body.updatedAt : ''
+      const current = state.resolutions.find((row) => row.key === key)
+      if (!current || (incomingAt && incomingAt > current.updatedAt)) {
+        const next = { key, status: body.status, updatedAt: incomingAt || stamp() }
+        state.resolutions = [...state.resolutions.filter((row) => row.key !== key), next]
+        return HttpResponse.json({ resolution: next })
+      }
+      return HttpResponse.json({ resolution: current })
+    }
     if (path === '/sync') {
       const snapshot: RemoteSyncSnapshot = { serverTime: stamp(), profile: state.profile, privacy: state.privacy,
-        sessions: state.sessions, meals: state.meals, analyses: state.analyses, plans: state.plans, deleted: state.deleted }
+        sessions: state.sessions, meals: state.meals, analyses: state.analyses, plans: state.plans,
+        adjustmentResolutions: state.resolutions, deleted: state.deleted }
       return HttpResponse.json(snapshot)
     }
     for (const resource of ['sessions', 'meals', 'analyses'] as const) {

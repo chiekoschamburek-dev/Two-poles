@@ -136,13 +136,23 @@ export function buildTimeConflictSuggestion(
 
 function evidenceOf(session: TrainingSession): FeedbackEvidence {
   return {
-    sessionId: session.id,
+    sessionId: session.clientId ?? session.id,
     date: session.date,
     rpe: session.rpe,
     completionStatus: session.completionStatus,
     discomfort: session.discomfort,
     completionReason: session.completionReason
   }
+}
+
+/**
+ * 建议 key 里代表一次训练的稳定标识。
+ * 必须用 clientId：本机新建时 clientId === id，但同步到另一台设备后，
+ * 该记录的 id 会变成服务端行 id，只有 clientId 保持原值。
+ * 用 id 拼 key 会让同一条建议在不同设备上算出两个不同的 key，同步过去也拦不住。
+ */
+function stableSessionId(session: TrainingSession): string {
+  return session.clientId ?? session.id
 }
 
 function evidenceLine(evidence: FeedbackEvidence[]): string {
@@ -186,7 +196,7 @@ export function buildFeedbackIntents(
       .slice(-2)
     if (lastTwo.length < 2) continue
     const evidence = lastTwo.map(evidenceOf)
-    const key = `feedback|${exerciseName}|${lastTwo[0].id}|${lastTwo[1].id}`
+    const key = `feedback|${exerciseName}|${stableSessionId(lastTwo[0])}|${stableSessionId(lastTwo[1])}`
     const trigger = lastTwo.find(s => s.discomfort || !!(s.completionReason ?? '').trim())
     if (trigger) {
       const facts = [

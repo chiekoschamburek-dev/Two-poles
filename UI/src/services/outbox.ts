@@ -11,6 +11,7 @@ export type OutboxKind =
   | 'meal.delete'
   | 'plan.create'
   | 'plan.adjustment'
+  | 'adjustment.resolve'
   | 'analysis.create'
   | 'analysis.update'
   | 'analysis.delete'
@@ -103,6 +104,9 @@ export function enqueue(kind: OutboxKind, clientId: string, payload: unknown): O
     filtered = ops.filter((op) => !(op.clientId === clientId && (op.kind === 'meal.create' || op.kind === 'meal.update')))
   } else if (kind === 'analysis.delete') {
     filtered = ops.filter((op) => !(op.clientId === clientId && (op.kind === 'analysis.create' || op.kind === 'analysis.update')))
+  } else if (kind === 'adjustment.resolve') {
+    // 同一条建议只保留最后一次选择；accepted/dismissed 互相覆盖，排队时也不重复
+    filtered = ops.filter((op) => !sameResource(op, kind, clientId))
   }
   const op: OutboxOp = {
     id: newId(),

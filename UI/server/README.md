@@ -45,6 +45,7 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 - `GET /reports/weekly`
 - `GET /sync?since=`
 - `GET/PUT /settings/privacy`
+- `PUT /adjustment-resolutions`（body：`{ key, status, updatedAt }`；按 updatedAt 做 last-write-wins，重复同一时间戳是幂等的）
 - `GET/POST /export`、`GET /export/:id`、`GET /export/:id/download`
 - `POST /data/wipe`（二次确认令牌）
 - `GET /health`

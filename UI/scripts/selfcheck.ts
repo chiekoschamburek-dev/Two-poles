@@ -36,7 +36,7 @@ import { BRIDGE_LIMITS, buildBridgeSignals, buildWeekFacts, peekLine, readDayFac
 import { buildAdjustmentSuggestions, buildFeedbackIntents, buildTimeConflictSuggestion } from '@/services/adjustmentRules'
 import { buildLongTermTrend, buildMonthlyReport, buildRollingFourWeeksReport } from '@/services/reportRules'
 import { clearOutbox, enqueue, listOutbox } from '@/services/outbox'
-import { clearStoredState, loadStoredState, saveStoredState, STORAGE_KEYS } from '@/services/storage'
+import { clearStoredState, loadStoredState, normalizeAdjustmentResolutions, saveStoredState, STORAGE_KEYS } from '@/services/storage'
 import { clearAnalysisKeyframes, deleteAnalysisKeyframes, getAnalysisKeyframe, saveAnalysisKeyframe } from '@/services/analysisKeyframes'
 import { toISODate } from '@/utils/time'
 import type { FoodCategory, Meal, MealItem, MotionAnalysis, MotionAnalysisFinding, MotionAnalysisMetric, MotionKinematicsSample, PersonalBest, Plan, PlanItem, TrainingSession, UserProfile, ExercisePhase } from '@/types/domain'
@@ -2402,6 +2402,66 @@ ok('文案不假设用户已经/还没吃', allBodies.every(body => !/还没吃|
 ok('正文长度适合通知栏', allBodies.every(body => body.length > 0 && body.length <= 40),
   String(Math.max(...allBodies.map(body => body.length))))
 ok('标题长度适合通知栏', buildSupplementNotification({ id: 'x', name: '复合维生素', dosage: '' }, '08:00', day(0)).title.length <= 24)
+
+console.log('\n53. 已处理调整建议：跨设备 key 稳定、历史格式可读')
+// 同一次训练：本机存 id+clientId；同步到另一台设备后 id 变成服务端行 id，只有 clientId 不变
+const resDeviceA = [
+  fbSession('local-s1', '2026-10-28', 9, { clientId: 'c1' }),
+  fbSession('local-s2', '2026-11-01', 9, { clientId: 'c2' })
+]
+const resDeviceB = [
+  fbSession('server-row-1', '2026-10-28', 9, { clientId: 'c1' }),
+  fbSession('server-row-2', '2026-11-01', 9, { clientId: 'c2' })
+]
+const keyA = buildFeedbackIntents(resDeviceA, fbProfile, fbNow)[0]?.key
+const keyB = buildFeedbackIntents(resDeviceB, fbProfile, fbNow)[0]?.key
+ok('同一批判定在两台设备上算出同一个 key', !!keyA && keyA === keyB, `${keyA} vs ${keyB}`)
+ok('key 用的是 clientId 而不是会变的 id', !!keyA && keyA.includes('c1') && keyA.includes('c2'), String(keyA))
+
+const resBase = { plan: fbPlan(), profile: fbProfile, selectedDate: '2026-11-02', now: fbNow }
+const resOpen = buildAdjustmentSuggestions({ ...resBase, resolutions: {}, sessions: resDeviceA })
+const resSuggestion = resOpen.find(s => s.source === 'feedback')
+ok('未处理时给出降量建议', !!resSuggestion && resSuggestion.source === 'feedback')
+
+const resolvedMap = resSuggestion
+  ? { [resSuggestion.key]: { status: 'accepted' as const, updatedAt: '2026-11-10T08:00:00.000Z' } }
+  : {}
+ok('本机处理过的不再出现',
+  buildAdjustmentSuggestions({ ...resBase, resolutions: resolvedMap, sessions: resDeviceA })
+    .filter(s => s.source === 'feedback').length === 0)
+ok('另一台设备拉到同一条已处理记录后同样拦住',
+  buildAdjustmentSuggestions({ ...resBase, resolutions: resolvedMap, sessions: resDeviceB })
+    .filter(s => s.source === 'feedback').length === 0,
+  '这正是把 resolutions 纳入同步的目的')
+ok('处理别的建议不会误伤这一条',
+  buildAdjustmentSuggestions({
+    ...resBase,
+    resolutions: { 'feedback|其他动作|x|y|z': { status: 'dismissed', updatedAt: '2026-11-10T08:00:00.000Z' } },
+    sessions: resDeviceA
+  }).filter(s => s.source === 'feedback').length === 1)
+
+const resNormalized = normalizeAdjustmentResolutions({
+  legacy: 'accepted',
+  modern: { status: 'dismissed', updatedAt: '2026-11-10T08:00:00.000Z' },
+  badStatus: 'maybe',
+  badShape: { status: 'unknown' },
+  '': 'accepted'
+})
+ok('旧版裸字符串升级成带时间戳的结构', resNormalized.legacy?.status === 'accepted' && resNormalized.legacy?.updatedAt === '')
+ok('新格式的时间戳原样保留', resNormalized.modern?.updatedAt === '2026-11-10T08:00:00.000Z')
+ok('非法状态、非法结构与空 key 被丢弃',
+  !resNormalized.badStatus && !resNormalized.badShape && !resNormalized[''])
+ok('非对象输入返回空表而不是抛错', Object.keys(normalizeAdjustmentResolutions(null)).length === 0)
+
+const resBefore = loadStoredState()
+saveStoredState({
+  ...resBefore,
+  adjustmentResolutions: { 'k|1': { status: 'dismissed', updatedAt: '2026-11-12T00:00:00.000Z' } }
+})
+const resReloaded = loadStoredState()
+ok('已处理记录随状态落盘并保留时间戳',
+  resReloaded.adjustmentResolutions?.['k|1']?.status === 'dismissed'
+  && resReloaded.adjustmentResolutions?.['k|1']?.updatedAt === '2026-11-12T00:00:00.000Z')
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1
