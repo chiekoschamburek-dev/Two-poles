@@ -1,5 +1,12 @@
 <template>
-  <div class="shell">
+  <!-- 首帧先等 store 读完本机状态，避免主界面闪一下再被引导流替换 -->
+  <div v-if="!store.initialized" class="boot-screen" role="status" aria-live="polite">
+    <PoleMark :size="40" />
+    <p>正在准备你的训练空间…</p>
+  </div>
+  <!-- 未完成首次引导：全屏引导流，导航、侧栏与主内容都不渲染 -->
+  <WelcomeView v-else-if="!store.hasCompletedOnboarding" />
+  <div v-else class="shell">
     <TopBar :menu-open="mobileOpen" @toggle-menu="mobileOpen = !mobileOpen" />
     <SidebarNav :open="mobileOpen" @close="mobileOpen = false" />
     <Transition name="fade">
@@ -36,6 +43,8 @@ import MobileNav from './MobileNav.vue'
 import ToastRegion from '../common/ToastRegion.vue'
 import PlanDraftDialog from '../common/PlanDraftDialog.vue'
 import WellnessDock from '@/components/wellness/WellnessDock.vue'
+import PoleMark from '@/components/poles/PoleMark.vue'
+import WelcomeView from '@/views/WelcomeView.vue'
 import { useAppStore } from '@/stores/app'
 import { useWellnessDock } from '@/composables/useWellnessDock'
 import { startSupplementScheduler } from '@/composables/useSupplementReminders'
@@ -62,6 +71,21 @@ const pageAnnouncement = ref('')
 const { init: initWellnessDock, modalOpen: wellnessModalOpen } = useWellnessDock()
 /** 双极工作台自己管理两栏的滚动，外壳不再让整页滚动 */
 const isWorkspace = computed(() => route.meta.workspace === true)
+
+/**
+ * 引导流不是一条路由，路由 afterEach 会把标题改回底层页面。
+ * 这里以「是否完成引导」为准接管标题；完成后恢复当前路由标题。
+ */
+watch(
+  [() => store.initialized, () => store.hasCompletedOnboarding, () => route.meta.title as string | undefined],
+  ([ready, completed, title]) => {
+    if (!ready) return
+    document.title = completed
+      ? (title ? `${title} - 两仪·TwoPoles` : '两仪·TwoPoles')
+      : '首次设置 - 两仪·TwoPoles'
+  },
+  { immediate: true }
+)
 
 watch(() => route.fullPath, () => {
   mobileOpen.value = false
@@ -123,6 +147,19 @@ onBeforeUnmount(() => {
 /* 整页最小高度用 dvh：手机地址栏收放时 vh 会按最大视口算，页面底部会多出一段空白。
    先写一行 vh 兜底，不认识 dvh 的浏览器会忽略后一条。 */
 .shell { min-height: 100vh; min-height: 100dvh; }
+/* 初始化只等一次 localStorage 读取，不渲染任何导航骨架，避免首屏闪动 */
+.boot-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.boot-screen p { margin: 0; letter-spacing: .02em; }
 /* 导航脊是 fixed 且贯穿整屏，主区只让出它的宽度；页头自己负责吸顶（含 PWA 刘海让位，见 TopBar） */
 .main-content {
   min-height: calc(100vh - var(--topbar-height) - var(--safe-top));

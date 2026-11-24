@@ -11,23 +11,11 @@
     <form class="profile-form" novalidate @submit.prevent="saveProfile">
       <BaseCard class="panel">
         <h2 class="q">基本信息</h2>
-        <div class="avatar-field">
-          <div class="avatar-preview">
-            <img v-if="avatarDataUrl" :src="avatarDataUrl" alt="头像预览" />
-            <span v-else aria-hidden="true">{{ nickname.trim().charAt(0) || '我' }}</span>
-          </div>
-          <div class="avatar-controls">
-            <span class="field-label">头像（可留空）</span>
-            <input ref="avatarInput" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="chooseAvatar" />
-            <div class="avatar-actions">
-              <BaseButton type="button" variant="secondary" size="sm" @click="avatarInput?.click()">{{ avatarDataUrl ? '更换头像' : '选择头像' }}</BaseButton>
-              <BaseButton v-if="avatarDataUrl" type="button" variant="ghost" size="sm" @click="removeAvatar">移除头像</BaseButton>
-            </div>
-            <p v-if="avatarLoading" class="fine" role="status">正在处理头像…</p>
-            <p v-else-if="avatarError" class="fine err" role="alert">{{ avatarError }}</p>
-            <p v-else class="fine">支持 JPG、PNG、WebP。点击「保存档案」后生效。</p>
-          </div>
-        </div>
+        <AvatarPicker
+          v-model="avatarDataUrl"
+          :nickname="nickname"
+          @update:loading="avatarLoading = $event"
+        />
         <div class="grid2">
           <label class="field">
             <span class="field-label">昵称（可留空）</span>
@@ -213,6 +201,11 @@
     </form>
 
     <p class="privacy">档案默认保存在本机。登录并启用同步后，档案会同步至账号。</p>
+
+    <div class="debug-reset">
+      <button type="button" @click="resetOnboarding">重置新手引导（调试用）</button>
+      <span>只清除完成标记，回到引导第一步；已保存的档案不会被删除。</span>
+    </div>
   </div>
 </template>
 
@@ -223,66 +216,45 @@ import { Check } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import SuggestionInput from '@/components/common/SuggestionInput.vue'
+import AvatarPicker from '@/components/profile/AvatarPicker.vue'
 import PbList from '@/components/profile/PbList.vue'
 import GymList from '@/components/profile/GymList.vue'
 import { useAppStore } from '@/stores/app'
-import type { GoalType, UserProfile } from '@/types/domain'
+import {
+  PROFILE_EQUIPMENT_OPTIONS,
+  PROFILE_EVENT_OPTIONS,
+  PROFILE_EXPERIENCES,
+  PROFILE_GATE_OPTIONS,
+  PROFILE_GOALS,
+  PROFILE_PHASES,
+  PROFILE_RESTRICTION_OPTIONS,
+  PROFILE_TIME_OPTIONS,
+  PROFILE_VENUE_OPTIONS
+} from '@/config/profileOptions'
 import { gateReason } from '@/services/exercises'
-import { FIELD_EVENTS, TRACK_EVENTS, bodyErrors, cycleRangeError } from '@/services/profileRules'
-import { prepareModelImage } from '@/utils/modelImage'
+import { createProfileDraft, toProfilePayload } from '@/services/profileForm'
+import { ageError as profileAgeError, bodyErrors, cycleRangeError, isValidAge } from '@/services/profileRules'
 
 const router = useRouter()
 const store = useAppStore()
 
-const goals = ['保持活力', '减脂', '增肌', '改善体态', '专项提升', '康复维持']
-const experiences = ['几乎不运动', '偶尔运动', '有一定基础', '长期规律训练']
-const timeOptions = ['10 分钟', '20 分钟', '30 分钟', '45 分钟', '60 分钟']
-const equipmentOptions = ['无器材', '椅子', '弹力带', '哑铃', '单杠', '跑步机']
-const venueOptions = ['宿舍或家', '健身房', '户外']
-const restrictionOptions = ['无跳跃', '膝部负担小', '腰部负担小', '低强度起步']
-/** 这几项不是动作过滤器，而是"是否进入自动推荐"的适用范围门槛 */
-const gateOptions = ['孕期或产后', '伤病或遵医嘱限制']
-const phases = ['基础准备', '强度建立', '量化提升', '减量与测试']
+// 选项统一来自 config/profileOptions.ts，档案页与首次使用引导共用
+const goals = PROFILE_GOALS
+const experiences = PROFILE_EXPERIENCES
+const timeOptions = PROFILE_TIME_OPTIONS
+const equipmentOptions = PROFILE_EQUIPMENT_OPTIONS
+const venueOptions = PROFILE_VENUE_OPTIONS
+const restrictionOptions = PROFILE_RESTRICTION_OPTIONS
+const gateOptions = PROFILE_GATE_OPTIONS
+const phases = PROFILE_PHASES
+const eventOptions = PROFILE_EVENT_OPTIONS
 
-const eventOptions = [...TRACK_EVENTS, ...FIELD_EVENTS]
 const error = ref('')
 const ageInput = ref<HTMLInputElement | null>(null)
 const triedSave = ref(false)
-const avatarInput = ref<HTMLInputElement | null>(null)
 const avatarLoading = ref(false)
-const avatarError = ref('')
-let avatarRequest = 0
 
-function profileDraft(profile: UserProfile | null) {
-  const goalType: GoalType = profile?.goalType ?? (profile?.targetEvent ? 'competition' : 'cycle')
-  return {
-    nickname: profile?.nickname ?? '',
-    avatarDataUrl: profile?.avatarDataUrl ?? '',
-    age: profile?.age ?? ('' as const),
-    height: profile?.height ?? ('' as const),
-    weight: profile?.weight ?? ('' as const),
-    goal: profile?.goal ?? '',
-    experience: profile?.experience ?? '',
-    availableTimes: [...(profile?.availableTimes ?? [])],
-    equipment: [...(profile?.equipment ?? [])],
-    availableVenues: [...(profile?.availableVenues ?? [])],
-    restrictions: [...(profile?.restrictions ?? [])],
-    discipline: profile?.discipline ?? '',
-    otherPicked: !!profile?.discipline && !eventOptions.includes(profile.discipline),
-    goalType,
-    cyclePhase: profile?.cyclePhase ?? '',
-    cycleStartDate: profile?.cycleStartDate ?? '',
-    cycleEndDate: profile?.cycleEndDate ?? '',
-    cycleFocus: profile?.cycleFocus ?? '',
-    targetEvent: profile?.targetEvent ?? '',
-    targetEventDate: profile?.targetEventDate ?? '',
-    targetResult: profile?.targetResult ?? '',
-    personalBests: (profile?.personalBests ?? []).map(record => ({ ...record })),
-    gymRecords: (profile?.gymRecords ?? []).map(record => ({ ...record }))
-  }
-}
-
-const draft = reactive(profileDraft(store.userProfile))
+const draft = reactive(createProfileDraft(store.userProfile))
 const {
   nickname, avatarDataUrl, age, height, weight, goal, experience, availableTimes, equipment,
   availableVenues, restrictions, discipline, otherPicked, goalType, cyclePhase,
@@ -293,7 +265,7 @@ const {
 let savedDraft = JSON.stringify(draft)
 watch(() => store.userProfile, (profile) => {
   const previous = JSON.parse(savedDraft) as typeof draft
-  const next = profileDraft(profile)
+  const next = createProfileDraft(profile)
   // 账号资料稍后同步到本机时，只回填尚未编辑的字段。
   const untouched = (key: keyof typeof draft) => JSON.stringify(draft[key]) === JSON.stringify(previous[key])
   const changes = Object.entries(next).filter(([key]) => untouched(key as keyof typeof draft)
@@ -313,8 +285,7 @@ function pickOtherSport() {
 }
 
 const bodyError = computed(() => bodyErrors(height.value, weight.value))
-const ageError = computed(() => triedSave.value && (age.value === '' || !Number.isInteger(age.value) || age.value < 12 || age.value > 90)
-  ? '请填写 12–90 岁之间的实际年龄。' : '')
+const ageError = computed(() => triedSave.value ? (profileAgeError(age.value) ?? '') : '')
 const cycleError = computed(() => cycleRangeError(cycleStartDate.value, cycleEndDate.value))
 
 function toggle(list: string[], value: string) {
@@ -325,39 +296,12 @@ function toggle(list: string[], value: string) {
 
 const blocked = computed(() => gateReason({ restrictions: restrictions.value }))
 
-async function chooseAvatar(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-  const request = ++avatarRequest
-  avatarLoading.value = true
-  avatarError.value = ''
-  try {
-    const preview = await prepareModelImage(file, 256)
-    if (request !== avatarRequest) return
-    if (preview.length > 180_000) throw new Error('头像压缩后仍太大，请换一张图片。')
-    avatarDataUrl.value = preview
-  } catch (failure) {
-    if (request === avatarRequest) avatarError.value = failure instanceof Error ? failure.message : '无法读取头像。'
-  } finally {
-    if (request === avatarRequest) avatarLoading.value = false
-  }
-}
-
-function removeAvatar() {
-  avatarRequest++
-  avatarLoading.value = false
-  avatarError.value = ''
-  avatarDataUrl.value = ''
-}
-
 function saveProfile() {
   if (avatarLoading.value) return
   triedSave.value = true
   error.value = ''
   const savedAge = age.value
-  if (savedAge === '' || ageError.value) {
+  if (!isValidAge(savedAge)) {
     ageInput.value?.focus()
     return
   }
@@ -372,32 +316,7 @@ function saveProfile() {
     error.value = rangeError
     return
   }
-  store.updateProfile({
-    nickname: nickname.value.trim() || undefined,
-    avatarDataUrl: avatarDataUrl.value || undefined,
-    age: savedAge,
-    goal: goal.value.trim(),
-    experience: experience.value.trim(),
-    availableTimes: [...availableTimes.value],
-    equipment: [...equipment.value],
-    availableVenues: [...availableVenues.value],
-    restrictions: [...restrictions.value],
-    // 身体数据：留空时存 undefined，不覆盖成 0
-    height: height.value === '' ? undefined : Number(height.value),
-    weight: weight.value === '' ? undefined : Number(weight.value),
-    // 专项字段：保存时原样带回，不丢
-    discipline: discipline.value.trim() || undefined,
-    cyclePhase: cyclePhase.value || undefined,
-    cycleStartDate: cycleStartDate.value || undefined,
-    cycleEndDate: cycleEndDate.value || undefined,
-    cycleFocus: cycleFocus.value.trim() || undefined,
-    goalType: goalType.value,
-    targetEvent: targetEvent.value.trim() || undefined,
-    targetEventDate: targetEventDate.value || undefined,
-    targetResult: targetResult.value.trim() || undefined,
-    personalBests: [...personalBests.value],
-    gymRecords: [...gymRecords.value]
-  })
+  store.updateProfile(toProfilePayload(draft, savedAge))
   savedDraft = JSON.stringify(draft)
   // 计划生成与重算统一由计划页触发；保存档案只更新档案
   store.showToast({
@@ -407,6 +326,12 @@ function saveProfile() {
     duration: 3000
   })
   router.push('/')
+}
+
+/** 调试入口：清掉完成标记，AppShell 会立即用引导流替换主界面 */
+function resetOnboarding() {
+  store.resetOnboarding()
+  void router.push('/')
 }
 </script>
 
@@ -419,11 +344,6 @@ function saveProfile() {
 .profile-form{display:grid;gap:16px}
 .panel{padding:26px}
 .q{font-size:18px;margin-bottom:16px}
-.avatar-field{display:flex;align-items:center;gap:16px;margin-bottom:20px}
-.avatar-preview{width:68px;height:68px;display:grid;place-items:center;flex:none;overflow:hidden;border-radius:50%;background:var(--color-accent-soft);color:var(--color-accent);font-size:22px;font-weight:700}
-.avatar-preview img{display:block;width:100%;height:100%;object-fit:cover}
-.avatar-controls{min-width:0}
-.avatar-actions{display:flex;gap:8px;flex-wrap:wrap}
 .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
 .field{display:block;margin-bottom:16px}
 .field-label{display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:7px}
@@ -457,5 +377,8 @@ function saveProfile() {
 .nav{display:flex;justify-content:flex-end}
 .nav :deep(button){width:auto;padding:0 22px}
 .privacy{font-size:12px;color:var(--color-text-muted);text-align:center;margin-top:16px}
+.debug-reset{margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--color-text-muted)}
+.debug-reset button{font-family:inherit;font-size:11px;font-weight:600;color:var(--color-text-muted);padding:5px 10px;border-radius:var(--radius-sm);border:1px dashed var(--color-border);transition:color var(--motion-fast),border-color var(--motion-fast)}
+.debug-reset button:hover{color:var(--color-caution);border-color:var(--color-caution)}
 @media(max-width:640px){.grid2{grid-template-columns:1fr}.panel{padding:18px}.nav :deep(button){width:100%}}
 </style>

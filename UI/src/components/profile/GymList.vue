@@ -14,7 +14,7 @@
           <span>动作</span>
           <input v-model="draft.lift" type="text" list="lift-presets" placeholder="深蹲 / 硬拉 / 卧推" />
           <datalist id="lift-presets">
-            <option v-for="l in LIFT_PRESETS" :key="l" :value="l" />
+            <option v-for="l in PROFILE_LIFT_PRESETS" :key="l" :value="l" />
           </datalist>
         </label>
         <label class="f">
@@ -63,7 +63,8 @@
 import { reactive, ref } from 'vue'
 import type { GymRecord } from '@/types/domain'
 import { newId } from '@/utils/id'
-import { LIFT_PRESETS, formatCnDate } from '@/services/profileRules'
+import { PROFILE_LIFT_PRESETS } from '@/config/profileOptions'
+import { formatCnDate } from '@/services/profileRules'
 
 const props = defineProps<{ modelValue: GymRecord[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: GymRecord[]): void }>()

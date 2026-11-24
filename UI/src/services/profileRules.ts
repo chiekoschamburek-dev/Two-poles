@@ -2,17 +2,25 @@
 // 全部是纯函数，页面只负责展示；口径集中在这里，方便 selfcheck 断言。
 import type { GymRecord, GoalType, PersonalBest, UserProfile } from '@/types/domain'
 
+/** 年龄是档案必填项；档案页与首次使用引导共用同一区间 */
+export const AGE_RANGE = { min: 12, max: 90 }
 /** 身高 cm 的合理区间；只在填了之后才校验 */
 export const HEIGHT_RANGE = { min: 100, max: 250 }
 /** 体重 kg 的合理区间；沿用建档页原来的 25–200 */
 export const WEIGHT_RANGE = { min: 25, max: 200 }
 
-/** 径赛：按时间比，越短越好 */
-export const TRACK_EVENTS = ['100m', '200m', '400m', '800m', '1500m', '5000m']
-/** 田赛：按距离比，越远越好 */
-export const FIELD_EVENTS = ['跳远', '三级跳', '铅球']
-/** 常见举重动作，仍允许自定义 */
-export const LIFT_PRESETS = ['深蹲', '硬拉', '卧推']
+/** 年龄必须是区间内的整数；空值不算合法 */
+export function isValidAge(age: number | '' | null | undefined): age is number {
+  return typeof age === 'number'
+    && Number.isInteger(age)
+    && age >= AGE_RANGE.min
+    && age <= AGE_RANGE.max
+}
+
+/** 档案页/引导页共用的年龄错误文案；合法时返回 null */
+export function ageError(age: number | '' | null | undefined): string | null {
+  return isValidAge(age) ? null : `请填写 ${AGE_RANGE.min}–${AGE_RANGE.max} 岁之间的实际年龄。`
+}
 
 /** 成绩解析：把 "11.23" / "2:05.3" / "6.85 m" 统一成可比较的数字（秒或米） */
 export function parseResult(raw: string, track: boolean): number | null {

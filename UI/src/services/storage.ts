@@ -20,6 +20,8 @@ export interface StoredState {
   collapsed?: string[]
   theme?: ThemePreference
   planCompletionStyle?: PlanCompletionStyle
+  /** 首次使用引导是否已完成；放在已有 meta key 里，不新建存储 key */
+  onboardingCompleted?: boolean
   plans?: Plan[]
   planHistory?: Plan[]
   unitGrams?: Record<string, number>
@@ -213,6 +215,7 @@ export function loadStoredState(): StoredState {
     collapsed: Array.isArray(meta.collapsed) ? meta.collapsed as string[] : [],
     theme: (meta.theme === 'light' || meta.theme === 'dark' || meta.theme === 'system') ? meta.theme : 'system',
     planCompletionStyle: meta.planCompletionStyle === 'strike' ? 'strike' : 'highlight',
+    onboardingCompleted: typeof meta.onboardingCompleted === 'boolean' ? meta.onboardingCompleted : undefined,
     profile,
     sessions: readJson<TrainingSession[]>(KEYS.sessions, []),
     meals: readJson<Meal[]>(KEYS.meals, []),
@@ -228,10 +231,18 @@ export function loadStoredState(): StoredState {
 
 export function saveStoredState(state: StoredState, options: { removeLegacy?: boolean } = {}): string[] {
   const failed: string[] = []
+  // 调用方没有显式传完成标记时保留 meta 里的旧值，避免旧迁移路径或局部状态写入把标记抹掉。
+  const previousMeta = readJson<Record<string, unknown>>(KEYS.meta, {})
+  const onboardingCompleted = typeof state.onboardingCompleted === 'boolean'
+    ? state.onboardingCompleted
+    : typeof previousMeta.onboardingCompleted === 'boolean'
+      ? previousMeta.onboardingCompleted
+      : undefined
   const meta = {
     collapsed: state.collapsed ?? [],
     theme: state.theme ?? 'system',
-    planCompletionStyle: state.planCompletionStyle === 'strike' ? 'strike' : 'highlight'
+    planCompletionStyle: state.planCompletionStyle === 'strike' ? 'strike' : 'highlight',
+    ...(onboardingCompleted === undefined ? {} : { onboardingCompleted })
   }
   const writes: [string, unknown][] = [
     [KEYS.meta, meta],

@@ -31,7 +31,8 @@ import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } fr
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
-import { bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, normalizeProfile, parseResult } from '@/services/profileRules'
+import { ageError, bodyErrors, cycleRangeError, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, isValidAge, normalizeProfile, parseResult } from '@/services/profileRules'
+import { createProfileDraft, toProfilePayload } from '@/services/profileForm'
 import { buildPlanMessages, buildPlanQuestionMessages, canUseLlm, desiredWeeklySessions, extractJson, isLlmReady, usingDefault, validatePlanDraft, validatePlanQuestions } from '@/services/llm'
 import { BRIDGE_LIMITS, buildBridgeSignals, buildWeekFacts, peekLine, readDayFacts } from '@/services/bridgeRules'
 import { buildAdjustmentSuggestions, buildFeedbackIntents, buildTimeConflictSuggestion } from '@/services/adjustmentRules'
@@ -541,6 +542,33 @@ ok('旧档案不凭空造出身高', normalized?.height === undefined)
 ok('null 档案仍返回 null', normalizeProfile(null) === null)
 
 ok('1RM 与训练最高重量的文案不同', gymRecordLabel({ id: 'x', lift: '深蹲', weight: 120, kind: '1rm' }) !== gymRecordLabel({ id: 'y', lift: '深蹲', weight: 120, kind: 'working' }))
+
+console.log('\n10b. 首次引导：年龄校验与档案草稿/载荷共用')
+const emptyAgeError = ageError('')
+ok('年龄空值不合法并给出统一文案', !isValidAge('') && !!emptyAgeError && emptyAgeError.includes('12–90'))
+ok('12 / 90 边界合法', isValidAge(12) && isValidAge(90))
+ok('小数与越界年龄不合法', !isValidAge(12.5) && !isValidAge(11) && !isValidAge(91))
+const blankDraft = createProfileDraft(null)
+ok('新用户草稿不预填年龄/身高/体重', blankDraft.age === '' && blankDraft.height === '' && blankDraft.weight === '')
+ok('新用户草稿没有 PB / 极限数据', blankDraft.personalBests.length === 0 && blankDraft.gymRecords.length === 0)
+const editedDraft = {
+  ...blankDraft,
+  nickname: ' 阿两 ',
+  goal: ' 减脂 ',
+  experience: ' 偶尔运动 ',
+  availableTimes: ['20 分钟'],
+  restrictions: ['孕期或产后'],
+  height: 175 as const,
+  weight: 65 as const,
+  personalBests: [pb('x', '100m', true, '11.20')]
+}
+const editedPayload = toProfilePayload(editedDraft, 30)
+ok('保存载荷沿用档案字段并 trim', editedPayload.age === 30 && editedPayload.nickname === '阿两' && editedPayload.goal === '减脂')
+ok('留空身体数据不会变成 0', toProfilePayload(blankDraft, 30).height === undefined && toProfilePayload(blankDraft, 30).weight === undefined)
+ok('PB 记录原样带回', editedPayload.personalBests?.length === 1 && editedPayload.personalBests?.[0].result === '11.20')
+const roundTripDraft = createProfileDraft(oldProfile)
+ok('档案回读保留已有目标与条件', roundTripDraft.goal === '减脂' && roundTripDraft.availableTimes[0] === '20 分钟' && roundTripDraft.weight === 62)
+ok('档案回读保留年龄，不额外造默认值', roundTripDraft.age === 30 && roundTripDraft.height === '')
 
 console.log('\n11. 大模型计划：提示词、响应解析、校验')
 ok('未填 base_url 视为未配置', isLlmReady({ baseUrl: '', apiKey: 'k', model: 'm' }) === false)
@@ -1111,6 +1139,11 @@ const profileHasMode = unifiedModes.profile ? 'mode' in (unifiedModes.profile as
 ok('迁移后档案与计划不带模式字段', !profileHasMode
   && [...(unifiedModes.plans ?? []), ...(unifiedModes.planHistory ?? [])].every(pl => !('mode' in pl)))
 ok('旧模式切换记录被移除', !mem.has('twopoles.v1.modeLog'))
+clearStoredState()
+saveStoredState({ profile: p({}), onboardingCompleted: true })
+ok('引导完成标记写入现有 meta key', loadStoredState().onboardingCompleted === true && mem.has(STORAGE_KEYS.meta))
+saveStoredState({ profile: p({}) })
+ok('局部状态写入不会抹掉完成标记', loadStoredState().onboardingCompleted === true)
 clearStoredState()
 
 console.log('\n24. 实时计数：帧连续性、遮挡、重置与校准')

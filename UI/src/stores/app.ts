@@ -76,6 +76,8 @@ export const useAppStore = defineStore('app', () => {
   const speech = ref<SpeechSettings>({ enabled: false, voiceURI: '' })
   const toasts = ref<Toast[]>([])
   const initialized = ref(false)
+  /** 首次使用引导完成标记；存在现有 meta key 里，不用字段是否为空来判断 */
+  const onboardingCompleted = ref(false)
   /** 被用户收起的解释/洞察类卡片 id。调研结论：这类卡片必须可隐藏，不能常驻占位 */
   const collapsedCards = ref<string[]>([])
   const themePref = ref<ThemePreference>('system')
@@ -103,6 +105,8 @@ export const useAppStore = defineStore('app', () => {
     set: (value: UserProfile | null) => { allProfile.value = value }
   })
   const hasProfile = computed(() => !!userProfile.value)
+  /** 未完成首次引导时，AppShell 只渲染引导流，不渲染导航与主界面 */
+  const hasCompletedOnboarding = computed(() => onboardingCompleted.value)
 
   // === Actions ===
 
@@ -158,7 +162,19 @@ export const useAppStore = defineStore('app', () => {
       // 旧版本只有裸字符串，新版本是 { status, updatedAt }；统一格式在 storage 里做完
       adjustmentResolutions.value = normalizeAdjustmentResolutions(data.adjustmentResolutions)
     }
+    // 老版本没有完成标记：已有档案/记录的用户视为已完成，避免升级后被强制走引导；
+    // 真正的新用户（本机没有任何数据）从引导流开始。
+    const storedOnboarding = data.onboardingCompleted
+    const hasExistingData = !!allProfile.value
+      || allSessions.value.length > 0
+      || allMeals.value.length > 0
+      || allAnalyses.value.length > 0
+      || allPlans.value.length > 0
+      || allPlanHistory.value.length > 0
+    onboardingCompleted.value = typeof storedOnboarding === 'boolean' ? storedOnboarding : hasExistingData
     initialized.value = true
+    // 迁移结果显式落盘：之后判断只看标记，不再依赖"有没有档案/记录"。
+    if (typeof storedOnboarding !== 'boolean') persistState()
     configureSyncHandlers()
     void bootstrapSync()
   }
@@ -177,6 +193,7 @@ export const useAppStore = defineStore('app', () => {
       collapsed: collapsedCards.value,
       theme: themePref.value,
       planCompletionStyle: planCompletionStyle.value,
+      onboardingCompleted: onboardingCompleted.value,
       plans: allPlans.value,
       planHistory: allPlanHistory.value,
       unitGrams: unitGrams.value,
@@ -1268,6 +1285,23 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /**
+   * 首次使用引导完成：只有档案已经写入后才允许标记完成。
+   * 标记写进现有 meta key，与档案数据分开；重置引导不会删除档案。
+   */
+  function completeOnboarding(): boolean {
+    if (!hasProfile.value) return false
+    onboardingCompleted.value = true
+    persistState()
+    return true
+  }
+
+  /** 调试用：清除完成标记，下一次渲染立即回到引导流（档案保留） */
+  function resetOnboarding() {
+    onboardingCompleted.value = false
+    persistState()
+  }
+
+  /**
    * Update user profile
    */
   function updateProfile(profile: Partial<UserProfile>) {
@@ -1651,6 +1685,7 @@ export const useAppStore = defineStore('app', () => {
     collapsedCards.value = []
     themePref.value = 'system'
     planCompletionStyle.value = 'highlight'
+    onboardingCompleted.value = false
     unitGrams.value = {}
     adjustmentResolutions.value = {}
     planFeedbackText.value = ''
@@ -1698,6 +1733,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Computed
     hasProfile,
+    hasCompletedOnboarding,
     foreignRecordCount,
     foreignPlanCount,
 
@@ -1705,6 +1741,8 @@ export const useAppStore = defineStore('app', () => {
     init,
     persistState,
     updateProfile,
+    completeOnboarding,
+    resetOnboarding,
     showToast,
     dismissToast,
     addSession,

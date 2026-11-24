@@ -14,7 +14,7 @@
         <label class="f">
           <span>项目</span>
           <select v-model="draft.eventPreset" @change="onPreset">
-            <option v-for="e in [...TRACK_EVENTS, ...FIELD_EVENTS]" :key="e" :value="e">{{ e }}</option>
+            <option v-for="e in PROFILE_EVENT_OPTIONS" :key="e" :value="e">{{ e }}</option>
             <option value="__other">其他（自定义）</option>
           </select>
         </label>
@@ -70,7 +70,8 @@
 import { reactive, ref } from 'vue'
 import type { PersonalBest } from '@/types/domain'
 import { newId } from '@/utils/id'
-import { FIELD_EVENTS, TRACK_EVENTS, formatCnDate, isCurrentBest, parseResult } from '@/services/profileRules'
+import { PROFILE_EVENT_OPTIONS, PROFILE_TRACK_EVENTS } from '@/config/profileOptions'
+import { formatCnDate, isCurrentBest, parseResult } from '@/services/profileRules'
 
 const props = defineProps<{ modelValue: PersonalBest[] }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: PersonalBest[]): void }>()
@@ -79,7 +80,7 @@ const open = ref(false)
 const editingId = ref('')
 const error = ref('')
 const draft = reactive({
-  eventPreset: TRACK_EVENTS[0],
+  eventPreset: PROFILE_TRACK_EVENTS[0],
   event: '',
   track: true,
   result: '',
@@ -88,7 +89,7 @@ const draft = reactive({
 })
 
 function reset() {
-  draft.eventPreset = TRACK_EVENTS[0]
+  draft.eventPreset = PROFILE_TRACK_EVENTS[0]
   draft.event = ''
   draft.track = true
   draft.result = ''
@@ -100,7 +101,7 @@ function reset() {
 
 function onPreset() {
   if (draft.eventPreset === '__other') return
-  draft.track = TRACK_EVENTS.includes(draft.eventPreset)
+  draft.track = PROFILE_TRACK_EVENTS.includes(draft.eventPreset)
 }
 
 function startNew() {
@@ -112,7 +113,7 @@ function startEdit(pb: PersonalBest) {
   open.value = true
   editingId.value = pb.id
   error.value = ''
-  const preset = [...TRACK_EVENTS, ...FIELD_EVENTS].includes(pb.event) ? pb.event : '__other'
+  const preset = PROFILE_EVENT_OPTIONS.includes(pb.event) ? pb.event : '__other'
   draft.eventPreset = preset
   draft.event = preset === '__other' ? pb.event : ''
   draft.track = pb.track
