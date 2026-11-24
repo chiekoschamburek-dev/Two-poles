@@ -168,12 +168,15 @@ export interface MotionKinematics {
 }
 
 export interface MotionPrecheckResult {
-  verdict: 'ok' | 'degraded' | 'rejected'
+  /** view-unclear：人体与动作都识别到了，只是机位判不准，交给用户点一下视角 */
+  verdict: 'ok' | 'degraded' | 'view-unclear' | 'rejected'
   reasons: string[]
   view: AnalysisView | null
+  /** 视角判不准时按分离度给出的就近建议，只用于界面预选，不直接当结论 */
+  suggestedView?: AnalysisView | null
   repCount: number | null
   gaitCycles: number | null
-  /** 自动识别的动作；连人体/视角都没过时为 null */
+  /** 自动识别的动作；连人体都没过时为 null */
   action: AnalysisAction | null
   /** false = 深蹲/硬拉特征不明确，默认按深蹲分析，允许改判 */
   actionConfident: boolean

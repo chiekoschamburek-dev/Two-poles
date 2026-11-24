@@ -1514,6 +1514,7 @@ const ambiguous = buildSquatSeries({ reps: 1 }).frames.map(frame => {
   } as MotionFrame
 })
 ok('模糊视角不硬判', detectView(ambiguous).view === null)
+ok('模糊视角给出就近建议', detectView(ambiguous).suggested !== null)
 const goodResult = analyzeMotion({ ...goodSquat, view: 'side' })
 ok('两次完整深蹲计数为 2', goodResult.repCount === 2, String(goodResult.repCount))
 ok('标准动作不产生关注项', goodResult.findings.length === 0, goodResult.findings.map(f => f.ruleId).join(','))
@@ -1555,8 +1556,12 @@ ok('没有完整重复时降级并说明', noRepPrecheck.verdict === 'degraded' 
 const emptyPrecheck = precheckMotion({ fps: 15, frames: [] })
 ok('没有人体时拒绝', emptyPrecheck.verdict === 'rejected' && emptyPrecheck.view === null && emptyPrecheck.action === null)
 const unknownViewPrecheck = precheckMotion({ fps: 15, frames: ambiguous })
-ok('视角无法判定时拒绝', unknownViewPrecheck.verdict === 'rejected'
-  && unknownViewPrecheck.reasons.some(reason => reason.includes('视角')))
+ok('视角无法自动判定时不拒绝，交给用户选视角', unknownViewPrecheck.verdict === 'view-unclear'
+  && unknownViewPrecheck.view === null
+  && unknownViewPrecheck.suggestedView !== null
+  && unknownViewPrecheck.action !== null
+  && unknownViewPrecheck.reasons.some(reason => reason.includes('视角')),
+  `verdict=${unknownViewPrecheck.verdict} action=${unknownViewPrecheck.action} suggested=${unknownViewPrecheck.suggestedView}`)
 
 console.log('\n31. 视频分析：深蹲正面与硬拉规则')
 const baseRep = (overrides: Partial<RepAnalysis> = {}): RepAnalysis => ({

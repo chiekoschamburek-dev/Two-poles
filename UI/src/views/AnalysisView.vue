@@ -134,6 +134,21 @@
       </BaseCard>
     </template>
 
+    <BaseCard v-else-if="step === 'view-pick' && precheckResult" class="panel">
+      <h2>先确认拍摄视角</h2>
+      <p class="muted">人体和动作都识别到了，只是机位判不准。请按这条视频的实际拍摄方向选一个，规则会随视角切换。</p>
+      <p v-if="precheckResult.suggestedView" class="muted">
+        看起来更接近{{ viewLabel(precheckResult.suggestedView) }}（只是建议，以实际机位为准）；选择后结果按低置信度标注。
+      </p>
+      <div class="actions">
+        <BaseButton variant="secondary" @click="chooseView('side')">按侧面分析</BaseButton>
+        <BaseButton variant="secondary" @click="chooseView('front')">按正面分析</BaseButton>
+      </div>
+      <div class="actions">
+        <BaseButton variant="ghost" @click="resetAll">换一个视频</BaseButton>
+      </div>
+    </BaseCard>
+
     <BaseCard v-else-if="step === 'analyzing'" class="panel" aria-live="polite">
       <h2>正在分析</h2>
       <p class="muted">{{ saving ? '正在保存关键帧……' : (statusText || '正在逐帧分析……') }}</p>
@@ -298,7 +313,7 @@ import type {
   MotionPrecheckResult
 } from '@/types/domain'
 
-type Step = 'pick' | 'prechecked' | 'analyzing' | 'result' | 'rejected' | 'error'
+type Step = 'pick' | 'prechecked' | 'view-pick' | 'analyzing' | 'result' | 'rejected' | 'error'
 
 const ACTION_LABELS: Record<AnalysisAction, string> = {
   squat: '深蹲',
@@ -385,6 +400,24 @@ function switchAction(next: AnalysisAction) {
   applySwitchedAction(next)
 }
 
+/**
+ * 自动视角判不准时的兜底：用户点一下机位，按所选视角继续。
+ * 这不是「猜对了」——降级标注保留，结果页会写明视角由用户指定。
+ */
+function chooseView(view: AnalysisView) {
+  if (!precheckResult.value) return
+  precheckResult.value = {
+    ...precheckResult.value,
+    view,
+    verdict: 'degraded',
+    reasons: [
+      ...precheckResult.value.reasons.filter(reason => !reason.includes('无法自动判定拍摄视角')),
+      `视角由你手动指定为${view === 'side' ? '侧面' : '正面'}，结果按低置信度标注`
+    ]
+  }
+  step.value = 'prechecked'
+}
+
 async function switchAndRerun() {
   if (savedRecordId.value) store.removeAnalysis(savedRecordId.value)
   savedRecordId.value = null
@@ -439,7 +472,12 @@ async function runFile(file: File) {
     await prepare(file)
     precheckResult.value = await precheck()
     action.value = precheckResult.value.action ?? 'squat'
-    step.value = precheckResult.value.verdict === 'rejected' ? 'rejected' : 'prechecked'
+    const verdict = precheckResult.value.verdict
+    step.value = verdict === 'rejected'
+      ? 'rejected'
+      : verdict === 'view-unclear'
+        ? 'view-pick'
+        : 'prechecked'
   } catch (error) {
     if (isCancelled(error)) return
     errorMessage.value = messageOf(error)

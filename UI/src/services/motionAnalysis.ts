@@ -91,8 +91,14 @@ export interface GaitAnalysis {
 }
 
 export const MIN_FRAME_VISIBILITY = 0.5
-const SIDE_MAX_RATIO = 0.28
-const FRONT_MIN_RATIO = 0.42
+/**
+ * 视角分档：侧面 ≤0.34、正面 ≥0.40，中间留给用户选。
+ * 原来的 0.28/0.42 是拍脑袋定的，用真实素材量出来：侧面硬拉到 0.320（deadlift-demo），
+ * 正面深蹲可以低到 0.422（squat-front）——正好压在旧阈值线上，规范视频也会被判「无法判定」。
+ * 阈值只决定「自动判定是否有把握」，真正的兜底是让用户点一下视角（view-unclear）。
+ */
+const SIDE_MAX_RATIO = 0.34
+const FRONT_MIN_RATIO = 0.40
 const FINDINGS_LIMIT = 20
 const METRICS_LIMIT = 30
 
@@ -200,7 +206,12 @@ export function extractMotionFrame(landmarks: NormalizedLandmark[], timeMs: numb
 }
 
 /** 侧面时左右肩/髋几乎重合，正面时明显分开；用分离度/躯干高度判断。 */
-export function detectView(frames: MotionFrame[]): { view: AnalysisView | null; confidence: number } {
+export function detectView(frames: MotionFrame[]): {
+  view: AnalysisView | null
+  confidence: number
+  /** 判不准时按中位数离哪边更近给出建议；判准了就等于 view */
+  suggested: AnalysisView | null
+} {
   const ratios: number[] = []
   for (const frame of frames) {
     const { shoulder, hip } = frame.points
@@ -211,12 +222,13 @@ export function detectView(frames: MotionFrame[]): { view: AnalysisView | null; 
     if (!Number.isFinite(torso) || torso < 0.05) continue
     ratios.push(Math.max(shoulderSep, hipSep) / torso)
   }
-  if (ratios.length < 5) return { view: null, confidence: 0 }
+  if (ratios.length < 5) return { view: null, confidence: 0, suggested: null }
   ratios.sort((a, b) => a - b)
   const median = ratios[Math.floor(ratios.length / 2)]
-  if (median <= SIDE_MAX_RATIO) return { view: 'side', confidence: Math.min(1, 1 - median / SIDE_MAX_RATIO) }
-  if (median >= FRONT_MIN_RATIO) return { view: 'front', confidence: Math.min(1, (median - FRONT_MIN_RATIO) / 0.35) }
-  return { view: null, confidence: 0 }
+  if (median <= SIDE_MAX_RATIO) return { view: 'side', confidence: Math.min(1, 1 - median / SIDE_MAX_RATIO), suggested: 'side' }
+  if (median >= FRONT_MIN_RATIO) return { view: 'front', confidence: Math.min(1, (median - FRONT_MIN_RATIO) / 0.25), suggested: 'front' }
+  const boundary = (SIDE_MAX_RATIO + FRONT_MIN_RATIO) / 2
+  return { view: null, confidence: 0, suggested: median >= boundary ? 'front' : 'side' }
 }
 
 function segmentReps(frames: MotionFrame[], action: AnalysisAction): { intervals: RepInterval[]; count: number } {
@@ -564,7 +576,19 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[] }): M
   }
   const viewResult = detectView(input.frames)
   if (!viewResult.view) {
-    return { verdict: 'rejected', reasons: ['无法判定分析视角：请从侧面或正面全身入镜，手机与髋同高'], view: null, repCount: null, gaitCycles: null, action: null, actionConfident: false }
+    // 人体和动作都在，只是机位判不准：不再一刀切拒绝，把视角交给用户点一下。
+    // 选完按降级结果走，规则仍按所选视角执行，结果页会明确标注低置信度。
+    const classification = classifyAction(input.frames, input.fps)
+    return {
+      verdict: 'view-unclear',
+      reasons: [...reasons, '无法自动判定拍摄视角：请确认这段视频是侧面还是正面，选完按低置信度分析'],
+      view: null,
+      suggestedView: viewResult.suggested,
+      repCount: null,
+      gaitCycles: null,
+      action: classification.action,
+      actionConfident: classification.confident
+    }
   }
   const classification = classifyAction(input.frames, input.fps)
   let repCount: number | null = null
