@@ -78,3 +78,12 @@ UI/.sync-test.mjs
 UI/scripts/motion-eval/baseline/*.series.json
 UI/scripts/motion-eval/baseline/20*.json
 UI/.eval-*.log
+
+# 本机临时发布页、测试视频与诊断脚本：保留本机，不入仓库
+launch/
+launch-site.zip
+test-videos/
+cpu-check.ps1
+diag-admin.ps1
+diagnose-pc.ps1
+dsh-probe.js
