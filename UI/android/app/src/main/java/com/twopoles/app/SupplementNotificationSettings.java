@@ -1,12 +1,15 @@
 package com.twopoles.app;
 
+import android.app.AlarmManager;
 import android.app.DownloadManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -17,6 +20,7 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -27,6 +31,8 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.Locale;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * 补剂通知的入口与自检。
@@ -40,6 +46,129 @@ public class SupplementNotificationSettings extends Plugin {
     static final String CHANNEL_ID = "supplement-reminders-v2";
     /** 安装包下载超时：超过就取消并报错，避免 Promise 永远挂着 */
     static final long DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000L;
+
+    /**
+     * 用本应用自己的 AlarmManager 排每日提醒：广播由 SupplementAlarmReceiver 直接发通知，
+     * 不再经过 Capacitor LocalNotifications 的 JS 回调。App 在后台时 WebView 被挂起，
+     * 插件会先回调 JS 再 notify，结果通知被拖到用户重新打开 App 才出现。
+     */
+    @PluginMethod
+    public void scheduleAlarms(PluginCall call) {
+        JSArray alarms = call.getArray("alarms");
+        if (alarms == null) {
+            call.reject("缺少 alarms");
+            return;
+        }
+        Context context = getContext();
+        boolean replace = !Boolean.FALSE.equals(call.getBoolean("replace", true));
+        if (replace) cancelScheduledAlarms(context);
+        try {
+            for (int index = 0; index < alarms.length(); index++) {
+                JSONObject raw = alarms.getJSONObject(index);
+                scheduleNativeAlarm(
+                    context,
+                    raw.optInt("id"),
+                    raw.optString("title"),
+                    raw.optString("body"),
+                    raw.optString("channel", CHANNEL_ID),
+                    raw.optInt("hour", -1),
+                    raw.optInt("minute", -1),
+                    raw.optBoolean("repeat", false),
+                    raw.optLong("at", 0L)
+                );
+            }
+            SharedPreferences prefs = context.getSharedPreferences(SupplementAlarmReceiver.PREFS, Context.MODE_PRIVATE);
+            JSONArray stored = new JSONArray();
+            if (!replace) {
+                String previous = prefs.getString(SupplementAlarmReceiver.KEY_ALARMS, null);
+                if (previous != null) {
+                    try {
+                        stored = new JSONArray(previous);
+                    } catch (Exception ignored) {
+                        stored = new JSONArray();
+                    }
+                }
+            }
+            for (int index = 0; index < alarms.length(); index++) {
+                stored.put(alarms.getJSONObject(index));
+            }
+            prefs.edit().putString(SupplementAlarmReceiver.KEY_ALARMS, stored.toString()).apply();
+            call.resolve();
+        } catch (Exception exception) {
+            call.reject(exception.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void cancelAlarms(PluginCall call) {
+        cancelScheduledAlarms(getContext());
+        call.resolve();
+    }
+
+    /** 取消上一次排的所有补剂闹钟（PendingIntent 只按 requestCode + 类匹配，extras 不影响） */
+    private static void cancelScheduledAlarms(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(SupplementAlarmReceiver.PREFS, Context.MODE_PRIVATE);
+        String raw = prefs.getString(SupplementAlarmReceiver.KEY_ALARMS, null);
+        AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (raw != null && manager != null) {
+            try {
+                JSONArray array = new JSONArray(raw);
+                for (int index = 0; index < array.length(); index++) {
+                    int id = array.getJSONObject(index).optInt("id");
+                    PendingIntent pending = alarmPendingIntent(context, id);
+                    if (pending != null) manager.cancel(pending);
+                }
+            } catch (Exception ignored) {
+                // 坏数据不影响重新排
+            }
+        }
+        prefs.edit().remove(SupplementAlarmReceiver.KEY_ALARMS).apply();
+    }
+
+    private static PendingIntent alarmPendingIntent(Context context, int id) {
+        Intent intent = new Intent(context, SupplementAlarmReceiver.class);
+        return PendingIntent.getBroadcast(
+            context, id, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /** 排一条本地闹钟；没有「闹钟和提醒」权限时退回非精确闹钟，不让提醒整体失效 */
+    static void scheduleNativeAlarm(
+        Context context,
+        int id,
+        String title,
+        String body,
+        String channel,
+        int hour,
+        int minute,
+        boolean repeat,
+        long at
+    ) {
+        if (at <= 0L) return;
+        if (!repeat && at <= System.currentTimeMillis()) return;
+        AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (manager == null) return;
+        Intent intent = new Intent(context, SupplementAlarmReceiver.class)
+            .putExtra(SupplementAlarmReceiver.EXTRA_ID, id)
+            .putExtra(SupplementAlarmReceiver.EXTRA_TITLE, title)
+            .putExtra(SupplementAlarmReceiver.EXTRA_BODY, body)
+            .putExtra(SupplementAlarmReceiver.EXTRA_CHANNEL, channel)
+            .putExtra(SupplementAlarmReceiver.EXTRA_HOUR, hour)
+            .putExtra(SupplementAlarmReceiver.EXTRA_MINUTE, minute)
+            .putExtra(SupplementAlarmReceiver.EXTRA_REPEAT, repeat);
+        PendingIntent pending = PendingIntent.getBroadcast(
+            context, id, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
+                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);
+            } else {
+                manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);
+            }
+        } catch (Exception ignored) {
+            // 排不上时保留异常静默：上层页面仍会显示「已预约/失败」状态
+        }
+    }
 
     @PluginMethod
     public void open(PluginCall call) {

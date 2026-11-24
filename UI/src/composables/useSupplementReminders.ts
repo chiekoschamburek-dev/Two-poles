@@ -23,7 +23,21 @@ const SupplementNotificationSettings = registerPlugin<{
     sdk: number
   }>
   requestBatteryExemption(): Promise<void>
+  /** 1.0.7 起：绕开插件「先回调 JS 再 notify」的时序，后台也能准点弹通知 */
+  scheduleAlarms(options: { alarms: NativeAlarm[]; replace?: boolean }): Promise<void>
+  cancelAlarms(): Promise<void>
 }>('SupplementNotificationSettings')
+
+interface NativeAlarm {
+  id: number
+  title: string
+  body: string
+  channel: string
+  hour: number
+  minute: number
+  repeat: boolean
+  at: number
+}
 
 /** 通知链路的真实状态；任一环不满足都不会有横幅，界面据此逐项提示 */
 export interface SupplementNotificationDiagnostics {
@@ -292,6 +306,34 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
     const channel = await ensureChannel()
     channelImportance = channel?.importance ?? null
     if (channelImportance === 0) throw new Error('请在通知设置中开启「补剂提醒」类别')
+
+    // Android：优先用应用自己的闹钟广播发通知（不依赖后台被挂起的 WebView）
+    if (isAndroid) {
+      try {
+        const alarms: NativeAlarm[] = enabled.flatMap(reminder => reminder.times.map(time => {
+          const copy = buildSupplementNotification(reminder, time, new Date())
+          return {
+            id: nativeNotificationId(reminder.id, time),
+            title: copy.title,
+            body: copy.body,
+            channel: SUPPLEMENT_CHANNEL,
+            hour: Number(time.slice(0, 2)),
+            minute: Number(time.slice(3, 5)),
+            repeat: true,
+            at: nextOccurrence(time)
+          }
+        }))
+        await SupplementNotificationSettings.scheduleAlarms({ alarms, replace: true })
+        // 旧版插件排的同类闹钟清掉，避免同一条提醒发两遍
+        const stale = [...existing.keys()]
+        if (stale.length) await LocalNotifications.cancel({ notifications: stale.map(id => ({ id })) })
+        scheduleStatus.value = { count: alarms.length, exact, channelImportance, error: null }
+        return
+      } catch {
+        // 旧 APK 没有 scheduleAlarms：继续走下面的插件调度
+      }
+    }
+
     const today = new Date()
     const desired: LocalNotificationSchema[] = enabled.flatMap(reminder => reminder.times.map(time => {
       const copy = buildSupplementNotification(reminder, time, today)
@@ -411,6 +453,12 @@ function dueAt(date: Date, time: string): number {
   return due.getTime()
 }
 
+/** 下一次 HH:mm 的时间戳：今天已过就顺延到明天 */
+function nextOccurrence(time: string, now = new Date()): number {
+  const at = dueAt(now, time)
+  return at > now.getTime() ? at : at + 24 * 60 * 60 * 1000
+}
+
 function hydrateFired() {
   const today = dateKey(new Date())
   if (firedDate === today) return
@@ -497,6 +545,29 @@ async function scheduleSupplementTest(title: string, body: string, delayMs = 12_
     : false
   const at = new Date(Date.now() + delayMs)
   const id = -nativeNotificationId('test', String(at.getTime()))
+  // Android：走应用自己的闹钟广播，后台也能准点发（不阻塞在 WebView 回调上）
+  if (isAndroid) {
+    try {
+      await SupplementNotificationSettings.scheduleAlarms({
+        alarms: [{
+          id,
+          title,
+          body,
+          channel: SUPPLEMENT_CHANNEL,
+          hour: -1,
+          minute: -1,
+          repeat: false,
+          at: at.getTime()
+        }],
+        replace: false
+      })
+      scheduleStatus.value = { ...scheduleStatus.value, exact }
+      void refreshNotificationDiagnostics()
+      return { at: at.getTime(), id }
+    } catch {
+      // 旧 APK 没有 scheduleAlarms：继续走插件调度
+    }
+  }
   // 这里刻意不传 isExactMandatory：没有「闹钟和提醒」权限时，
   // mandatory 会让整个预约被系统拒绝，连粗略提醒都拿不到。
   const result = await LocalNotifications.schedule({
