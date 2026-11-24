@@ -39,7 +39,7 @@
         </li>
       </ul>
       <p v-if="testCountdown !== null" class="sup-hint" role="status">
-        <template v-if="testCountdown > 0">测试提醒将在 {{ testCountdown }} 秒后送达，请现在按 Home 键回到桌面。</template>
+        <template v-if="testCountdown > 0">测试提醒将在 {{ testCountdown }} 秒后送达，请现在按 Home 键回到桌面。<template v-if="scheduleStatus.exact === false">（未开启准时提醒，系统可能延后送达）</template></template>
         <template v-else>测试提醒应已送达：顶部横幅才算通过；只在通知栏说明横幅被系统关掉了。</template>
       </p>
       <div class="sup-actions">
@@ -543,10 +543,13 @@ async function testNotification() {
     try {
       const at = await scheduleSupplementTest(title, message)
       pendingTestAt.value = at
+      const exact = scheduleStatus.value.exact
       store.showToast({
-        type: 'success',
+        type: exact === false ? 'warning' : 'success',
         title: '测试提醒已预约',
-        message: '按下 Home 键回到桌面或锁屏，约 12 秒后应出现顶部横幅；只出现在通知栏说明横幅被系统关掉了。',
+        message: exact === false
+          ? '系统未授予「闹钟和提醒」权限，后台可能延后送达。请点下方「开启准时提醒」授权后再测。'
+          : '按下 Home 键回到桌面或锁屏，约 12 秒后应出现顶部横幅；只出现在通知栏说明横幅被系统关掉了。',
         duration: 6000
       })
     } catch (error) {

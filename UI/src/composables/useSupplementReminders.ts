@@ -513,6 +513,9 @@ async function scheduleSupplementTest(title: string, body: string, delayMs = 12_
   if (!result.notifications.some(notification => notification.id === id)) {
     throw new Error('系统未接受测试预约，请检查通知权限。')
   }
+  // 把这次测试实际用的档位写回状态：exact=false 时页面立刻出现「开启准时提醒」，
+  // 用户不用去翻每日提醒的预约结果才知道为什么后台没弹。
+  scheduleStatus.value = { ...scheduleStatus.value, exact }
   return at.getTime()
 }
 
