@@ -143,6 +143,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  BookOpen,
   CalendarDays,
   Dumbbell,
   Pill,
@@ -162,7 +163,7 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const route = useRoute()
 const router = useRouter()
-const movementActive = computed(() => route.path.startsWith('/plan') || route.path.startsWith('/execution') || route.path.startsWith('/analysis'))
+const movementActive = computed(() => route.path.startsWith('/plan') || route.path.startsWith('/execution') || route.path.startsWith('/analysis') || route.path.startsWith('/library'))
 const nutritionActive = computed(() => route.path.startsWith('/meals') || route.path.startsWith('/supplements'))
 
 function focusGroup(pole: 'movement' | 'nutrition') {
@@ -188,6 +189,7 @@ function openWellness() {
 const movementItems = [
   { to: '/plan', label: '计划', full: '训练计划', icon: CalendarDays },
   { to: '/execution', label: '跟练', full: '摄像头跟练', icon: Dumbbell },
+  { to: '/library', label: '动作', full: '动作库 · 教学视频', icon: BookOpen },
   { to: '/analysis', label: '分析', full: '动作分析', icon: Video }
 ]
 const nutritionItems = [

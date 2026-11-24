@@ -10,6 +10,7 @@ import { dayIntakeFacts, dietFindings, limitImmediate, meetsImmediateGate, meets
 import { estimateEnergy, foodTable, isMixedFood, FOOD_SOURCE_LABEL, resolveUnitGrams, searchFoods, unitKey } from '@/services/foodComposition'
 import { validateRecognitionObject, validateRecognitionText } from '@/services/foodRecognition'
 import { activeExercises, CAMERA_COUNTABLE, exercises, EXERCISE_CATALOG_VERSION, findExercise, gateReason } from '@/services/exercises'
+import { EXERCISE_VIDEOS, providerLabel, providerSearchUrl, videoCatalogProblems, videoCoverage, videoUrl, videosForExercise } from '@/services/exerciseVideos'
 import { applyPlanOverrides, getDemoExercise, getPhaseText, guideExercise, readPlanOverrides, summarizeSession } from '@/services/demoCameraService'
 import { useRepCounter } from '@/composables/useRepCounter'
 import { createRepMachine } from '@/composables/repMachine'
@@ -2706,6 +2707,35 @@ ok('超时错误可识别', isPoseTimeoutError(new PoseTimeoutError()))
 ok('跨线程丢失原型链后仍按 name 识别',
   isPoseTimeoutError(Object.assign(new Error('姿态推理超时'), { name: 'PoseTimeoutError' })))
 ok('普通错误不误判为超时', !isPoseTimeoutError(new Error('模型初始化失败')))
+
+console.log('\n55. 动作库视频清单：外链拼接、覆盖率与自检')
+const catalogProblems = videoCatalogProblems()
+ok('清单自检无问题（id 存在 / BV 号格式 / 无重复挂载）', catalogProblems.length === 0, catalogProblems.join('；'))
+ok('清单里的动作都在动作库里', Object.keys(EXERCISE_VIDEOS).every(id => exercises.some(item => item.id === id)))
+ok('清单不挂已停用的动作', Object.keys(EXERCISE_VIDEOS).every(id => exercises.find(item => item.id === id)?.status === 'active'))
+const coverage = videoCoverage()
+ok('覆盖率在合理区间', coverage.covered > 0 && coverage.covered <= coverage.total, `${coverage.covered}/${coverage.total}`)
+ok('覆盖率只数 active 动作', coverage.total === exercises.filter(item => item.status === 'active').length)
+ok('没挂视频的动作返回空数组', videosForExercise('ex-shoulder-roll').length === 0)
+ok('不存在的动作 id 返回空数组而不是抛错', videosForExercise('ex-does-not-exist').length === 0)
+ok('挂了的动作能取到条目', videosForExercise('ex-squat').length > 0 && videosForExercise('ex-plank').length > 0)
+ok('B 站链接按 BV 号拼', videoUrl({ provider: 'bilibili', videoId: 'BV16jQrB5E7e', title: 'x' }) === 'https://www.bilibili.com/video/BV16jQrB5E7e/')
+ok('起播秒数拼进查询串',
+  videoUrl({ provider: 'bilibili', videoId: 'BV16jQrB5E7e', title: 'x', startAt: 75 }) === 'https://www.bilibili.com/video/BV16jQrB5E7e/?t=75')
+ok('YouTube 链接带 t 参数',
+  videoUrl({ provider: 'youtube', videoId: 'dQw4w9WgXcQ', title: 'x', startAt: 30 }) === 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30s')
+ok('平台名如实给出', providerLabel({ provider: 'bilibili', videoId: 'BV16jQrB5E7e', title: 'x' }) === 'B 站'
+  && providerLabel({ provider: 'youtube', videoId: 'dQw4w9WgXcQ', title: 'x' }) === 'YouTube')
+ok('没挑过视频的动作给平台搜索地址并编码中文',
+  providerSearchUrl('深蹲') === `https://search.bilibili.com/all?keyword=${encodeURIComponent('深蹲')}`
+  && !providerSearchUrl('深蹲').includes('深蹲'))
+ok('自检能抓出格式错误的 BV 号', (() => {
+  const original = EXERCISE_VIDEOS['ex-squat']
+  EXERCISE_VIDEOS['ex-squat'] = [{ provider: 'bilibili', videoId: 'bv16jqr', title: '坏条目' }]
+  const problems = videoCatalogProblems()
+  EXERCISE_VIDEOS['ex-squat'] = original
+  return problems.some(text => text.includes('BV 号格式不对'))
+})())
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1
