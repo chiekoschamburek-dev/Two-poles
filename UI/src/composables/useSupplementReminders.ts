@@ -656,14 +656,40 @@ function nextReminderLabel(reminder: SupplementReminder, reference = new Date())
   return `明天 ${reminder.times[0]}`
 }
 
+/** 插件真正把预约触发成通知时会回调它：用来区分「闹钟没响」和「通知被拦截」 */
+const lastNativeTrigger = ref<{ at: number; title: string } | null>(null)
+let triggerListenerBound = false
+const TRIGGER_KEY = 'twopoles.v1.supplementLastTrigger'
+
+function bindNativeTriggerListener() {
+  if (!isNative || triggerListenerBound) return
+  triggerListenerBound = true
+  try {
+    const saved = localStorage.getItem(TRIGGER_KEY)
+    if (saved) lastNativeTrigger.value = JSON.parse(saved) as { at: number; title: string }
+  } catch {
+    // 坏数据忽略
+  }
+  void LocalNotifications.addListener('localNotificationReceived', notification => {
+    lastNativeTrigger.value = { at: Date.now(), title: notification?.title ?? '' }
+    try {
+      localStorage.setItem(TRIGGER_KEY, JSON.stringify(lastNativeTrigger.value))
+    } catch {
+      // 隐私模式写不进去，只保留内存值
+    }
+  })
+}
+
 export function useSupplementReminders() {
   hydrate()
   refreshPermission()
+  bindNativeTriggerListener()
   return {
     reminders,
     permission,
     scheduleStatus,
     diagnostics,
+    lastNativeTrigger,
     refreshNotificationDiagnostics,
     requestBatteryExemption,
     syncNativeSchedule,

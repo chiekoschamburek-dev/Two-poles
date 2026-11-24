@@ -46,6 +46,7 @@
         <template v-if="testOutcome === 'fired'">系统已在预定时间触发这条测试：通知已经交给系统。若仍看不到，问题在显示环节——检查「补剂提醒」类别是否允许横幅/锁屏通知。</template>
         <template v-else>预定时间已过，这条测试仍留在系统队列里：系统没有把这次提醒走完。常见原因是后台限制（自启动/电池策略）、测试后把 App 划掉，或通知发出时被系统拦截。</template>
       </p>
+      <p class="sup-hint">系统最近一次触发通知：{{ lastTriggerLabel }}（无记录说明闹钟没响，有记录说明通知已发出）</p>
       <div class="sup-actions">
         <button
           v-if="permission !== 'granted' && permission !== 'unsupported'"
@@ -207,6 +208,7 @@ const {
   permission,
   scheduleStatus,
   diagnostics,
+  lastNativeTrigger,
   refreshNotificationDiagnostics,
   requestBatteryExemption,
   syncNativeSchedule,
@@ -319,6 +321,17 @@ function onVisibilityChange() {
   if (document.visibilityState !== 'visible') return
   if (pendingTestAt.value !== null && Date.now() > pendingTestAt.value + 5_000) void checkTestOutcome()
 }
+
+/** 系统真正触发过的通知记录：没有记录 = 闹钟没响；有记录 = 通知发出去过，问题在显示 */
+const lastTriggerLabel = computed(() => {
+  const event = lastNativeTrigger.value
+  if (!event) return '无记录'
+  const date = new Date(event.at)
+  const sameDay = date.toDateString() === new Date().toDateString()
+  const time = date.toLocaleTimeString('zh-CN', { hour12: false })
+  const day = sameDay ? '今天' : `${date.getMonth() + 1}/${date.getDate()}`
+  return `${day} ${time}${event.title ? ` · ${event.title}` : ''}`
+})
 
 /** 系统里下一次会响的时刻：用户不必猜「到底排上了没有」 */
 const nextReminderAt = computed(() => {
