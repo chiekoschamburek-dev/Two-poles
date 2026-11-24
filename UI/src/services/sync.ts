@@ -295,6 +295,9 @@ function retryDelay(attempts: number): string {
   return new Date(Date.now() + seconds * 1000).toISOString()
 }
 
+/** 服务端还没部署这个接口：保留 op 稍后重试，不算失败、不进冲突列表 */
+class DeferredSyncError extends Error {}
+
 function conflictKind(op: OutboxOp): SyncConflict['kind'] {
   if (op.kind.startsWith('session')) return 'session'
   if (op.kind.startsWith('meal')) return 'meal'
@@ -384,8 +387,10 @@ async function executeOp(op: OutboxOp): Promise<void> {
         const remote = await adjustmentsApi.resolve(payload)
         handlers?.markAdjustmentResolved?.(remote)
       } catch (error) {
-        // 旧版服务端没有这个接口：静默跳过，不要把「服务端还没升级」变成一条用户可见的冲突
-        if (!(error instanceof ApiError) || error.status !== 404) throw error
+        // 404 = 服务端还是旧版本，没这个接口。保留这条 op 等下次再试，
+        // 既不丢本机选择，也不把「服务端没升级」变成一条用户可见的冲突。
+        if (error instanceof ApiError && error.status === 404) throw new DeferredSyncError('服务端暂未支持建议处理记录同步')
+        throw error
       }
       return
     }
@@ -406,6 +411,11 @@ export async function flushOutbox() {
       removeOp(op.id)
       syncState.error = ''
     } catch (error) {
+      if (error instanceof DeferredSyncError) {
+        // 半小时后再试：服务端升级后这些记录会自动补上，不需要用户手动重试
+        updateOp(op.id, { attempts: 0, nextAt: new Date(Date.now() + 30 * 60_000).toISOString(), error: undefined })
+        continue
+      }
       if (error instanceof ApiError && error.status === 401) {
         syncState.status = 'unauthorized'
         syncState.error = '登录已过期，请重新登录后再同步'
