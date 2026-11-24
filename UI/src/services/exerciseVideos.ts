@@ -7,6 +7,7 @@
 // 三条口径，别在别处另写一套：
 // 1. 每条都必须有人看过再填 `reviewedAt`；空着表示"还没核对"，界面会如实标注。
 //    不允许把没看过的视频写成"推荐"或"正确示范"——与全站"不输出姿势结论"同一条线。
+//    已核对的只是"链接可达 + 标题/时长/分P 对得上"，不等于看过了内容。
 // 2. key 必须是 exercises.ts 里的动作 id；动作改名/停用时由 selfcheck 兜住。
 // 3. 视频是第三方内容，下架、地域限制、标题被改都不由本产品控制。清单只是指路，
 //    界面必须把"平台 / 原题 / 是否核对过"三件事同时写出来。
@@ -25,8 +26,10 @@ export interface ExerciseVideo {
   title: string
   /** 与动作条目的关系：讲的是哪个变式，例如「杠铃深蹲」。不填＝就是条目本身 */
   variant?: string
-  /** 大约多长，分钟；拿不到就不填，界面不显示空括号 */
+  /** 大约多长，分钟；拿不到就不填，界面不显示空括号。多 P 合集填目标那一 P 的时长 */
   durationMin?: number
+  /** 多 P 合集：默认打开第几 P；不填就是第一 P */
+  page?: number
   /** 从第几秒开始看（跳过片头），只影响链接，不影响播放器行为 */
   startAt?: number
   /** 人工核对日期 YYYY-MM-DD；空＝还没人看过，界面标「未核对」 */
@@ -47,14 +50,15 @@ export const EXERCISE_VIDEOS: Record<string, ExerciseVideo[]> = {
       videoId: 'BV16jQrB5E7e',
       title: '深蹲Squat 基本技术',
       durationMin: 6,
-      note: '合集：站距与下降/上升过程分开讲'
+      note: '多 P 合集（约 16 分钟）：第一 P 是基本技术，后面分别是下降、上升与热身'
     },
     {
       provider: 'bilibili',
       videoId: 'BV1kWmCBkEKd',
-      title: '每天学会一个健身动作：杠铃深蹲',
+      title: '每天学会一个健身动作：杠铃深蹲✅',
       variant: '杠铃深蹲',
-      note: '负重的版本；徒手阶段先看上面那条'
+      durationMin: 1,
+      note: '68 秒竖屏速览，只有要点没有示范细讲；负重版本，徒手阶段先看上面那条'
     }
   ],
   'ex-deadlift': [
@@ -62,25 +66,28 @@ export const EXERCISE_VIDEOS: Record<string, ExerciseVideo[]> = {
       provider: 'bilibili',
       videoId: 'BV1tTMZ6AE4T',
       title: '张老师的传统硬拉教学',
-      durationMin: 8,
-      note: '合集：站距、预张力、启动、锁定分节讲'
+      durationMin: 20,
+      note: '8 节合集（合计约 20 分钟）：站距臀位、预张力、启动、锁定分节讲，想看一条就跳到对应 P'
     },
     {
       provider: 'bilibili',
       videoId: 'BV1eG41137az',
-      title: '【干货篇】不要再说自己不会硬拉了，硬拉发力详细攻略'
+      title: '【干货篇】不要再说自己不会硬拉了，硬拉发力详细攻略',
+      durationMin: 4
     }
   ],
   'ex-plank': [
     {
       provider: 'bilibili',
       videoId: 'BV1V1hQzaErs',
-      title: '平板支撑教学。'
+      title: '平板支撑教学。',
+      durationMin: 5
     },
     {
       provider: 'bilibili',
       videoId: 'BV1zqXqBTEVm',
       title: '每天3分钟平板支撑：训练指南',
+      durationMin: 3,
       note: '含把 3 分钟拆成多组的建议，与本库"2 组 × 30 秒"的口径不同，按自己能力来'
     }
   ],
@@ -88,23 +95,26 @@ export const EXERCISE_VIDEOS: Record<string, ExerciseVideo[]> = {
     {
       provider: 'bilibili',
       videoId: 'BV1anmCYNEbK',
-      title: '健身房教学指南｜哑铃弯举这么做更有效！(手臂训练技巧分享)'
+      title: '健身房教学指南｜哑铃弯举这么做更有效！(手臂训练技巧分享)',
+      durationMin: 8,
+      note: '属于 35 集的"手臂训练指南"专辑，偏增肌向；只借屈肘与上臂固定的部分'
     }
   ],
-  // —— 有氧：讲的是"怎么跑到能对话的强度"，不是竞速 ——
+  // —— 有氧：现有两条讲的都是跑姿（落地/摆臂），不涉及配速与强度控制 ——
   'ex-easy-run': [
-    {
-      provider: 'bilibili',
-      videoId: 'BV1K1XPBXEiR',
-      title: '给刚开始跑步的人，和正在跑步的人',
-      durationMin: 3,
-      note: '合集，每节一个短问题（跑姿、热身、呼吸）'
-    },
     {
       provider: 'bilibili',
       videoId: 'BV1ibcUzDExE',
       title: '掌握落地技巧与摆臂精髓',
-      note: '译制内容，讲落地与摆臂'
+      durationMin: 7,
+      note: '译制内容（原视频来自真锅未央频道），讲落地与摆臂'
+    },
+    {
+      provider: 'bilibili',
+      videoId: 'BV1K1XPBXEiR',
+      title: '给刚开始跑步的人，和正在跑步的人',
+      durationMin: 2,
+      note: '2 分钟引子，点开是 374 期的"龙井教练"专辑；强度与配速控制仍缺一条专门的教学'
     }
   ],
   'ex-brisk-walk': [
@@ -113,7 +123,9 @@ export const EXERCISE_VIDEOS: Record<string, ExerciseVideo[]> = {
       videoId: 'BV1Gt421N7mF',
       title: '如何开始超慢跑、超慢跑姿势、注意事项｜班長超慢跑',
       variant: '超慢跑',
-      note: '快走/超慢跑同属低冲击有氧，配速与步频按自己情况调'
+      page: 10,
+      durationMin: 4,
+      note: '14 P 合集（合计约 82 分钟）：默认跳到第 10 节"超慢跑要怎麼開始"，其余是逐题问答；快走/超慢跑同属低冲击有氧'
     }
   ]
 }
@@ -129,8 +141,13 @@ export function videoUrl(video: ExerciseVideo): string {
     const start = video.startAt ? `&t=${video.startAt}s` : ''
     return `https://www.youtube.com/watch?v=${video.videoId}${start}`
   }
+  // 多 P 合集必须能直接落到那一 P，否则 14 P 的视频点开只会看到第一节
+  const query = [
+    video.page && video.page > 1 ? `p=${video.page}` : '',
+    video.startAt ? `t=${video.startAt}` : ''
+  ].filter(Boolean).join('&')
   const base = `https://www.bilibili.com/video/${video.videoId}/`
-  return video.startAt ? `${base}?t=${video.startAt}` : base
+  return query ? `${base}?${query}` : base
 }
 
 /** 平台名：界面上必须写清"这条视频在哪个平台"，别让用户点开才发现 */
@@ -181,6 +198,9 @@ export function videoCatalogProblems(): string[] {
       }
       if (video.startAt !== undefined && (!Number.isInteger(video.startAt) || video.startAt < 0)) {
         problems.push(`startAt 不合法：${key}`)
+      }
+      if (video.page !== undefined && (!Number.isInteger(video.page) || video.page < 1)) {
+        problems.push(`page 不合法：${key}`)
       }
       if (video.reviewedAt !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(video.reviewedAt)) {
         problems.push(`reviewedAt 不是 YYYY-MM-DD：${key}`)

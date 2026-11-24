@@ -2722,6 +2722,12 @@ ok('挂了的动作能取到条目', videosForExercise('ex-squat').length > 0 &&
 ok('B 站链接按 BV 号拼', videoUrl({ provider: 'bilibili', videoId: 'BV16jQrB5E7e', title: 'x' }) === 'https://www.bilibili.com/video/BV16jQrB5E7e/')
 ok('起播秒数拼进查询串',
   videoUrl({ provider: 'bilibili', videoId: 'BV16jQrB5E7e', title: 'x', startAt: 75 }) === 'https://www.bilibili.com/video/BV16jQrB5E7e/?t=75')
+ok('多 P 合集落到指定那一 P',
+  videoUrl({ provider: 'bilibili', videoId: 'BV1Gt421N7mF', title: 'x', page: 10 }) === 'https://www.bilibili.com/video/BV1Gt421N7mF/?p=10')
+ok('P 与起播秒数可以同时给',
+  videoUrl({ provider: 'bilibili', videoId: 'BV1Gt421N7mF', title: 'x', page: 3, startAt: 20 }) === 'https://www.bilibili.com/video/BV1Gt421N7mF/?p=3&t=20')
+ok('第一 P 不写多余参数',
+  videoUrl({ provider: 'bilibili', videoId: 'BV1Gt421N7mF', title: 'x', page: 1 }) === 'https://www.bilibili.com/video/BV1Gt421N7mF/')
 ok('YouTube 链接带 t 参数',
   videoUrl({ provider: 'youtube', videoId: 'dQw4w9WgXcQ', title: 'x', startAt: 30 }) === 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30s')
 ok('平台名如实给出', providerLabel({ provider: 'bilibili', videoId: 'BV16jQrB5E7e', title: 'x' }) === 'B 站'
