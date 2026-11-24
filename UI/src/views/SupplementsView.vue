@@ -44,7 +44,7 @@
       </p>
       <p v-if="testOutcome !== 'idle'" class="sup-hint" :class="{ warn: testOutcome === 'queued' }" role="status">
         <template v-if="testOutcome === 'fired'">系统已在预定时间触发这条测试：通知已经交给系统。若仍看不到，问题在显示环节——检查「补剂提醒」类别是否允许横幅/锁屏通知。</template>
-        <template v-else>预定时间已过，这条测试仍留在系统队列里：系统没有把这次提醒走完。常见原因是后台限制（自启动/电池策略）、测试后把 App 划掉，或通知发出时被系统拦截。</template>
+        <template v-else>约定时间已过，系统队列里还留着这条测试，但没收到触发回调：可能没交付，也可能已发出但插件没清队列记录。可以先按「系统最近一次触发通知」那行判断。</template>
       </p>
       <p class="sup-hint">系统最近一次触发通知：{{ lastTriggerLabel }}（无记录说明闹钟没响，有记录说明通知已发出）</p>
       <div class="sup-actions">
@@ -220,7 +220,7 @@ const {
   removeReminder,
   requestSupplementPermission,
   scheduleSupplementTest,
-  isNotificationQueued,
+  checkTestDelivery,
   sendSupplementNotification,
   nextReminderLabel
 } = useSupplementReminders()
@@ -308,9 +308,17 @@ function scheduleTestOutcomeCheck(at: number) {
 
 async function checkTestOutcome() {
   if (pendingTestId.value === null || testOutcome.value !== 'idle') return
+  // 插件真正触发时会回调；它比「队列里还留没留着」可靠（实测队列记录不会随触发删除）
+  const trigger = lastNativeTrigger.value
+  if (trigger && pendingTestAt.value !== null && trigger.at >= pendingTestAt.value - 5_000) {
+    testOutcome.value = 'fired'
+    forgetTest()
+    return
+  }
   try {
-    const queued = await isNotificationQueued(pendingTestId.value)
-    testOutcome.value = queued ? 'queued' : 'fired'
+    const state = await checkTestDelivery(pendingTestId.value)
+    if (state === 'unknown') return
+    testOutcome.value = state
     forgetTest()
   } catch {
     // 读不到队列就保持 idle，不给出错误结论

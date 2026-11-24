@@ -520,13 +520,27 @@ async function scheduleSupplementTest(title: string, body: string, delayMs = 12_
 }
 
 /**
- * 约定时间过后，系统队列里还在不在这条测试？
- * 插件的 TimedNotificationPublisher 触发后会从 storage 删掉这条记录——所以：
- * 还在 = 闹钟没响（后台限制/自启动被关），不在 = 已触发（看不到就是显示被拦截）。
+ * 约定时间过后，这条测试到底走完没有？
+ * 三条信号按可信度排序：已经出现在通知栏（delivered）→ 已触发；
+ * 只剩系统队列（pending）→ 还没交付；两者都没有 → 未知（可能被用户划掉了）。
+ * 注意：插件触发后不一定把 pending 记录删掉（实测 vivo 上会保留），所以 pending 只能当「没交付」的参考。
  */
-async function isNotificationQueued(id: number): Promise<boolean> {
-  const { notifications } = await LocalNotifications.getPending()
-  return notifications.some(notification => notification.id === id)
+export type SupplementTestDelivery = 'fired' | 'queued' | 'unknown'
+
+async function checkTestDelivery(id: number): Promise<SupplementTestDelivery> {
+  try {
+    const delivered = await LocalNotifications.getDeliveredNotifications()
+    if (delivered.notifications.some(notification => notification.id === id)) return 'fired'
+  } catch {
+    // 旧版插件没有这个方法，继续看队列
+  }
+  try {
+    const { notifications } = await LocalNotifications.getPending()
+    if (notifications.some(notification => notification.id === id)) return 'queued'
+  } catch {
+    // 读不到就按未知处理
+  }
+  return 'unknown'
 }
 
 async function sendSupplementNotification(title: string, body: string, tag = 'supplement'): Promise<boolean> {
@@ -701,7 +715,7 @@ export function useSupplementReminders() {
     removeReminder,
     requestSupplementPermission,
     scheduleSupplementTest,
-    isNotificationQueued,
+    checkTestDelivery,
     sendSupplementNotification,
     nextReminderLabel
   }
