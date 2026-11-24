@@ -1,7 +1,7 @@
 <template>
   <nav
     class="mobile-nav"
-    :class="[context === 'movement' ? 'ctx-movement' : context === 'nutrition' ? 'ctx-nutrition' : '', { five: items.length === 5, six: items.length > 5 }]"
+    :class="[context === 'movement' ? 'ctx-movement' : context === 'nutrition' ? 'ctx-nutrition' : '', { five: items.length > 4 }]"
     aria-label="底部导航"
   >
     <RouterLink
@@ -22,7 +22,7 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect, type Component } from 'vue'
 import { useRoute } from 'vue-router'
-import { BookOpen, CalendarDays, Dumbbell, Pill, UserRound, Utensils, Video } from 'lucide-vue-next'
+import { CalendarDays, Dumbbell, Pill, UserRound, Utensils, Video } from 'lucide-vue-next'
 import PoleMark from '@/components/poles/PoleMark.vue'
 
 type Pole = 'movement' | 'nutrition'
@@ -42,7 +42,7 @@ const path = computed(() => route.path)
 const lastPole = ref<Pole>('movement')
 
 const isMovementPath = (p: string) =>
-  p === '/movement' || p.startsWith('/plan') || p.startsWith('/execution') || p.startsWith('/analysis') || p.startsWith('/library')
+  p === '/movement' || p.startsWith('/plan') || p.startsWith('/execution') || p.startsWith('/analysis')
 const isNutritionPath = (p: string) => p === '/nutrition' || p.startsWith('/meals') || p.startsWith('/supplements')
 
 const context = computed<'home' | Pole>(() => {
@@ -79,7 +79,6 @@ const items = computed<NavItem[]>(() => {
       { to: '/movement', label: '运动', pole: 'movement', tone: 'move', active: path.value === '/movement' },
       { to: '/execution', label: '跟练', icon: Dumbbell, tone: 'move', active: path.value.startsWith('/execution') },
       { to: '/plan', label: '训练计划', icon: CalendarDays, tone: 'move', active: path.value.startsWith('/plan') },
-      { to: '/library', label: '动作库', icon: BookOpen, tone: 'move', active: path.value.startsWith('/library') },
       { to: '/analysis', label: '分析', icon: Video, tone: 'move', active: path.value.startsWith('/analysis') },
       mine.value
     ]
@@ -163,9 +162,6 @@ const items = computed<NavItem[]>(() => {
   }
   .mobile-nav.five .nav-item { font-size: 9px; }
   .mobile-nav.five .nav-item :deep(svg) { width: 18px; height: 18px; }
-  /* 运动上下文现在 6 格（运动/跟练/训练计划/动作库/分析/我的）：再收一档，393px 下仍不挤 */
-  .mobile-nav.six .nav-item { font-size: 8.5px; letter-spacing: 0; padding: 5px 1px; }
-  .mobile-nav.six .nav-item :deep(svg) { width: 17px; height: 17px; }
 
   /* 极图标本身保留自己的颜色；文字只在激活时染色 */
   .nav-item.move { color: var(--color-text-muted); }

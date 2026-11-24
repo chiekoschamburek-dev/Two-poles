@@ -36,6 +36,35 @@
       </template>
     </BaseCard>
 
+    <!-- 动作库入口：不占导航位，放在跟练开始页下方这块空白里，练之前顺手查 -->
+    <BaseCard v-if="!trainingMode" class="library-entry">
+      <div class="le-main">
+        <div class="le-copy">
+          <h2>动作库</h2>
+          <p>{{ libraryCoverage.total }} 个动作的分步说明与器材要求，其中 {{ libraryCoverage.covered }} 个配了 B 站教学视频（外链，新页面打开）。</p>
+        </div>
+        <RouterLink to="/library" class="le-open">打开动作库 <ArrowRight :size="13" aria-hidden="true" /></RouterLink>
+      </div>
+      <ul v-if="libraryLinks.length" class="le-list" aria-label="今天待练动作的教学视频">
+        <li v-for="entry in libraryLinks" :key="entry.name">
+          <span class="le-name">{{ entry.name }}</span>
+          <a
+            v-for="video in entry.videos"
+            :key="video.videoId"
+            :href="videoUrl(video)"
+            target="_blank"
+            rel="noopener noreferrer"
+            :title="video.title"
+          >
+            <span class="le-video-title">{{ video.title }}</span>
+            <span class="le-meta">{{ providerLabel(video) }}<template v-if="!video.reviewedAt"> · 未核对</template></span>
+          </a>
+        </li>
+      </ul>
+      <p v-if="!pendingItems.length" class="le-hint">今天还没有排训练；动作库里可以先看每个动作怎么做。</p>
+      <p v-else-if="!libraryLinks.length" class="le-hint">今天待练的动作暂时没有人工挑过的视频；打开动作库可以按名称筛出来，再自己去平台搜。</p>
+    </BaseCard>
+
     <template v-else>
     <p v-if="trainingMode === 'timer' && degradeReason" class="voice-status" role="status">{{ degradeReason }}</p>
     <!-- 组数 / 次数 / 时长：横贯两栏的进度条（放上面，两块画面共享） -->
@@ -301,7 +330,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText } from 'lucide-vue-next'
+import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText, ArrowRight } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import { demoVideos } from '@/services/demoVideos'
@@ -314,6 +343,7 @@ import { useSpeech } from '@/composables/useSpeech'
 import { useStepCounter } from '@/composables/useStepCounter'
 import { useWakeLock } from '@/composables/useWakeLock'
 import { findExercise } from '@/services/exercises'
+import { providerLabel, videoCoverage, videoUrl, videosForExercise } from '@/services/exerciseVideos'
 import type { ExercisePhase, MotionAnalysisFinding, PlanItem } from '@/types/domain'
 import { toISODate } from '@/utils/time'
 import {
@@ -365,6 +395,24 @@ const plannedItems = computed(() => {
   return dayItems.value
 })
 const pendingItems = computed(() => plannedItems.value.filter(item => !item.completed))
+
+/**
+ * 开始页下方的动作库入口要能直接看"今天待练的动作"：
+ * 按名称去动作库查 id，再取该动作的视频；同名只出现一次，最多 3 个动作、每个 2 条。
+ */
+const libraryLinks = computed(() => {
+  const seen = new Set<string>()
+  const rows: { name: string; videos: ReturnType<typeof videosForExercise> }[] = []
+  for (const item of pendingItems.value) {
+    if (seen.has(item.exerciseName)) continue
+    seen.add(item.exerciseName)
+    const videos = videosForExercise(findExercise(item.exerciseName)?.id ?? '').slice(0, 1)
+    if (videos.length) rows.push({ name: item.exerciseName, videos })
+    if (rows.length >= 3) break
+  }
+  return rows
+})
+const libraryCoverage = videoCoverage()
 const emptyStartAttempted = ref(false)
 const emptyPlanStatus = computed(() => {
   if (!dayItems.value.length) return '当天还没有计划。'
@@ -1281,6 +1329,21 @@ onUnmounted(() => {
 .guide-actions{display:flex;gap:10px;flex-wrap:wrap}
 .guide-picker p,.voice-status{font-size:13px;color:var(--color-text-muted);line-height:1.6}
 .adhoc-note{margin:0 0 12px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--color-neutral-soft)}
+/* 动作库入口：开始页下方这块空白，不占导航位 */
+.library-entry{margin-top:16px}
+.le-main{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.le-copy h2{font-size:18px;margin:0 0 6px}
+.le-copy p{font-size:13px;color:var(--color-text-muted);line-height:1.65;margin:0;max-width:62ch}
+.le-open{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);text-decoration:none;padding:9px 14px;border-radius:var(--radius-md);white-space:nowrap;min-height:40px;transition:background var(--motion-fast)}
+.le-open:hover{background:var(--color-neutral-soft)}
+.le-list{list-style:none;display:grid;gap:8px;margin:14px 0 0;padding:14px 0 0;border-top:1px solid var(--color-divider)}
+.le-list li{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;font-size:12.5px}
+.le-name{font-weight:600;color:var(--color-ink);flex:none;min-width:5.5em}
+.le-list a{display:inline-flex;align-items:baseline;gap:7px;max-width:100%;color:var(--pole-movement-strong);text-decoration:none;font-weight:600}
+.le-list a:hover .le-video-title{text-decoration:underline}
+.le-video-title{max-width:52ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.le-meta{flex:none;font-size:11px;font-weight:500;color:var(--color-text-muted)}
+.le-hint{font-size:12.5px;color:var(--color-text-muted);line-height:1.65;margin:14px 0 0;padding-top:14px;border-top:1px solid var(--color-divider)}
 .voice-status{margin:0 0 12px}
 .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);transition:background var(--motion-fast),color var(--motion-fast),transform var(--motion-fast),box-shadow var(--motion-fast)}
 .chip.active{background:var(--pole-movement);color:var(--color-on-accent)}
