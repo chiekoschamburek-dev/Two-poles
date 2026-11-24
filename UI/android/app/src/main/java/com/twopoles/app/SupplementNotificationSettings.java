@@ -160,7 +160,17 @@ public class SupplementNotificationSettings extends Plugin {
             context, id, intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && manager.canScheduleExactAlarms()) {
+                // 用「闹钟」而不是普通精确闹钟：国产 ROM 的冻结策略会把普通精确闹钟标成
+                // Reason=frozen 挂起，闹钟（AlarmClock）属于用户可见的强提醒，通常不会被冻结。
+                Intent show = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+                PendingIntent showIntent = show == null
+                    ? pending
+                    : PendingIntent.getActivity(
+                        context, 0, show,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                manager.setAlarmClock(new AlarmManager.AlarmClockInfo(at, showIntent), pending);
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);
             } else {
                 manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);

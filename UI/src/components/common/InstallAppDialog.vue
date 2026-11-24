@@ -120,7 +120,7 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 const deferredPrompt = ref<BeforeInstallPromptEvent | null>(null)
-const APK_VERSION = '1.0.7'
+const APK_VERSION = '1.0.8'
 const APK_MIME_TYPE = 'application/vnd.android.package-archive'
 const downloadingApk = ref(false)
 const apkDownloadError = ref('')
