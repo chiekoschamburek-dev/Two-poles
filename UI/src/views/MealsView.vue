@@ -28,7 +28,22 @@
       <span class="day-hint">{{ isToday ? '正在查看今天' : '正在查看历史记录；新增会记录到这一天' }}</span>
     </div>
 
-    <StatStrip :items="mealStats" />
+    <BaseCard class="coverage-band">
+      <div class="cov-summary">
+        <span class="micro">Structure</span>
+        <div class="cov-title">
+          <h2>{{ isToday ? '今日' : '当天' }}类别覆盖</h2>
+          <b>{{ summary.coverage.length }}</b><span>/ 8 类</span>
+        </div>
+        <p class="cov-note">只统计记录里出现过的类别，不判断分量或营养摄入量。未记录不代表没吃。</p>
+        <RouterLink to="/report" class="cov-link">看记录报告 <ArrowRight :size="14" /></RouterLink>
+      </div>
+      <ul class="cov-list" :aria-label="`${isToday ? '今日' : '当天'}类别覆盖`">
+        <li v-for="row in coverageRows" :key="row.name" :class="{ on: row.present }">
+          <i aria-hidden="true"></i>{{ row.name }}
+        </li>
+      </ul>
+    </BaseCard>
 
     <!-- 今日饮食反馈：只看今天，历史日期不给反馈 -->
     <DietFeedbackCard v-if="isToday" class="diet-feedback-slot" />
@@ -46,6 +61,7 @@
           </span>
           <span>照片是否本机保存可选 · 发送前会征得同意</span>
         </div>
+        <p class="hero-fallback">识别失败或没有模型时，可以换一张、改用本机识别，或手动补录。</p>
       </div>
       <div class="hero-act">
         <BaseButton size="lg" :icon="Camera" @click="openCapture">{{ isToday ? '记录饮食' : '记录到这一天' }}</BaseButton>
@@ -192,39 +208,9 @@
           </li>
         </ol>
       </BaseCard>
-
-      <aside class="side-col">
-        <BaseCard class="coverage">
-          <div class="side-head">
-            <span class="micro">Structure</span>
-            <h2>{{ isToday ? '今日' : '当天' }}类别覆盖</h2>
-          </div>
-          <div class="cov-big">
-            <b>{{ summary.coverage.length }}</b><span>/ 8 类</span>
-          </div>
-          <ul class="cov-list">
-            <li v-for="row in coverageRows" :key="row.name" :class="{ on: row.present }">
-              <i aria-hidden="true"></i>{{ row.name }}<span>{{ row.present ? '已出现' : '未出现' }}</span>
-            </li>
-          </ul>
-          <p class="side-note">只统计记录里出现过的类别，不判断分量或营养摄入量。未记录不代表没吃。</p>
-          <RouterLink to="/report" class="side-link">看记录报告 <ArrowRight :size="14" /></RouterLink>
-        </BaseCard>
-
-        <BaseCard class="howto">
-          <span class="micro">How it works</span>
-          <h2>一餐只要三步</h2>
-          <ol>
-            <li><b>拍一张</b><small>或用「选择图片」</small></li>
-            <li><b>看识别结果</b><small>低置信度会标出</small></li>
-            <li><b>保存记录</b><small>默认不用填表</small></li>
-          </ol>
-          <p class="side-note">没有模型或识别失败时，可以换一张、改用本机识别，或手动补录。</p>
-        </BaseCard>
-      </aside>
     </div>
 
-    <BaseCard class="timeline">
+    <BaseCard v-if="timeline.length" class="timeline">
       <div class="card-head">
         <div>
           <span class="micro">Training day timeline</span>
@@ -232,7 +218,7 @@
         </div>
       </div>
       <p class="tl-note">把已记录的餐次与训练按时间排在一起，只作个人复盘；不判断进食时机是否合适，也不给竞技营养结论。</p>
-      <ul v-if="timeline.length" class="tl">
+      <ul class="tl">
         <li v-for="e in timeline" :key="e.key" :class="e.kind">
           <span class="tl-time">{{ e.time }}</span>
           <span class="tl-dot" aria-hidden="true"></span>
@@ -242,7 +228,6 @@
           </span>
         </li>
       </ul>
-      <p v-else class="muted">{{ isToday ? '今天' : '这一天' }}还没有训练或餐食记录。空着是合法状态，不代表没吃没练。</p>
     </BaseCard>
 
     <FoodCaptureDialog
@@ -267,7 +252,6 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowRight, Camera, ChevronLeft, ChevronRight, PenLine } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
-import StatStrip, { type StatItem } from '@/components/common/StatStrip.vue'
 import DietFeedbackCard from '@/components/meals/DietFeedbackCard.vue'
 import MealForm from '@/components/meals/MealForm.vue'
 import FoodCaptureDialog from '@/components/meals/FoodCaptureDialog.vue'
@@ -346,21 +330,6 @@ const headerCopy = computed(() => !isToday.value
   : showEstimate.value
     ? '拍照或选图后自动识别食物，餐次按拍摄时间判断；热量只作区间粗估，不评价吃得多不多。'
     : '拍照或选图后自动识别食物，餐次按拍摄时间判断；只记录结构，不估算热量，也不评价吃得多不多。')
-
-const mealStats = computed<StatItem[]>(() => {
-  const s = summary.value
-  return [
-    {
-      label: '类别覆盖',
-      value: `${s.coverage.length} / 8`,
-      hint: s.recorded ? (s.missing.length ? `还缺 ${s.missing.slice(0, 3).join('、')}${s.missing.length > 3 ? ' 等' : ''}` : '八类都出现过') : (isToday.value ? '今天还没有记录' : '这一天还没有记录'),
-      tone: s.coverage.length >= 5 ? 'accent' : 'default'
-    },
-    { label: '完整记录', value: s.completeCount, unit: '条', hint: '每项都填了份量' },
-    { label: '部分记录', value: s.partialCount, unit: '条', hint: '有食物，但份量没估全' },
-    { label: '加餐', value: s.snackCount, unit: '次', hint: '不记录也是合法状态' }
-  ]
-})
 
 const timeline = computed(() => {
   const completenessText = (c: Meal['completeness']) => (c === 'complete' ? '完整记录' : c === 'partial' ? '部分记录' : '未记完整')
@@ -659,6 +628,7 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .hero-copy h2{font-size:24px;margin:6px 0 0;letter-spacing:-.02em}
 .hero-copy p{margin:7px 0 0;max-width:580px;font-size:12.5px;line-height:1.7;color:var(--color-text-secondary)}
 .hero-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:11px;color:var(--color-text-muted)}
+.hero-copy .hero-fallback{font-size:11px;color:var(--color-text-muted);margin-top:8px}
 .mode-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;border:1px solid var(--color-border);background:var(--color-card);font-family:var(--font-num);font-variant-numeric:tabular-nums}
 .mode-chip .dot{width:5px;height:5px;border-radius:50%;background:var(--color-text-muted)}
 .mode-chip.ok{color:var(--color-accent);border-color:var(--color-accent-line);background:var(--color-card)}
@@ -668,8 +638,24 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .manual-link{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;border-radius:9px;font-size:12px;font-weight:600;color:var(--color-text-secondary);transition:color var(--motion-fast),background var(--motion-fast)}
 .manual-link:hover{color:var(--color-accent);background:var(--color-accent-soft)}
 
-/* ——— 今日记录 + 结构 ——— */
-.day-grid{display:grid;grid-template-columns:minmax(0,1.9fr) minmax(250px,.8fr);gap:14px;margin-top:14px;align-items:start}
+/* ——— 类别覆盖：一条横带，不再和顶部指标重复 ——— */
+.coverage-band{margin-top:14px;display:grid;grid-template-columns:minmax(230px,.72fr) minmax(0,1.28fr);gap:12px 28px;align-items:center}
+.cov-summary{min-width:0}
+.cov-title{display:flex;align-items:baseline;gap:7px;margin-top:5px}
+.cov-title h2{font-size:16px;font-weight:600;letter-spacing:-.015em;margin:0}
+.cov-title b{font-family:var(--font-num);font-size:34px;line-height:1;letter-spacing:-.045em;color:var(--color-ink);margin-left:4px;font-variant-numeric:tabular-nums}
+.cov-title span{font-size:12px;color:var(--color-text-muted)}
+.cov-note{font-size:11px;line-height:1.6;color:var(--color-text-muted);margin:8px 0 0}
+.cov-link{display:inline-flex;align-items:center;gap:4px;margin-top:9px;font-size:11.5px;font-weight:600;color:var(--color-accent)}
+.cov-link:hover{text-decoration:underline}
+.cov-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px 14px}
+.cov-list li{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--color-text-muted);min-width:0}
+.cov-list li i{width:8px;height:8px;border-radius:2px;box-shadow:inset 0 0 0 1px var(--hair-strong);flex:none}
+.cov-list li.on{color:var(--color-text-secondary)}
+.cov-list li.on i{background:var(--color-accent);box-shadow:none}
+
+/* ——— 今日记录 ——— */
+.day-grid{margin-top:14px}
 .today-card{min-width:0}
 .card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:16px 18px 0}
 .card-head h2{font-size:16.5px;font-weight:600;letter-spacing:-.015em;margin:5px 0 0}
@@ -735,26 +721,6 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .type-edit{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .type-edit select{padding:8px 10px;border:1px solid var(--color-border);border-radius:9px;font-size:12.5px;font-family:inherit;color:var(--color-ink);background:var(--surface-field)}
 .type-edit span{font-size:10.5px;color:var(--color-text-muted)}
-.side-col{display:grid;gap:14px;align-content:start;min-width:0}
-.side-head h2{font-size:16px;margin:5px 0 0}
-.cov-big{display:flex;align-items:baseline;gap:5px;margin-top:12px}
-.cov-big b{font-family:var(--font-num);font-size:40px;line-height:1;letter-spacing:-.045em;color:var(--color-ink)}
-.cov-big span{font-size:12px;color:var(--color-text-muted)}
-.cov-list{list-style:none;margin:14px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}
-.cov-list li{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--color-text-muted)}
-.cov-list li i{width:7px;height:7px;border-radius:2px;box-shadow:inset 0 0 0 1px var(--hair-strong);flex:none}
-.cov-list li.on{color:var(--color-text-secondary)}
-.cov-list li.on i{background:var(--color-accent);box-shadow:none}
-.cov-list li span{margin-left:auto;font-size:10px;color:var(--color-text-muted)}
-.side-note{font-size:11px;line-height:1.7;color:var(--color-text-muted);margin:13px 0 0}
-.side-link{display:inline-flex;align-items:center;gap:4px;margin-top:12px;font-size:11.5px;font-weight:600;color:var(--color-accent)}
-.side-link:hover{text-decoration:underline}
-.howto h2{font-size:16px;margin:5px 0 0}
-.howto ol{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:9px;counter-reset:step}
-.howto li{display:flex;align-items:baseline;gap:8px;counter-increment:step;font-size:12px;color:var(--color-text-secondary)}
-.howto li::before{content:counter(step);font-family:var(--font-num);font-size:10px;font-weight:700;color:var(--color-accent);width:17px;height:17px;border-radius:50%;display:grid;place-items:center;background:var(--color-accent-soft);flex:none;align-self:center}
-.howto small{font-size:10.5px;color:var(--color-text-muted);margin-left:auto}
-
 /* ——— 时间线与说明 ——— */
 .timeline{margin-top:14px}
 .tl{list-style:none;margin:12px 0 0;padding:0 18px 16px;display:grid;gap:2px}
@@ -771,8 +737,7 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .tl-note{font-size:12px;color:var(--color-text-muted);margin:6px 18px 0;line-height:1.65}
 
 @media(max-width:1099px){
-  .day-grid{grid-template-columns:1fr}
-  .side-col{grid-template-columns:1fr 1fr}
+  .coverage-band{grid-template-columns:1fr;gap:14px}
   .detail-grid{grid-template-columns:1fr 1fr}
 }
 @media(max-width:767px){
@@ -792,9 +757,10 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
   .meal-photo{width:72px}
   .meal-photo img{width:72px;height:72px}
   .detail-grid{grid-template-columns:1fr;gap:12px}
-  .side-col{grid-template-columns:1fr}
+  .coverage-band{padding:16px 14px}
+  .cov-title b{font-size:28px}
+  .cov-list{grid-template-columns:1fr 1fr;gap:7px 12px}
   .tl{padding:10px 14px 14px}
   .tl-note{margin:6px 14px 0}
-  .cov-list{grid-template-columns:1fr 1fr}
 }
 </style>
