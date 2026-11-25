@@ -91,7 +91,9 @@
       <div class="le-main">
         <div class="le-copy">
           <h2>动作库</h2>
-          <p>{{ libraryCoverage.total }} 个动作的分步说明与器材要求，其中 {{ libraryCoverage.covered }} 个配了 B 站教学视频（外链，新页面打开）。</p>
+          <p>{{ libraryCoverage.covered === libraryCoverage.total
+            ? `${libraryCoverage.total} 个动作的分步说明、器材要求与教学视频（外链，新页面打开）。`
+            : `${libraryCoverage.total} 个动作的分步说明与器材要求，其中 ${libraryCoverage.covered} 个配了 B 站教学视频（外链，新页面打开）。` }}</p>
         </div>
         <RouterLink to="/library" class="le-open">打开动作库 <ArrowRight :size="13" aria-hidden="true" /></RouterLink>
       </div>

@@ -2839,9 +2839,14 @@ ok('清单自检无问题（id 存在 / BV 号格式 / 无重复挂载）', cata
 ok('清单里的动作都在动作库里', Object.keys(EXERCISE_VIDEOS).every(id => exercises.some(item => item.id === id)))
 ok('清单不挂已停用的动作', Object.keys(EXERCISE_VIDEOS).every(id => exercises.find(item => item.id === id)?.status === 'active'))
 const coverage = videoCoverage()
-ok('覆盖率在合理区间', coverage.covered > 0 && coverage.covered <= coverage.total, `${coverage.covered}/${coverage.total}`)
+ok('每个 active 动作都有教学视频（28/28）', coverage.covered === coverage.total && coverage.covered > 0, `${coverage.covered}/${coverage.total}`)
 ok('覆盖率只数 active 动作', coverage.total === exercises.filter(item => item.status === 'active').length)
-ok('没挂视频的动作返回空数组', videosForExercise('ex-shoulder-roll').length === 0)
+const allVideos = Object.values(EXERCISE_VIDEOS).flat()
+ok('每条视频都标了核对日期', allVideos.every(video => /^\d{4}-\d{2}-\d{2}$/.test(video.reviewedAt ?? '')),
+  allVideos.filter(video => !video.reviewedAt).map(video => video.videoId).join('；'))
+ok('每个动作 1–2 条视频，不堆砌', Object.values(EXERCISE_VIDEOS).every(list => list.length >= 1 && list.length <= 2),
+  String(Math.max(...Object.values(EXERCISE_VIDEOS).map(list => list.length))))
+ok('停用动作不挂视频', videosForExercise('ex-neck-bridge').length === 0)
 ok('不存在的动作 id 返回空数组而不是抛错', videosForExercise('ex-does-not-exist').length === 0)
 ok('挂了的动作能取到条目', videosForExercise('ex-squat').length > 0 && videosForExercise('ex-plank').length > 0)
 ok('B 站链接按 BV 号拼', videoUrl({ provider: 'bilibili', videoId: 'BV16jQrB5E7e', title: 'x' }) === 'https://www.bilibili.com/video/BV16jQrB5E7e/')

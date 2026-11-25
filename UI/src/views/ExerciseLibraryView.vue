@@ -4,7 +4,9 @@
       pole="neutral"
       label="LIBRARY"
       title="动作库"
-      :subtitle="`${coverage.total} 个动作，其中 ${coverage.covered} 个挂了教学视频。视频来自 B 站等外部平台，点开会在新页面播放。`"
+      :subtitle="coverage.covered === coverage.total
+        ? `${coverage.total} 个动作都配了教学视频。视频来自 B 站等外部平台，点开会在新页面播放。`
+        : `${coverage.total} 个动作，其中 ${coverage.covered} 个挂了教学视频；其余的给平台搜索出口。视频点开会在新页面播放。`"
     />
 
     <div class="toolbar">
