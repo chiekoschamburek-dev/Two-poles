@@ -7,7 +7,14 @@
       :subtitle="coverage.covered === coverage.total
         ? `${coverage.total} 个动作都配了教学视频。视频来自 B 站等外部平台，点开会在新页面播放。`
         : `${coverage.total} 个动作，其中 ${coverage.covered} 个挂了教学视频；其余的给平台搜索出口。视频点开会在新页面播放。`"
-    />
+    >
+      <!-- 动作库不占导航位，入口在跟练开始页；这里补一条明确的返程 -->
+      <template #actions>
+        <RouterLink to="/execution" class="back-link">
+          <ChevronLeft :size="14" aria-hidden="true" />返回跟练
+        </RouterLink>
+      </template>
+    </PageHeader>
 
     <div class="toolbar">
       <label class="search">
@@ -83,12 +90,19 @@
     <p class="foot">
       视频是第三方平台的内容，本产品不保证其可用性与质量，也不据此给出姿势结论。清单条目只核对了原标题 / 时长 / 分P / UP 主，没有逐条播放验证内容；播放前请自行判断是否适合自己。链接失效时清单需要人工更换，当前没有自动检测。
     </p>
+
+    <!-- 页面很长，滚到底也能直接回去，不用再去找左侧导航 -->
+    <div class="foot-back">
+      <RouterLink to="/execution" class="back-link">
+        <ChevronLeft :size="14" aria-hidden="true" />返回跟练
+      </RouterLink>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Play, Search } from 'lucide-vue-next'
+import { Play, Search, ChevronLeft } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { exercises, type Exercise } from '@/services/exercises'
@@ -136,6 +150,11 @@ function doseOf(item: Exercise): string {
 <style scoped>
 .page-wrap{max-width:var(--page-max-width);margin:auto}
 
+/* 返程：动作库不在导航里，返回跟练开始页 */
+.back-link{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-card);font-size:12.5px;font-weight:600;color:var(--color-text-secondary);text-decoration:none;white-space:nowrap;transition:border-color var(--motion-fast),color var(--motion-fast)}
+.back-link:hover{border-color:var(--color-ink);color:var(--color-ink)}
+.back-link:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+
 /* 搜索与筛选 */
 .toolbar{display:grid;gap:10px;margin-bottom:14px}
 .search{display:flex;align-items:center;gap:9px;padding:0 13px;border:1px solid var(--color-border);border-radius:12px;background:var(--surface-field);min-height:44px}
@@ -175,6 +194,7 @@ function doseOf(item: Exercise): string {
 .empty{display:grid;gap:10px;justify-items:start;padding:28px 20px;border:1px dashed var(--color-border);border-radius:var(--radius-lg);color:var(--color-text-muted);font-size:13px}
 .empty p{margin:0}
 .foot{font-size:11.5px;color:var(--color-text-muted);line-height:1.75;margin:18px 0 0}
+.foot-back{display:flex;justify-content:center;margin:20px 0 4px}
 
 @media(max-width:640px){
   .page-head h1{font-size:24px}
