@@ -642,7 +642,9 @@ async function finish() {
 
 <style scoped>
 /* ——— 全屏引导 ——— */
-.welcome{min-height:100vh;min-height:100dvh;padding:22px var(--gutter) 48px;background:radial-gradient(80% 50% at 18% 0%,var(--color-accent-soft),transparent 62%)}
+/* 两仪底色：左上饮食（松石）、右下运动（陶土）。两层都钉在视口上，
+   手机上往下填表时这一对极色也一直在屏内，不会滑走。 */
+.welcome{min-height:100vh;min-height:100dvh;padding:22px var(--gutter) 48px;background:radial-gradient(80% 50% at 18% 0%,var(--pole-nutrition-soft),transparent 62%),radial-gradient(64% 50% at 94% 100%,var(--pole-movement-soft),transparent 58%);background-attachment:fixed,fixed}
 .w-top{max-width:1160px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:18px;border-bottom:1px solid var(--color-divider)}
 .w-brand{display:flex;align-items:center;gap:10px;min-width:0}
 .w-brand-copy{display:grid;gap:1px;min-width:0}
