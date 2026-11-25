@@ -1,23 +1,20 @@
 <template>
   <div class="page">
-    <header class="an-hero">
-      <div class="an-hero-top">
-        <div class="an-id">
-          <PoleMark pole="movement" :size="30" />
-          <div>
-            <span class="micro move">左极 · MOVEMENT</span>
-            <h1>动作分析</h1>
-          </div>
-        </div>
+    <PageHeader
+      pole="movement"
+      title="动作分析"
+      kicker="ANALYSIS · 训练后复盘"
+      subtitle="从相册选视频，本机逐帧分析；输出问题清单与关键帧。"
+      flush
+    >
+      <template #actions>
         <span class="an-chip"><i aria-hidden="true"></i>端侧处理</span>
         <StatusBadge v-if="step === 'result' && precheckResult" :variant="precheckResult.verdict === 'degraded' ? 'warning' : 'success'">
           {{ precheckResult.verdict === 'degraded' ? '低置信度结果' : '分析完成' }}
         </StatusBadge>
-      </div>
-      <span class="an-kicker">ANALYSIS · 训练后复盘</span>
-      <h2 class="an-lead">逐帧看 <em>动作</em><span>，不评分</span></h2>
-      <p class="an-sub">从相册选视频，本机逐帧分析；输出问题清单与关键帧。</p>
-    </header>
+      </template>
+      <template #lead>逐帧看 <em>动作</em><span>，不评分</span></template>
+    </PageHeader>
 
     <template v-if="step === 'pick' || step === 'error'">
       <section class="an-card">
@@ -342,8 +339,8 @@ import { computed, onUnmounted, ref } from 'vue'
 import { ChevronRight, Play, Upload, Video } from 'lucide-vue-next'
 import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
-import PoleMark from '@/components/poles/PoleMark.vue'
 import { useAppStore } from '@/stores/app'
 import { useVideoAnalysis, VideoAnalysisError } from '@/composables/useVideoAnalysis'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
@@ -788,16 +785,10 @@ onUnmounted(revokeKeyframeUrls)
 </script>
 
 <style scoped>
-.page { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.page { max-width: var(--page-max-width); margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
 
-/* 页头：运动极身份 + 端侧处理 */
-.an-hero { padding: 2px 2px 1px; }
-.an-hero-top { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
-.an-id { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
-.an-id :deep(svg) { width: 30px; height: 30px; flex: none; overflow: visible; }
+/* 页头由 PageHeader 统一负责；这里只留本页特有的「端侧处理」小标 */
 .micro { display: block; font-family: var(--font-num); font-size: 8.5px; font-weight: 600; letter-spacing: .14em; color: var(--color-text-muted); }
-.micro.move { color: var(--pole-movement-strong); }
-.an-id h1 { margin: 2px 0 0; font-size: 26px; line-height: 1.1; letter-spacing: -.03em; }
 .an-chip {
   display: inline-flex;
   align-items: center;
@@ -815,11 +806,6 @@ onUnmounted(revokeKeyframeUrls)
   white-space: nowrap;
 }
 .an-chip i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.an-kicker { display: block; margin-top: 12px; font-family: var(--font-num); font-size: 8.5px; font-weight: 600; letter-spacing: .16em; color: var(--color-text-muted); }
-.an-lead { margin: 5px 0 0; font-size: 26px; line-height: 1.16; letter-spacing: -.035em; font-weight: 600; }
-.an-lead em { font-style: normal; color: var(--pole-movement); letter-spacing: -.04em; }
-.an-lead span { font-family: var(--font); font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--color-text-muted); }
-.an-sub { margin: 6px 0 0; font-size: 11px; line-height: 1.65; color: var(--color-text-secondary); }
 
 /* 选择动作、上传、历史 */
 .an-card {
@@ -946,9 +932,6 @@ onUnmounted(revokeKeyframeUrls)
 
 @media (max-width: 767px) {
   .page { gap: 10px; }
-  .an-hero { padding: 2px 2px 1px; }
-  .an-id h1 { font-size: 24px; }
-  .an-lead { font-size: 24px; }
   .an-card { padding: 12px 13px 13px; }
   .an-actions { gap: 5px; }
   .an-actions button { padding: 7px; }

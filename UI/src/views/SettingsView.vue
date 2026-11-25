@@ -1,13 +1,16 @@
 <template>
   <div class="page-wrap">
-    <div class="page-head animate-slide-in-up">
-      <div>
-        <span class="eyebrow">SETTINGS</span>
-        <h1>设置与数据</h1>
-        <p>档案、训练与饮食记录默认只存在这台设备的浏览器里；登录是可选的，登录后才会同步到服务端。需要云端模型时，只发送这次操作所需的内容，密钥留在服务端。</p>
-      </div>
-      <StatusBadge :variant="store.hasProfile ? 'success' : 'neutral'">{{ store.hasProfile ? '已建档' : '未建档' }}</StatusBadge>
-    </div>
+    <PageHeader
+      pole="neutral"
+      label="SETTINGS"
+      title="设置与数据"
+      subtitle="档案、训练与饮食记录默认只存在这台设备的浏览器里；登录是可选的，登录后才会同步到服务端。需要云端模型时，只发送这次操作所需的内容，密钥留在服务端。"
+      class="animate-slide-in-up"
+    >
+      <template #actions>
+        <StatusBadge :variant="store.hasProfile ? 'success' : 'neutral'">{{ store.hasProfile ? '已建档' : '未建档' }}</StatusBadge>
+      </template>
+    </PageHeader>
 
     <BaseCard class="section animate-slide-in-up">
       <h2>档案</h2>
@@ -434,6 +437,7 @@ import { ref, computed } from 'vue'
 import { ArrowRight, Download, Smartphone, Trash2 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import InstallAppDialog from '@/components/common/InstallAppDialog.vue'
 import { SITE_INFO } from '@/config/site'
@@ -902,12 +906,9 @@ async function wipe() {
 </script>
 
 <style scoped>
-.page-wrap{max-width:860px;margin:auto}
-.page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px}
-.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-accent);font-weight:700}.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--color-accent);transform:rotate(45deg);margin-right:8px}
-.page-head h1{font-size:28px;margin:9px 0 8px;color:var(--color-ink)}
-.page-head p{color:var(--color-text-secondary);font-size:13px;margin:0;line-height:1.7}
-.section{padding:22px;margin-bottom:14px}
+.page-wrap{max-width:var(--page-max-width);margin:auto}
+/* 单栏设置页在统一容器内左对齐收窄：页头与卡片同一条左边线，只是卡片不铺满整行 */
+.section{max-width:900px;padding:22px;margin-bottom:14px}
 .section h2{font-size:17px;margin-bottom:6px}
 .sub{font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:0 0 14px}
 .row-line{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-top:14px;border-top:1px solid var(--color-divider)}
@@ -949,7 +950,7 @@ async function wipe() {
 .site-beian{font-size:11px;color:var(--color-text-muted);text-align:center;margin:6px 0 2px;letter-spacing:.02em}
 .site-beian a{color:inherit;text-decoration:none;border-bottom:1px solid transparent;transition:color var(--motion-fast) var(--easing-ease-out),border-color var(--motion-fast) var(--easing-ease-out)}
 .site-beian a:hover,.site-beian a:focus-visible{color:var(--color-accent);border-bottom-color:var(--color-accent-line);outline:none}
-@media(max-width:767px){.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.page-head{flex-direction:column;align-items:flex-start}.actions :deep(button){width:100%}}
+@media(max-width:767px){.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.actions :deep(button){width:100%}}
 .llm-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px}
 .llm-pick button{padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:600;min-height:38px;color:var(--color-text-secondary);background:var(--color-neutral-soft);border:1px solid transparent}
 .llm-pick button.on{background:var(--color-accent);color:var(--color-on-accent)}

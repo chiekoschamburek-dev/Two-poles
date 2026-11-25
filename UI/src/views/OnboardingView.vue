@@ -1,12 +1,12 @@
 <template>
   <div class="page-wrap">
-    <div class="page-head">
-      <div>
-        <span class="eyebrow">PROFILE</span>
-        <h1>个人档案</h1>
-        <p>填写真实的个人信息和训练偏好。年龄必填，其他资料可按需填写。</p>
-      </div>
-    </div>
+    <PageHeader
+      pole="neutral"
+      label="PROFILE"
+      title="个人档案"
+      subtitle="填写真实的个人信息和训练偏好。年龄必填，其他资料可按需填写。"
+      class="profile-head"
+    />
 
     <form class="profile-form" novalidate @submit.prevent="saveProfile">
       <BaseCard class="panel">
@@ -215,6 +215,7 @@ import { useRouter } from 'vue-router'
 import { Check } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import SuggestionInput from '@/components/common/SuggestionInput.vue'
 import AvatarPicker from '@/components/profile/AvatarPicker.vue'
 import PbList from '@/components/profile/PbList.vue'
@@ -336,12 +337,9 @@ function resetOnboarding() {
 </script>
 
 <style scoped>
-.page-wrap{max-width:760px;margin:auto}
-.page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:22px}
-.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-accent);font-weight:700}.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--color-accent);transform:rotate(45deg);margin-right:8px}
-.page-head h1{font-size:28px;margin:9px 0 8px;color:var(--color-ink)}
-.page-head p{color:var(--color-text-secondary);font-size:13px;margin:0}
-.profile-form{display:grid;gap:16px}
+.page-wrap{max-width:var(--page-max-width);margin:auto}
+/* 单栏档案表单在统一容器内左对齐收窄，与页头共用同一条左边线 */
+.profile-form{display:grid;gap:16px;max-width:880px}
 .panel{padding:26px}
 .q{font-size:18px;margin-bottom:16px}
 .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
@@ -376,8 +374,8 @@ function resetOnboarding() {
 .error{font-size:13px;color:var(--color-danger);background:var(--color-danger-soft);border-radius:11px;padding:11px 14px;margin:0}
 .nav{display:flex;justify-content:flex-end}
 .nav :deep(button){width:auto;padding:0 22px}
-.privacy{font-size:12px;color:var(--color-text-muted);text-align:center;margin-top:16px}
-.debug-reset{margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--color-text-muted)}
+.privacy{max-width:880px;font-size:12px;color:var(--color-text-muted);text-align:center;margin-top:16px}
+.debug-reset{max-width:880px;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--color-text-muted)}
 .debug-reset button{font-family:inherit;font-size:11px;font-weight:600;color:var(--color-text-muted);padding:5px 10px;border-radius:var(--radius-sm);border:1px dashed var(--color-border);transition:color var(--motion-fast),border-color var(--motion-fast)}
 .debug-reset button:hover{color:var(--color-caution);border-color:var(--color-caution)}
 @media(max-width:640px){.grid2{grid-template-columns:1fr}.panel{padding:18px}.nav :deep(button){width:100%}}

@@ -1,17 +1,19 @@
 <template>
-  <div class="execution-page">
-    <div class="page-header">
-      <div>
-        <span class="micro kick"><i></i>训练跟练</span>
-        <h1>{{ trainingMode ? `${exercise.name} · 第 ${displaySet} 组` : '选择跟练方式' }}</h1>
-        <p v-if="trainingMode === 'camera'">摄像头在本次跟练中持续开启。画面只在本机处理。</p>
-        <p v-else-if="trainingMode === 'timer'">计时与语音 · 摄像头关闭</p>
+  <div class="execution-page" :class="{ 'is-training': !!trainingMode }">
+    <PageHeader
+      pole="movement"
+      :title="trainingMode ? `${exercise.name} · 第 ${displaySet} 组` : '选择跟练方式'"
+      :subtitle="trainingMode === 'camera' ? '摄像头在本次跟练中持续开启。画面只在本机处理。' : trainingMode === 'timer' ? '计时与语音 · 摄像头关闭。' : '先选一种方式开始；跟练过程只在这台设备上计算。'"
+    >
+      <template #actions>
+        <BaseButton variant="secondary" :icon="X" @click="onFinishClick">{{ trainingMode ? '结束并记录' : '返回' }}</BaseButton>
+      </template>
+      <template #below>
         <p v-if="trainingMode && trainingItems.length > 1" class="queue-progress">
           第 {{ itemIndex + 1 }} / {{ trainingItems.length }} 项<template v-if="nextItem && !finished"> · 下一项 {{ nextItem.exerciseName }}</template>
         </p>
-      </div>
-      <BaseButton variant="secondary" :icon="X" @click="onFinishClick">{{ trainingMode ? '结束并记录' : '返回' }}</BaseButton>
-    </div>
+      </template>
+    </PageHeader>
 
     <BaseCard v-if="!trainingMode" class="guide-picker">
       <h2>{{ planDate }} 的训练计划</h2>
@@ -333,6 +335,7 @@ import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText, ArrowRight } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { demoVideos } from '@/services/demoVideos'
 import { useAppStore } from '@/stores/app'
 import { usePoseCamera, type PoseSample } from '@/composables/usePoseCamera'
@@ -1318,12 +1321,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.execution-page{max-width:1400px;margin:auto}
-.page-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;gap:16px}
-.kick{display:inline-flex;align-items:center;gap:8px}.kick i{width:14px;height:1px;background:var(--pole-movement);display:block}
-.page-header h1{font-size:28px;margin:7px 0 5px}
-.page-header p{color:var(--color-text-muted);font-size:13px;margin:0}
-.page-header .queue-progress{margin-top:8px;font-weight:600}
+.execution-page{max-width:var(--page-max-width);margin:auto}
+/* 进入跟练是"换模式"而不是切菜单：舞台需要更宽，回退到全宽内容区 */
+.execution-page.is-training{max-width:1400px}
+.queue-progress{margin:0;font-weight:600;font-size:12px;color:var(--color-text-muted)}
 .guide-picker h2{font-size:18px;margin:0 0 12px}
 .guide-queue{margin:0 0 14px;padding-left:22px;color:var(--color-text-secondary);line-height:1.65}
 .guide-actions{display:flex;gap:10px;flex-wrap:wrap}
@@ -1487,8 +1488,6 @@ onUnmounted(() => {
 }
 /* 手机：摄像头缩成演示画面右上角的小框（PiP），其余内容单列 */
 @media(max-width:767px){
-  .page-header{align-items:flex-start}
-  .page-header h1{font-size:22px}
   .stage-grid{display:block;position:relative}
   .pane-demo{margin-bottom:12px}
   .pane-cam{position:absolute;top:8px;right:8px;width:min(138px,40vw);z-index:7;box-shadow:var(--shadow-md);border-radius:var(--radius-md)}

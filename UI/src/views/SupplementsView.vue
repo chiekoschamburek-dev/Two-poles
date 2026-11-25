@@ -1,20 +1,17 @@
 <template>
   <div class="sup-page">
-    <header class="sup-hero">
-      <div class="sup-top">
-        <div class="sup-id">
-          <PoleMark pole="nutrition" :size="30" />
-          <div>
-            <span class="micro nut">右极 · NUTRITION</span>
-            <h1>补剂提醒</h1>
-          </div>
-        </div>
+    <PageHeader
+      pole="nutrition"
+      title="补剂提醒"
+      kicker="SUPPLEMENTS · 按时提醒"
+      subtitle="添加补剂和每日提醒时间；提醒只保存在本机。"
+      flush
+    >
+      <template #actions>
         <span class="sup-chip" :class="permissionTone"><i aria-hidden="true"></i>{{ permissionLabel }}</span>
-      </div>
-      <span class="sup-kicker">SUPPLEMENTS · 按时提醒</span>
-      <h2 class="sup-lead">鱼油、肌酸，<em>到点提醒</em></h2>
-      <p class="sup-sub">添加补剂和每日提醒时间；提醒只保存在本机。</p>
-    </header>
+      </template>
+      <template #lead>鱼油、肌酸，<em>到点提醒</em></template>
+    </PageHeader>
 
     <section class="sup-card">
       <div class="sup-card-head">
@@ -180,7 +177,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Pill, Plus, X } from 'lucide-vue-next'
-import PoleMark from '@/components/poles/PoleMark.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { useAppStore } from '@/stores/app'
 import { lockBodyScroll, unlockBodyScroll } from '@/services/scrollLock'
 import {
@@ -657,15 +654,9 @@ async function testNotification() {
 </script>
 
 <style scoped>
-.sup-page { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.sup-page { max-width: var(--page-max-width); margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
 
-.sup-hero { padding: 2px 2px 1px; }
-.sup-top { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
-.sup-id { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
-.sup-id :deep(svg) { width: 30px; height: 30px; flex: none; overflow: visible; }
-.micro { display: block; font-family: var(--font-num); font-size: 8.5px; font-weight: 600; letter-spacing: .14em; color: var(--color-text-muted); }
-.micro.nut { color: var(--pole-nutrition-strong); }
-.sup-id h1 { margin: 2px 0 0; font-size: 26px; line-height: 1.1; letter-spacing: -.03em; }
+/* 页头由 PageHeader 统一负责；这里只留本页的权限小标 */
 .sup-chip {
   display: inline-flex;
   align-items: center;
@@ -685,10 +676,9 @@ async function testNotification() {
 .sup-chip i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .sup-chip.ok { background: var(--pole-nutrition-soft); border-color: var(--pole-nutrition-line); color: var(--pole-nutrition-strong); }
 .sup-chip.warn { background: var(--color-caution-soft); border-color: rgba(138, 90, 0, .26); color: var(--color-caution); }
-.sup-kicker { display: block; margin-top: 12px; font-family: var(--font-num); font-size: 8.5px; font-weight: 600; letter-spacing: .16em; color: var(--color-text-muted); }
-.sup-lead { margin: 5px 0 0; font-size: 26px; line-height: 1.16; letter-spacing: -.035em; font-weight: 600; }
-.sup-lead em { font-style: normal; color: var(--pole-nutrition); letter-spacing: -.04em; }
-.sup-sub { margin: 6px 0 0; font-size: 11px; line-height: 1.65; color: var(--color-text-secondary); }
+/* 卡片内的小标（页头那层已交给 PageHeader） */
+.micro { display: block; font-family: var(--font-num); font-size: 8.5px; font-weight: 600; letter-spacing: .14em; color: var(--color-text-muted); }
+.micro.nut { color: var(--pole-nutrition-strong); }
 
 .sup-card {
   padding: 13px 14px 14px;
@@ -850,8 +840,6 @@ async function testNotification() {
 
 @media (max-width: 767px) {
   .sup-page { gap: 10px; }
-  .sup-id h1 { font-size: 24px; }
-  .sup-lead { font-size: 24px; }
   .sup-card { padding: 12px 13px 13px; }
   .sup-time-add { flex-wrap: wrap; }
 }

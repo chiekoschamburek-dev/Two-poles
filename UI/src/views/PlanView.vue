@@ -1,15 +1,18 @@
 <template>
   <div class="page-wrap" :class="{ 'cycle-view': view === 'cycle' }">
-    <div class="page-head animate-slide-in-up">
-      <div><span class="eyebrow">TRAINING PLAN</span><h1>训练计划</h1><p>把每一次完成，变成下一次更好的安排。</p></div>
-    </div>
-
-    <div class="toolbar animate-slide-in-up">
-      <div class="tabs" role="tablist">
-        <button role="tab" :aria-selected="view === 'week'" :class="{ active: view === 'week' }" @click="view = 'week'">本周</button>
-        <button role="tab" :aria-selected="view === 'cycle'" :class="{ active: view === 'cycle' }" @click="view = 'cycle'">四周周期</button>
-      </div>
-    </div>
+    <PageHeader
+      pole="movement"
+      title="训练计划"
+      subtitle="把每一次完成，变成下一次更好的安排。"
+      class="plan-header animate-slide-in-up"
+    >
+      <template #actions>
+        <div class="tabs" role="tablist">
+          <button role="tab" :aria-selected="view === 'week'" :class="{ active: view === 'week' }" @click="view = 'week'">本周</button>
+          <button role="tab" :aria-selected="view === 'cycle'" :class="{ active: view === 'cycle' }" @click="view = 'cycle'">四周周期</button>
+        </div>
+      </template>
+    </PageHeader>
 
     <p v-if="showProfilePrompt && !store.hasProfile" class="gate-note" role="status">
       请先填写并保存个人档案。 <RouterLink to="/onboarding">填写档案</RouterLink>
@@ -248,6 +251,7 @@ import {
 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
 import type { AlternativeExercise, PlanItem, TrainingType } from '@/types/domain'
@@ -650,14 +654,10 @@ watch(
 </script>
 
 <style scoped>
-.page-wrap{max-width:var(--content-max-width);margin:auto}
+.page-wrap{max-width:var(--page-max-width);margin:auto}
 /* 小标签统一成 .micro 的样子：短横线 + 10px 大字距，不再用那枚旋转 45° 的小方块 */
 .eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-num);font-size:10px;letter-spacing:var(--tracking-micro);text-transform:uppercase;color:var(--color-text-muted);font-weight:600}
 .eyebrow::before{content:'';width:14px;height:1px;background:var(--pole-movement);margin-right:0}
-.page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;padding:18px 0 16px}
-.page-head h1{font-size:36px;letter-spacing:-.03em;margin:9px 0 0;color:var(--color-ink)}
-.page-head p{color:var(--color-text-muted);font-size:12.5px;margin:8px 0 0}
-.toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--color-divider)}
 .tabs{display:flex;gap:2px;padding:3px;background:var(--color-neutral-soft);border-radius:var(--radius-sm)}
 .tabs button{padding:7px 16px;border-radius:5px;color:var(--color-text-muted);font-size:12.5px;font-weight:500;transition:background var(--motion-fast),color var(--motion-fast)}
 .tabs button.active{background:var(--color-card);color:var(--color-ink);font-weight:600;box-shadow:var(--shadow-sm)}
@@ -797,12 +797,12 @@ watch(
 .page-wrap :deep(.base-button:focus-visible){box-shadow:0 0 0 3px color-mix(in srgb,var(--pole-movement) 32%,transparent)}
 .page-wrap button:focus-visible,.page-wrap a:focus-visible,.page-wrap input:focus-visible,.page-wrap select:focus-visible,.page-wrap textarea:focus-visible{outline-color:var(--pole-movement)}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.cycle{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:767px){.page-head{flex-direction:column;align-items:stretch;gap:12px;padding:14px 0 12px}.page-head h1{font-size:28px}.toolbar{align-items:center;gap:10px;flex-wrap:wrap}.version{margin-left:auto}.calendar-grid button,.calendar-grid .blank{height:42px}.legend{gap:10px;font-size:10px;margin:10px 14px 0}.pending-row{flex-direction:column;align-items:stretch}.pending-actions :deep(button){width:100%}.cycle{grid-template-columns:1fr}}
+@media(max-width:767px){.version{margin-left:auto}.calendar-grid button,.calendar-grid .blank{height:42px}.legend{gap:10px;font-size:10px;margin:10px 14px 0}.pending-row{flex-direction:column;align-items:stretch}.pending-actions :deep(button){width:100%}.cycle{grid-template-columns:1fr}}
 /* 单列布局（手机与窄平板）：今日训练 → 反馈/待确认 → 手工录入 → 日期表 */
 @media(max-width:900px){
   .page-wrap{display:flex;flex-direction:column}
   .layout,.plan-sidebar{display:contents}
-  .page-head{order:1}.toolbar{order:2}.gate-note,.ver-reason,.conflicts{order:3}
+  .plan-header{order:1}.gate-note,.ver-reason,.conflicts{order:2}
   .detail{order:4}.plan-feedback{order:5}.pending{order:6}.manual-block{order:7}.calendar{order:8}.cycle{order:4}
   .page-wrap.cycle-view .pending{order:3}
   .detail,.pending,.plan-feedback,.manual-block,.calendar,.cycle{margin-bottom:14px}

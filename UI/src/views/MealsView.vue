@@ -1,16 +1,12 @@
 <template>
   <div class="page-wrap">
-    <header class="lede">
-      <div>
-        <span class="micro kick"><i></i>Meal log · {{ dateLabel }}</span>
-        <h1>记录饮食，拍一张就好</h1>
-      </div>
-      <div class="lede-r">
+    <PageHeader pole="nutrition" title="记录饮食，拍一张就好">
+      <template #actions>
         <span class="chip" :class="recordedSlots === 3 ? 'ok' : recordedSlots ? 'part' : ''">
           <i class="dot"></i>{{ recordedSlots }} / 3 餐已记录
         </span>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
 
     <div class="day-nav" role="group" aria-label="选择记录日期">
       <button type="button" class="nav-btn" aria-label="前一天" @click="shiftDay(-1)"><ChevronLeft :size="16" /></button>
@@ -248,6 +244,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowRight, Camera, ChevronLeft, ChevronRight, PenLine } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import DietFeedbackCard from '@/components/meals/DietFeedbackCard.vue'
 import MealForm from '@/components/meals/MealForm.vue'
 import FoodCaptureDialog from '@/components/meals/FoodCaptureDialog.vue'
@@ -265,7 +262,7 @@ import {
 import { LOW_CONFIDENCE } from '@/services/foodRecognition'
 import { canUseLlm, isLlmReady, usingDefault } from '@/services/llm'
 import { hydrateMealThumbs } from '@/services/mealThumbs'
-import { shortDate, toISODate } from '@/utils/time'
+import { toISODate } from '@/utils/time'
 
 const store = useAppStore()
 
@@ -278,7 +275,6 @@ const now = new Date()
 const today = toISODate(now)
 const refDate = ref(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
 const date = computed(() => toISODate(refDate.value))
-const dateLabel = computed(() => shortDate(refDate.value))
 const isToday = computed(() => date.value === today)
 const summary = computed(() => summarizeDay(store.meals, date.value))
 const showEstimate = computed(() => store.privacy.showEnergyEstimate)
@@ -591,12 +587,7 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 </script>
 
 <style scoped>
-.page-wrap{max-width:var(--content-max-width);margin:auto}
-/* ——— 抬头 ——— */
-.lede{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:18px 0 16px}
-.kick{display:inline-flex;align-items:center;gap:8px}.kick i{width:14px;height:1px;background:var(--color-accent);display:block}
-.lede h1{margin:9px 0 0;font-size:36px;letter-spacing:-.03em;color:var(--color-ink)}
-.lede-r{flex:none;padding-bottom:3px}
+.page-wrap{max-width:var(--page-max-width);margin:auto}
 .chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-card);font-family:var(--font-num);font-size:11.5px;font-weight:600;color:var(--color-text-secondary);font-variant-numeric:tabular-nums}
 .chip .dot{width:5px;height:5px;border-radius:50%;background:var(--color-text-muted)}
 .chip.ok{color:var(--color-accent);border-color:var(--color-accent-line);background:var(--color-accent-soft)}.chip.ok .dot{background:var(--color-accent)}
@@ -733,9 +724,6 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
   .day-nav{gap:6px;padding:8px 10px}
   .date-input{flex:1;min-width:0}
   .day-hint{flex-basis:100%;font-size:10.5px}
-  .lede{flex-direction:column;align-items:stretch;gap:12px;padding:14px 0 12px}
-  .lede h1{font-size:28px}
-  .lede-r{padding-bottom:0}
   .capture-hero{flex-direction:column;align-items:stretch;gap:16px;padding:18px}
   .hero-act{min-width:0}
   .card-head{padding:14px 14px 0;flex-direction:column;align-items:stretch;gap:8px}

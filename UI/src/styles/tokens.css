@@ -192,6 +192,9 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --content-max-width: 1440px;
+  /* 二级页面统一内容容器：所有非工作台页面共用的居中宽度，
+     配合 PageHeader 保证切左侧菜单时标题与主内容不左右跳 */
+  --page-max-width: 1160px;
   --gutter: clamp(16px, 2.4vw, 34px);
   /* 交互目标最小尺寸：鼠标 24px（WCAG 2.5.8），触屏 44px（WCAG 2.5.5）。
      只有确实偏小的控件显式引用它，不做全局兜底——这套版面密度高，
