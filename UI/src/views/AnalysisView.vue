@@ -55,6 +55,16 @@
           <BaseButton v-if="errorMessage" size="sm" variant="ghost" :disabled="busy" @click="resetAll">清除</BaseButton>
         </div>
 
+        <div class="supported" aria-label="可分析动作">
+          <span class="supported-label">可分析动作</span>
+          <ul class="supported-list">
+            <li v-for="item in templates" :key="item.id">
+              <strong>{{ item.label }}</strong>
+              <small>{{ kindLabel(item.kind) }} · {{ viewsLabel(item.views) }} · {{ item.findingsReady ? '关注项' : '只测量' }}</small>
+            </li>
+          </ul>
+        </div>
+
         <details class="an-guide">
           <summary>
             <span>拍摄要求</span>
@@ -106,29 +116,33 @@
           <div>
             <dt>动作</dt>
             <dd>
-              自动识别：{{ actionLabel }}
+              <template v-if="action === 'running'">自动识别：{{ actionLabel }}<span v-if="!actionConfirmed">（存疑，可按跑姿分析）</span></template>
+              <template v-else-if="actionConfirmed">自动识别：{{ actionLabel }}</template>
+              <template v-else>自动识别不确定：请选择实际动作</template>
               <span v-if="canSwitchAction" class="switch-group" role="group" aria-label="切换动作">
                 <button
-                  v-for="item in switchableActions"
+                  v-for="item in templates"
                   :key="item.id"
                   type="button"
                   class="switch-chip"
                   :class="{ on: action === item.id }"
                   :aria-pressed="action === item.id"
-                  @click="switchAction(item.id)"
-                >{{ item.label }}</button>
+                  @click="chooseAction(item.id)"
+                >{{ item.label }}<small v-if="!item.findingsReady" class="chip-note">只测量</small></button>
               </span>
             </dd>
           </div>
           <div><dt>视角</dt><dd>{{ viewLabel(precheckResult.view) }}</dd></div>
-          <div><dt>{{ action === 'running' ? '步态周期' : '完整重复' }}</dt><dd>{{ action === 'running' ? `${precheckResult.gaitCycles ?? '—'} 个` : `${precheckResult.repCount ?? '—'} 次` }}</dd></div>
+          <div><dt>{{ countLabel }}</dt><dd>{{ countValue }}</dd></div>
           <div><dt>时长</dt><dd>{{ duration.toFixed(1) }} 秒</dd></div>
         </dl>
+        <p v-if="needsActionConfirmation" class="manual-warning" role="status">自动识别不确定：请选择一个动作；未选择前不会开始分析。</p>
+        <p v-if="!supportsFindings" class="muted">该动作目前只提供测量值，未配置文献阈值，不出关注项。</p>
         <ul v-if="precheckResult.verdict === 'degraded'" class="warn-list">
           <li v-for="reason in precheckResult.reasons" :key="reason">{{ reason }}</li>
         </ul>
         <div class="actions">
-          <BaseButton @click="startAnalysis"><Play :size="16" />开始分析</BaseButton>
+          <BaseButton :disabled="!canStartAnalysis" @click="startAnalysis"><Play :size="16" />{{ canStartAnalysis ? '开始分析' : '先选择动作' }}</BaseButton>
           <BaseButton variant="ghost" @click="resetAll">换一个视频</BaseButton>
         </div>
       </BaseCard>
@@ -136,13 +150,24 @@
 
     <BaseCard v-else-if="step === 'view-pick' && precheckResult" class="panel">
       <h2>先确认拍摄视角</h2>
-      <p class="muted">人体和动作都识别到了，只是机位判不准。请按这条视频的实际拍摄方向选一个，规则会随视角切换。</p>
+      <p class="muted">将按「{{ actionLabel }}」分析。人体和动作都识别到了，只是机位判不准；请按这条视频的实际拍摄方向选一个，规则会随视角切换。</p>
       <p v-if="precheckResult.suggestedView" class="muted">
         看起来更接近{{ viewLabel(precheckResult.suggestedView) }}（只是建议，以实际机位为准）；选择后结果按低置信度标注。
       </p>
+      <div v-if="canSwitchAction" class="switch-group" role="group" aria-label="切换动作">
+        <button
+          v-for="item in templates"
+          :key="item.id"
+          type="button"
+          class="switch-chip"
+          :class="{ on: action === item.id }"
+          :aria-pressed="action === item.id"
+          @click="chooseAction(item.id)"
+        >{{ item.label }}</button>
+      </div>
       <div class="actions">
-        <BaseButton variant="secondary" @click="chooseView('side')">按侧面分析</BaseButton>
-        <BaseButton variant="secondary" @click="chooseView('front')">按正面分析</BaseButton>
+        <BaseButton v-if="actionTemplate.views.includes('side')" variant="secondary" @click="chooseView('side')">按侧面分析</BaseButton>
+        <BaseButton v-if="actionTemplate.views.includes('front')" variant="secondary" @click="chooseView('front')">按正面分析</BaseButton>
       </div>
       <div class="actions">
         <BaseButton variant="ghost" @click="resetAll">换一个视频</BaseButton>
@@ -150,8 +175,10 @@
     </BaseCard>
 
     <BaseCard v-else-if="step === 'analyzing'" class="panel" aria-live="polite">
-      <h2>正在分析</h2>
-      <p class="muted">{{ saving ? '正在保存关键帧……' : (statusText || '正在逐帧分析……') }}</p>
+      <h2>{{ rechecking ? '正在重新检查' : '正在分析' }}</h2>
+      <p class="muted">{{ rechecking
+        ? '正在按所选动作重新采样视频，完成后才能开始分析……'
+        : (saving ? '正在保存关键帧……' : (statusText || '正在逐帧分析……')) }}</p>
       <div class="bar big"><i :style="{ width: `${Math.round(progress * 100)}%` }"></i></div>
       <div v-if="!saving" class="actions">
         <BaseButton variant="ghost" @click="stopAnalysis">取消</BaseButton>
@@ -174,6 +201,18 @@
       <div class="actions">
         <BaseButton variant="secondary" @click="resetAll">重新选择视频</BaseButton>
       </div>
+      <div v-if="canSwitchAction" class="actions">
+        <span class="muted">或换一个动作重新检查：</span>
+        <button
+          v-for="item in templates"
+          :key="item.id"
+          type="button"
+          class="switch-chip"
+          :class="{ on: action === item.id }"
+          :disabled="action === item.id"
+          @click="chooseAction(item.id)"
+        >{{ item.label }}</button>
+      </div>
     </BaseCard>
 
     <template v-else-if="step === 'result' && result && precheckResult">
@@ -181,7 +220,8 @@
         <div>
           <span class="micro">RESULT</span>
           <h2>{{ actionLabel }} · {{ viewLabel(precheckResult.view) }}视角</h2>
-          <p>{{ result.repCount !== null ? `识别到 ${result.repCount} 次完整重复` : (result.gaitCycles !== null ? `识别到 ${result.gaitCycles} 个步态周期` : '按自动识别的动作完成分析') }}</p>
+          <p>{{ resultSummary }}</p>
+          <p v-if="!supportsFindings && actionTemplate.note" class="muted small">{{ actionTemplate.note }}</p>
         </div>
       </div>
 
@@ -194,7 +234,8 @@
 
       <BaseCard class="panel">
         <h2>关注项</h2>
-        <p v-if="!result.findings.length" class="muted">本次没有命中关注项。下面是对这次动作的客观测量。</p>
+        <p v-if="!supportsFindings" class="muted">该动作目前只提供测量值，未配置文献阈值，不出关注项。下面是对这次动作的客观测量。</p>
+        <p v-else-if="!result.findings.length" class="muted">本次没有命中关注项。下面是对这次动作的客观测量。</p>
         <article v-for="(finding, index) in result.findings" :key="`${finding.ruleId}-${index}`" class="finding">
           <header>
             <strong>{{ finding.title }}</strong>
@@ -250,7 +291,9 @@
             ? '规则结论已判定完毕，模型只把测量结果换一种说法；开启后仅上传测量数值，不上传视频或画面。'
             : '默认关闭。开启后会把测量数值（不含视频与画面）发到所配置的模型，用于把结论改写得更易读。' }}
         </p>
-        <p v-if="!report.lines.length" class="muted">本次没有命中关注项，没有需要解读的结论。下面是客观测量值。</p>
+        <p v-if="!report.lines.length" class="muted">{{ supportsFindings
+          ? '本次没有命中关注项，没有需要解读的结论。下面是客观测量值。'
+          : '该动作只提供测量值，没有关注项可解读。下面是客观测量值。' }}</p>
         <p v-if="explaining" class="muted">正在生成解读……规则文案已可用。</p>
         <article v-for="line in report.lines" :key="line.id" class="explain-line">
           <strong>{{ line.title }}</strong>
@@ -262,6 +305,7 @@
 
       <BaseCard v-if="nonKinematicsMetrics.length" class="panel">
         <h2>测量值</h2>
+        <p v-if="!supportsFindings" class="muted small">这些数值没有阈值，不判断好坏；拍摄视角、遮挡与器械会直接影响读数。</p>
         <dl class="metrics">
           <div v-for="metric in nonKinematicsMetrics" :key="metric.id">
             <dt>{{ metric.label }}</dt>
@@ -273,9 +317,20 @@
 
       <p class="disclaimer">{{ disclaimer }}</p>
       <div class="actions">
-        <BaseButton v-if="canSwitchAction" variant="ghost" @click="switchAndRerun">
-          识别错了？按{{ otherActionLabel }}重新分析
-        </BaseButton>
+        <details v-if="canSwitchAction" class="rerun-picker">
+          <summary class="switch-chip">识别错了？换一个动作重新分析</summary>
+          <div class="switch-group">
+            <button
+              v-for="item in templates"
+              :key="item.id"
+              type="button"
+              class="switch-chip"
+              :class="{ on: action === item.id }"
+              :disabled="action === item.id"
+              @click="chooseAction(item.id, true)"
+            >{{ item.label }}</button>
+          </div>
+        </details>
         <BaseButton variant="secondary" @click="resetAll">换一个视频</BaseButton>
       </div>
     </template>
@@ -299,7 +354,7 @@ import { buildAllTrends } from '@/services/motionTrends'
 import { useMotionExplanation } from '@/composables/useMotionExplanation'
 import { buildSeriesRecord, saveMotionSeries } from '@/services/motionSeries'
 import { eventsFromFrames } from '@/services/motionEvents'
-import { configForAction, repRuleFor } from '@/services/motionConfig'
+import { repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { isKinematicsMetric } from '@/services/motionKinematics'
 import type { MotionAngleSample } from '@/types/domain'
 import { newId } from '@/utils/id'
@@ -315,17 +370,7 @@ import type {
 
 type Step = 'pick' | 'prechecked' | 'view-pick' | 'analyzing' | 'result' | 'rejected' | 'error'
 
-const ACTION_LABELS: Record<AnalysisAction, string> = {
-  squat: '深蹲',
-  deadlift: '硬拉',
-  running: '跑姿'
-}
-
-/** 可改判的范围：跑姿由步态特征判定，特征强，不提供手动改判 */
-const switchableActions: { id: AnalysisAction; label: string }[] = [
-  { id: 'squat', label: '深蹲' },
-  { id: 'deadlift', label: '硬拉' }
-]
+const templates = visibleTemplates()
 
 const disclaimer = '规则参考各关注项所列文献，阈值由本项目自行翻译，未经运动医学或体能专业人士审核；结果仅供复盘参考，不构成诊断或训练处方。'
 
@@ -334,6 +379,10 @@ const store = useAppStore()
 
 const step = ref<Step>('pick')
 const action = ref<AnalysisAction>('squat')
+/** 自动识别不可信时，必须由用户明确选一个动作才能开始分析 */
+const actionConfirmed = ref(false)
+/** 换动作后正在按新模板重新预检；这期间不允许开始分析，避免拿旧口径起跑 */
+const rechecking = ref(false)
 const fileName = ref('')
 const precheckResult = ref<MotionPrecheckResult | null>(null)
 const result = ref<MotionAnalysisResult | null>(null)
@@ -350,9 +399,9 @@ const explanation = useMotionExplanation()
 const motionTrends = computed(() => buildAllTrends(store.analyses, store.sessions))
 
 const nonKinematicsMetrics = computed(() => (result.value?.metrics ?? []).filter(metric => !isKinematicsMetric(metric)))
-const hasKinematicsCard = computed(() => Boolean(result.value?.kinematics)
+const hasKinematicsCard = computed(() => actionTemplate.value.kinematics && (Boolean(result.value?.kinematics)
   || angleSamples.value.length > 0
-  || (result.value?.metrics ?? []).some(isKinematicsMetric))
+  || (result.value?.metrics ?? []).some(isKinematicsMetric)))
 const markerTimes = computed(() => (result.value?.findings ?? [])
   .map(finding => finding.timeMs)
   .filter((time): time is number => time !== null))
@@ -373,32 +422,44 @@ function seekToFinding(timeMs: number) {
 }
 
 const busy = computed(() => phase.value === 'precheck')
-const actionLabel = computed(() => ACTION_LABELS[action.value])
-const otherActionLabel = computed(() => action.value === 'squat' ? '硬拉' : '深蹲')
-/** 力量动作二分允许改判；跑姿不提供 */
-const canSwitchAction = computed(() =>
-  action.value === 'squat' || (action.value === 'deadlift' && precheckResult.value !== null)
+const actionTemplate = computed(() => templateFor(action.value))
+const actionLabel = computed(() => actionTemplate.value.label)
+const supportsFindings = computed(() => actionTemplate.value.findingsReady)
+/** 跑姿由步态特征判定，特征强，不提供改判；其余模板可在预检/结果页换 */
+const canSwitchAction = computed(() => !!precheckResult.value && action.value !== 'running')
+/** 自动识别不可信时，必须由用户选一个动作；跑姿没有动作选择器，允许按跑姿分析 */
+const needsActionConfirmation = computed(() => requiresActionConfirmation(action.value, actionConfirmed.value))
+const canStartAnalysis = computed(() => !needsActionConfirmation.value && !rechecking.value)
+const countLabel = computed(() =>
+  actionTemplate.value.kind === 'gait' ? '步态周期' : actionTemplate.value.kind === 'hold' ? '保持区间' : '完整重复'
 )
-const viewLabel = (view: AnalysisView | null) => view === 'side' ? '侧面' : view === 'front' ? '正面' : '未知'
-
-/** 用户改判后同步检查结果：清除特征不明确/重复数这些跟动作绑定的口径 */
-function applySwitchedAction(next: AnalysisAction) {
-  action.value = next
-  if (!precheckResult.value) return
-  const reasons = precheckResult.value.reasons.filter(reason => !reason.includes('深蹲与硬拉'))
-  precheckResult.value = {
-    ...precheckResult.value,
-    action: next,
-    actionConfident: true,
-    repCount: precheckResult.value.action === next ? precheckResult.value.repCount : null,
-    reasons
+const countValue = computed(() => {
+  if (!precheckResult.value) return '—'
+  if (precheckResult.value.gaitCycles !== null) return `${precheckResult.value.gaitCycles} 个`
+  if (precheckResult.value.holdSeconds !== null && precheckResult.value.holdSeconds !== undefined) {
+    return `${precheckResult.value.holdSeconds} 秒`
   }
+  if (precheckResult.value.repCount !== null) return `${precheckResult.value.repCount} 次`
+  return '—'
+})
+const viewLabel = (view: AnalysisView | null) => view === 'side' ? '侧面' : view === 'front' ? '正面' : '未知'
+/** 换动作重跑时，只保留与具体动作无关的原因（可见度、手动视角等） */
+function carryOverReasons(reasons: string[]): string[] {
+  const actionMarkers = ['未识别到完整重复', '深蹲与硬拉', '步态周期不足', '跑步步态特征',
+    '静态保持区间不足', '动作特征不明确', '已按深蹲预检']
+  return reasons.filter(reason => !actionMarkers.some(marker => reason.includes(marker)))
 }
-
-function switchAction(next: AnalysisAction) {
-  if (next === action.value) return
-  applySwitchedAction(next)
-}
+const kindLabel = (kind: string) => kind === 'gait' ? '步态' : kind === 'hold' ? '静态保持' : '计次'
+const viewsLabel = (views: AnalysisView[]) => views.map(view => view === 'side' ? '侧面' : '正面').join(' / ')
+const resultSummary = computed(() => {
+  if (!result.value) return '已完成分析'
+  if (result.value.repCount !== null) return `识别到 ${result.value.repCount} 次完整重复`
+  if (result.value.gaitCycles !== null) return `识别到 ${result.value.gaitCycles} 个步态周期`
+  if (result.value.holdSeconds !== null && result.value.holdSeconds !== undefined) {
+    return `分析区间 ${Math.round(result.value.holdSeconds * 10) / 10} 秒`
+  }
+  return '已完成分析'
+})
 
 /**
  * 自动视角判不准时的兜底：用户点一下机位，按所选视角继续。
@@ -418,13 +479,66 @@ function chooseView(view: AnalysisView) {
   step.value = 'prechecked'
 }
 
-async function switchAndRerun() {
-  if (savedRecordId.value) store.removeAnalysis(savedRecordId.value)
-  savedRecordId.value = null
-  result.value = null
-  applySwitchedAction(action.value === 'squat' ? 'deadlift' : 'squat')
+/**
+ * 选动作：预检阶段重新预检，保证次数/步态/保持区间与所选模板一致；
+ * 结果页换动作则直接按当前视角重跑，旧记录与关键帧先删掉，避免一段视频留两条结果。
+ */
+async function chooseAction(next: AnalysisAction, rerun = false) {
+  if (next === action.value && actionConfirmed.value) return
+  if (savedRecordId.value) {
+    store.removeAnalysis(savedRecordId.value)
+    savedRecordId.value = null
+  }
   revokeKeyframeUrls()
-  await startAnalysis()
+  result.value = null
+  action.value = next
+  actionConfirmed.value = true
+  if (!selectedFile.value || !precheckResult.value) return
+  const nextTemplate = templateFor(next)
+  if (rerun && precheckResult.value.view && nextTemplate.views.includes(precheckResult.value.view)) {
+    const carried = carryOverReasons(precheckResult.value.reasons)
+    precheckResult.value = {
+      ...precheckResult.value,
+      action: next,
+      actionConfident: true,
+      repCount: null,
+      gaitCycles: null,
+      holdSeconds: null,
+      reasons: carried,
+      verdict: carried.length ? 'degraded' : 'ok'
+    }
+    await startAnalysis()
+    return
+  }
+  // 先清掉上一模板的次数/原因，避免重新预检期间继续显示“深蹲 0 次”这类旧口径
+  precheckResult.value = {
+    ...precheckResult.value,
+    action: next,
+    actionConfident: true,
+    repCount: null,
+    gaitCycles: null,
+    holdSeconds: null,
+    reasons: [],
+    verdict: 'ok'
+  }
+  rechecking.value = true
+  step.value = 'analyzing'
+  try {
+    precheckResult.value = await precheck(next)
+    actionConfirmed.value = true
+    const verdict = precheckResult.value.verdict
+    step.value = verdict === 'rejected'
+      ? 'rejected'
+      : verdict === 'view-unclear'
+        ? 'view-pick'
+        : 'prechecked'
+  } catch (error) {
+    if (isCancelled(error)) return
+    errorMessage.value = messageOf(error)
+    step.value = 'error'
+  } finally {
+    rechecking.value = false
+  }
 }
 
 function pickFile() {
@@ -446,6 +560,8 @@ function resetState() {
   errorMessage.value = ''
   fileName.value = ''
   selectedFile.value = null
+  actionConfirmed.value = false
+  rechecking.value = false
   saving.value = false
   savedRecordId.value = null
 }
@@ -472,6 +588,7 @@ async function runFile(file: File) {
     await prepare(file)
     precheckResult.value = await precheck()
     action.value = precheckResult.value.action ?? 'squat'
+    actionConfirmed.value = precheckResult.value.actionConfident
     const verdict = precheckResult.value.verdict
     step.value = verdict === 'rejected'
       ? 'rejected'
@@ -556,9 +673,10 @@ async function persistSeries(analysisResult: MotionAnalysisResult, view: Analysi
   const frames = capturedFrames()
   const fps = analysisResult.fps
   if (!frames.length || !fps) return
-  const config = configForAction(action.value)
-  const events = config
-    ? eventsFromFrames(frames, repRuleFor(config, 'offline'), config.joint).events
+  const template = templateFor(action.value)
+  const rule = repRuleForTemplate(template)
+  const events = rule && template.segmentation
+    ? eventsFromFrames(frames, rule, template.segmentation.joint).events
     : []
   try {
     seriesSaved.value = await saveMotionSeries(buildSeriesRecord({
@@ -582,22 +700,31 @@ async function persistSeries(analysisResult: MotionAnalysisResult, view: Analysi
 
 function reconcilePrecheck(analysisResult: MotionAnalysisResult) {
   if (!precheckResult.value) return
+  const template = templateFor(action.value)
   let reasons = precheckResult.value.reasons
-  if (action.value === 'running' && analysisResult.gaitCycles !== null) {
+  if (template.kind === 'gait' && analysisResult.gaitCycles !== null) {
     reasons = reasons.filter(reason => !reason.includes('步态周期不足'))
     if (analysisResult.gaitCycles < 5) {
       reasons.push(`步态周期不足（识别到 ${analysisResult.gaitCycles} 个，至少 5 个），结果置信度低`)
     }
-  } else if (analysisResult.repCount !== null) {
+  } else if (template.kind === 'reps' && analysisResult.repCount !== null) {
     reasons = reasons.filter(reason => !reason.includes('未识别到完整重复'))
     if (analysisResult.repCount === 0) {
       reasons.push('未识别到完整重复动作：请完整拍摄至少 1 次动作后重试')
     }
+  } else if (template.kind === 'hold' && analysisResult.holdSeconds !== null && analysisResult.holdSeconds !== undefined) {
+    reasons = reasons.filter(reason => !reason.includes('静态保持区间不足'))
+    if (analysisResult.holdSeconds < 3) {
+      reasons.push('静态保持区间不足 3 秒：请拍摄完整的支撑过程后重试')
+    }
   }
   precheckResult.value = {
     ...precheckResult.value,
+    action: action.value,
+    actionConfident: true,
     gaitCycles: analysisResult.gaitCycles ?? precheckResult.value.gaitCycles,
     repCount: analysisResult.repCount ?? precheckResult.value.repCount,
+    holdSeconds: analysisResult.holdSeconds ?? precheckResult.value.holdSeconds,
     reasons,
     verdict: reasons.length ? 'degraded' : 'ok'
   }
@@ -605,7 +732,8 @@ function reconcilePrecheck(analysisResult: MotionAnalysisResult) {
 
 async function startAnalysis() {
   const view = precheckResult.value?.view
-  if (!view) return
+  if (!view || needsActionConfirmation.value) return
+  rechecking.value = false
   step.value = 'analyzing'
   errorMessage.value = ''
   try {
@@ -622,7 +750,8 @@ async function startAnalysis() {
       findings: result.value.findings,
       metrics: result.value.metrics,
       repCount: result.value.repCount,
-      gaitCycles: result.value.gaitCycles
+      gaitCycles: result.value.gaitCycles,
+      holdSeconds: result.value.holdSeconds ?? null
     })
     if (explanationEnabled.value) void explanation.explain()
   } catch (error) {
@@ -637,6 +766,7 @@ async function startAnalysis() {
 }
 
 function stopAnalysis() {
+  rechecking.value = false
   cancel()
   step.value = precheckResult.value ? 'prechecked' : 'pick'
 }
@@ -718,6 +848,19 @@ onUnmounted(revokeKeyframeUrls)
 }
 .switch-chip:hover { border-color: var(--pole-movement-line); }
 .switch-chip.on { border-color: var(--pole-movement-line); background: var(--pole-movement-soft); color: var(--pole-movement-strong); }
+.switch-chip:disabled { opacity: .45; cursor: not-allowed; }
+.chip-note { margin-left: 4px; font-size: 8px; color: var(--color-text-muted); }
+.supported { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--hair-soft); border-radius: var(--radius-md); background: var(--surface-field); }
+.supported-label { display: block; font-family: var(--font-num); font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 6px; }
+.supported-list { display: flex; flex-wrap: wrap; gap: 6px 14px; list-style: none; margin: 0; padding: 0; }
+.supported-list li { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.supported-list strong { font-size: 11px; color: var(--color-ink); font-weight: 600; }
+.supported-list small { font-size: 9px; color: var(--color-text-muted); }
+.manual-warning { margin: 8px 0 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--color-caution-soft); color: var(--color-caution); font-size: 11.5px; line-height: 1.7; }
+.rerun-picker { display: inline-block; }
+.rerun-picker summary { list-style: none; display: inline-flex; align-items: center; }
+.rerun-picker summary::-webkit-details-marker { display: none; }
+.rerun-picker .switch-group { display: flex; flex-wrap: wrap; margin: 8px 0 0; }
 .an-upload { display: flex; align-items: center; gap: 9px; margin-top: 8px; padding: 9px 10px; border: 1px dashed var(--hair-strong); border-radius: var(--radius-lg); background: var(--surface-field); }
 .an-upload-ic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: var(--radius-base); background: var(--color-card); border: 1px solid var(--color-border); color: var(--pole-movement-strong); }
 .an-upload-copy { flex: 1; min-width: 0; }

@@ -1,6 +1,7 @@
 // 跨 session 长期追踪：按 action 分组（绝不按名字），按 ruleVersion 断线。
 // 纯函数接缝：不碰 DOM、不依赖 Vue，selfcheck 可直接断言。
 import type { AnalysisAction, MotionAnalysis, TrainingSession } from '@/types/domain'
+import { findingsTemplates } from '@/services/motionTemplates'
 
 /** 少于这么多次不给趋势结论，只说样本不足 */
 export const MIN_TREND_SAMPLES = 5
@@ -108,9 +109,8 @@ export function buildActionTrend(action: AnalysisAction, analyses: MotionAnalysi
 }
 
 export function buildAllTrends(analyses: MotionAnalysis[], sessions: TrainingSession[]): ActionTrend[] {
-  const actions: AnalysisAction[] = ['squat', 'deadlift', 'running']
-  return actions
-    .map(action => buildActionTrend(action, analyses, sessions))
+  return findingsTemplates()
+    .map(template => buildActionTrend(template.id, analyses, sessions))
     .filter(trend => trend.totalSamples > 0)
 }
 
@@ -129,7 +129,7 @@ export interface RecoveryObservation {
 export function recoveryObservations(analyses: MotionAnalysis[], sessions: TrainingSession[]): RecoveryObservation[] {
   const sessionById = new Map(sessions.map(session => [session.id, session]))
   const out: RecoveryObservation[] = []
-  for (const action of ['squat', 'deadlift', 'running'] as AnalysisAction[]) {
+  for (const action of findingsTemplates().map(template => template.id)) {
     const relevant = analyses.filter(analysis => analysis.action === action
       && analysis.findings.some(finding => finding.ruleId.includes('-CN-')))
     if (!relevant.length) continue

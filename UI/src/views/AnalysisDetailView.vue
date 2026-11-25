@@ -21,7 +21,8 @@
 
       <BaseCard class="panel">
         <h2>关注项</h2>
-        <p v-if="!record.findings.length" class="muted">本次没有命中关注项。下面是对这次动作的客观测量。</p>
+        <p v-if="!supportsFindings" class="muted">该动作目前只提供测量值，未配置文献阈值，不出关注项。下面是对这次动作的客观测量。</p>
+        <p v-else-if="!record.findings.length" class="muted">本次没有命中关注项。下面是对这次动作的客观测量。</p>
         <article v-for="finding in record.findings" :key="finding.id ?? finding.ruleId" class="finding">
           <header>
             <strong>{{ finding.title }}</strong>
@@ -122,6 +123,7 @@ import { useAppStore } from '@/stores/app'
 import { getAnalysisKeyframe } from '@/services/analysisKeyframes'
 import { getMotionSeries, type MotionSeriesRecord } from '@/services/motionSeries'
 import { isKinematicsMetric } from '@/services/motionKinematics'
+import { templateFor } from '@/services/motionTemplates'
 import type { AnalysisView, MotionAnalysisFinding } from '@/types/domain'
 
 const route = useRoute()
@@ -129,6 +131,7 @@ const router = useRouter()
 const store = useAppStore()
 
 const record = computed(() => store.analyses.find(item => item.id === route.params.id) ?? null)
+const supportsFindings = computed(() => record.value ? templateFor(record.value.action).findingsReady : true)
 const keyframeUrls = ref<Record<string, string>>({})
 const series = ref<MotionSeriesRecord | null>(null)
 const linkDate = ref('')

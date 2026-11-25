@@ -142,7 +142,7 @@ import InsightCard from '@/components/common/InsightCard.vue'
 import { useAppStore } from '@/stores/app'
 import type { TrainingSession, WeeklyReport } from '@/types/domain'
 import { FOOD_CATEGORIES } from '@/services/mealRules'
-import { WEEK_LABELS, buildWeeklyReport, loadOf, weekDates, weekStart } from '@/services/weekRules'
+import { WEEK_LABELS, buildWeeklyReport, loadOf, plannedDatesOf, weekDates, weekStart } from '@/services/weekRules'
 import { toISODate } from '@/utils/time'
 import { syncState } from '@/services/sync'
 import { weekly as fetchWeeklyReport } from '@/services/api/reports'
@@ -207,9 +207,13 @@ watch(
   { immediate: true }
 )
 
-const report = computed<ReportView>(() =>
-  remoteReport.value ?? buildWeeklyReport(store.sessions, store.meals, refDate.value, { profile: store.userProfile })
-)
+const report = computed<ReportView>(() => {
+  if (remoteReport.value) return remoteReport.value
+  // 计划日取计划条目：与 /reports/weekly 同口径，联网与离线不会给出两个覆盖率
+  const isoDays = days.value.map(toISODate)
+  const plannedDates = plannedDatesOf([...store.planHistory, ...store.plans], isoDays[0], isoDays[6])
+  return buildWeeklyReport(store.sessions, store.meals, refDate.value, { plannedDates })
+})
 const sessions = computed(() => {
   const iso = days.value.map(toISODate)
   return store.sessions.filter(s => iso.includes(s.date)).sort((a, b) => a.date.localeCompare(b.date))
@@ -223,13 +227,15 @@ const stats = computed<StatItem[]>(() => {
       label: '计划场次',
       value: r.completionRate === null ? '—' : r.plannedSessions,
       unit: r.completionRate === null ? '' : '场',
-      hint: r.completionRate === null ? '这一周没有安排，不计算完成率' : '按你档案过滤后的安排'
+      hint: r.completionRate === null ? '这一周没有计划，不计算计划记录覆盖率' : '计划条目排了训练的天数'
     },
     {
       label: '有记录场次',
       value: r.completedSessions,
       unit: '场',
-      hint: r.completionRate === null ? '未记录不等于没练' : `完成率 ${Math.round((r.completionRate ?? 0) * 100)}% · 未记录不计入分母`,
+      hint: r.completionRate === null
+        ? '未记录不等于没练'
+        : `计划记录覆盖率 ${Math.round((r.completionRate ?? 0) * 100)}%${r.offPlanSessions ? ` · 另有 ${r.offPlanSessions} 天不在计划日` : ''}`,
       tone: r.completedSessions ? 'accent' : 'default'
     },
     {

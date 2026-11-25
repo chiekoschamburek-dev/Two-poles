@@ -4,6 +4,7 @@ import type { PoseEngine } from './poseEngine'
 import { POSE_MODEL_PATHS, POSE_ASSETS_HINT } from './poseLandmarkerFactory'
 import { isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import { analyzeMotion, extractMotionFrame, precheckMotion, type MotionFrame } from '@/services/motionAnalysis'
+import { templateFor } from '@/services/motionTemplates'
 import type {
   AnalysisAction,
   AnalysisView,
@@ -301,12 +302,14 @@ export function useVideoAnalysis() {
    * 统一按 15fps 采一段样帧（最多 10 秒，兼顾步态检测的时间分辨率），
    * 判定出的动作随结果返回，全帧分析再按动作各自的帧率跑。
    */
-  async function precheck(): Promise<MotionPrecheckResult> {
+  async function precheck(templateId?: string): Promise<MotionPrecheckResult> {
     if (!video || !duration.value) throw new VideoAnalysisError('decode', '请先选择视频')
     const seq = beginRun()
     phase.value = 'precheck'
     progress.value = 0
-    statusText.value = '正在检查视频是否可分析……'
+    statusText.value = templateId
+      ? `正在按「${templateFor(templateId).label}」检查视频……`
+      : '正在检查视频是否可分析……'
     beginPass()
     try {
       const fps = 15
@@ -321,7 +324,7 @@ export function useVideoAnalysis() {
         progress.value = (index + 1) / count
         statusText.value = `正在检查 ${index + 1} / ${count} 帧`
       }
-      return precheckMotion({ fps, frames })
+      return precheckMotion({ fps, frames, ...(templateId ? { templateId } : {}) })
     } finally {
       if (seq === runSeq) {
         phase.value = 'idle'
@@ -338,8 +341,9 @@ export function useVideoAnalysis() {
     progress.value = 0
     beginPass()
     try {
-      const fps = action === 'running' ? RUNNING_FPS : STRENGTH_FPS
-      const maxSeconds = action === 'running' ? Math.min(duration.value, RUNNING_MAX_SECONDS) : duration.value
+      const template = templateFor(action)
+      const fps = template.kind === 'gait' ? RUNNING_FPS : STRENGTH_FPS
+      const maxSeconds = template.kind === 'gait' ? Math.min(duration.value, RUNNING_MAX_SECONDS) : duration.value
       const step = 1 / fps
       const times: number[] = []
       for (let time = step; time <= maxSeconds - step / 2; time += step) times.push(time)

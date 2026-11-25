@@ -10,8 +10,8 @@ import type {
 } from '@/types/domain'
 import { createRepMachine } from '@/composables/repMachine'
 import type { RepInterval } from '@/composables/repMachine'
-import { angleAt, clampVisibility, frameVisibility, jointScore, jointVisibility, trunkAngleAt } from '@/composables/poseMath'
-import { configForAction, repRuleFor } from '@/services/motionConfig'
+import { angleAt, clampVisibility, frameVisibility, jointScore, jointVisibility, trunkAngleAt, LANDMARK_INDEX } from '@/composables/poseMath'
+import { templateFor, repRuleForTemplate, type MotionActionTemplate } from '@/services/motionTemplates'
 import { rulesFor } from '@/services/motionRules'
 import { consistencyRulesFor } from '@/services/motionConsistency'
 import { computeKinematics, kinematicsMetrics } from '@/services/motionKinematics'
@@ -28,6 +28,9 @@ export interface MotionFrame {
   visibility: number
   points: {
     shoulder: { left: MotionPoint | null; right: MotionPoint | null }
+    /** 上肢动作需要；旧夹具/旧序列可能没有 */
+    elbow?: { left: MotionPoint | null; right: MotionPoint | null }
+    wrist?: { left: MotionPoint | null; right: MotionPoint | null }
     hip: { left: MotionPoint | null; right: MotionPoint | null }
     knee: { left: MotionPoint | null; right: MotionPoint | null }
     ankle: { left: MotionPoint | null; right: MotionPoint | null }
@@ -69,6 +72,15 @@ export interface RepAnalysis {
   bottomHoldMs: number | null
   /** 该次所有帧的平均可见度，参与 finding 置信度推导 */
   visibilityMean: number | null
+  /** 通用分段口径：本次实际用的主关节与底部/结束角度；旧记录可能没有 */
+  primaryJoint?: 'knee' | 'hip' | 'elbow'
+  bottomPrimaryAngle?: number | null
+  endPrimaryAngle?: number | null
+  rangeOfMotion?: number | null
+  /** 底部帧肩-髋-踝夹角；平板/俯卧撑类动作的身体对齐测量 */
+  bodyAlignment?: number | null
+  leftPrimaryAngle?: number | null
+  rightPrimaryAngle?: number | null
 }
 
 export interface GaitAnalysis {
@@ -102,15 +114,6 @@ const FRONT_MIN_RATIO = 0.40
 const FINDINGS_LIMIT = 20
 const METRICS_LIMIT = 30
 
-const LANDMARKS = {
-  shoulder: { left: 11, right: 12 },
-  hip: { left: 23, right: 24 },
-  knee: { left: 25, right: 26 },
-  ankle: { left: 27, right: 28 },
-  heel: { left: 29, right: 30 },
-  toe: { left: 31, right: 32 }
-} as const
-
 function readPoint(landmarks: NormalizedLandmark[], index: number): MotionPoint | null {
   const landmark = landmarks[index]
   if (!landmark || !Number.isFinite(landmark.x) || !Number.isFinite(landmark.y)) return null
@@ -123,7 +126,7 @@ function midpoint(a: MotionPoint | null, b: MotionPoint | null): MotionPoint | n
 }
 
 /** 供验证夹具直接断言逐帧测量口径，与内部计数/规则用的是同一个函数。 */
-export function measureJointAngle(frame: MotionFrame, joint: 'knee' | 'hip'): { angle: number | null; visibility: number } {
+export function measureJointAngle(frame: MotionFrame, joint: 'knee' | 'hip' | 'elbow'): { angle: number | null; visibility: number } {
   return jointAngle(frame, joint)
 }
 
@@ -140,15 +143,19 @@ function trunkAngle(shoulder: MotionPoint | null, hip: MotionPoint | null): numb
  * 选侧口径：用顶点关节自身可见度（膝角看膝、髋角看髋），与实时侧统一。
  * 对外返回的 visibility 仍是三点最小值——那是喂状态机的口径，不改。
  */
-function sideTriple(frame: MotionFrame, joint: 'knee' | 'hip'): { side: 'left' | 'right'; score: number; visibility: number } | null {
+function sideTriple(frame: MotionFrame, joint: 'knee' | 'hip' | 'elbow'): { side: 'left' | 'right'; score: number; visibility: number } | null {
   const read = (side: 'left' | 'right') => {
+    const shoulder = frame.points.shoulder[side]
+    const elbow = frame.points.elbow?.[side]
+    const wrist = frame.points.wrist?.[side]
     const hip = frame.points.hip[side]
     const knee = frame.points.knee[side]
     const ankle = frame.points.ankle[side]
-    const shoulder = frame.points.shoulder[side]
     const points = joint === 'knee'
       ? (hip && knee && ankle ? [hip, knee, ankle] : null)
-      : (shoulder && hip && knee ? [shoulder, hip, knee] : null)
+      : joint === 'hip'
+        ? (shoulder && hip && knee ? [shoulder, hip, knee] : null)
+        : (shoulder && elbow && wrist ? [shoulder, elbow, wrist] : null)
     if (!points) return null
     const angle = angleAt(points[0], points[1], points[2])
     return {
@@ -165,37 +172,59 @@ function sideTriple(frame: MotionFrame, joint: 'knee' | 'hip'): { side: 'left' |
   return right.score > left.score ? right : left
 }
 
-function sideJointPoint(frame: MotionFrame, joint: 'knee' | 'hip'): { point: MotionPoint; side: 'left' | 'right' } | null {
+function sideJointPoint(frame: MotionFrame, joint: 'knee' | 'hip' | 'elbow'): { point: MotionPoint; side: 'left' | 'right' } | null {
   const chosen = sideTriple(frame, joint)
-  if (!chosen) return null
-  const point = frame.points[joint][chosen.side]
+  const sidePoints = frame.points[joint]
+  if (!chosen || !sidePoints) return null
+  const point = sidePoints[chosen.side]
   return point ? { point, side: chosen.side } : null
 }
 
-function jointAngle(frame: MotionFrame, joint: 'knee' | 'hip'): { angle: number | null; visibility: number } {
+function jointAngle(frame: MotionFrame, joint: 'knee' | 'hip' | 'elbow'): { angle: number | null; visibility: number } {
   const chosen = sideTriple(frame, joint)
   if (!chosen) return { angle: null, visibility: 0 }
   const side = chosen.side
+  const shoulder = frame.points.shoulder[side]
+  const elbow = frame.points.elbow?.[side]
+  const wrist = frame.points.wrist?.[side]
   const hip = frame.points.hip[side]
   const knee = frame.points.knee[side]
   const ankle = frame.points.ankle[side]
-  const shoulder = frame.points.shoulder[side]
   if (joint === 'knee') {
     if (!hip || !knee || !ankle) return { angle: null, visibility: 0 }
     return { angle: angleAt(hip, knee, ankle), visibility: chosen.visibility }
   }
-  if (!shoulder || !hip || !knee) return { angle: null, visibility: 0 }
-  return { angle: angleAt(shoulder, hip, knee), visibility: chosen.visibility }
+  if (joint === 'hip') {
+    if (!shoulder || !hip || !knee) return { angle: null, visibility: 0 }
+    return { angle: angleAt(shoulder, hip, knee), visibility: chosen.visibility }
+  }
+  if (!shoulder || !elbow || !wrist) return { angle: null, visibility: 0 }
+  return { angle: angleAt(shoulder, elbow, wrist), visibility: chosen.visibility }
+}
+
+/** 指定侧的主关节角；用于左右对称测量，不参与选侧 */
+function sideAngleAt(frame: MotionFrame, joint: 'knee' | 'hip' | 'elbow', side: 'left' | 'right'): number | null {
+  const shoulder = frame.points.shoulder[side]
+  const elbow = frame.points.elbow?.[side]
+  const wrist = frame.points.wrist?.[side]
+  const hip = frame.points.hip[side]
+  const knee = frame.points.knee[side]
+  const ankle = frame.points.ankle[side]
+  if (joint === 'knee') return hip && knee && ankle ? angleAt(hip, knee, ankle) : null
+  if (joint === 'hip') return shoulder && hip && knee ? angleAt(shoulder, hip, knee) : null
+  return shoulder && elbow && wrist ? angleAt(shoulder, elbow, wrist) : null
 }
 
 export function extractMotionFrame(landmarks: NormalizedLandmark[], timeMs: number): MotionFrame {
-  const point = (joint: keyof typeof LANDMARKS, side: 'left' | 'right') => readPoint(landmarks, LANDMARKS[joint][side])
+  const point = (joint: keyof typeof LANDMARK_INDEX, side: 'left' | 'right') => readPoint(landmarks, LANDMARK_INDEX[joint][side])
   const visibility = frameVisibility(landmarks)
   return {
     timeMs,
     visibility,
     points: {
       shoulder: { left: point('shoulder', 'left'), right: point('shoulder', 'right') },
+      elbow: { left: point('elbow', 'left'), right: point('elbow', 'right') },
+      wrist: { left: point('wrist', 'left'), right: point('wrist', 'right') },
       hip: { left: point('hip', 'left'), right: point('hip', 'right') },
       knee: { left: point('knee', 'left'), right: point('knee', 'right') },
       ankle: { left: point('ankle', 'left'), right: point('ankle', 'right') },
@@ -231,14 +260,14 @@ export function detectView(frames: MotionFrame[]): {
   return { view: null, confidence: 0, suggested: median >= boundary ? 'front' : 'side' }
 }
 
-function segmentReps(frames: MotionFrame[], action: AnalysisAction): { intervals: RepInterval[]; count: number } {
-  const config = configForAction(action)
-  const machine = createRepMachine(config
-    ? repRuleFor(config, 'offline')
-    : { neutral: 172, bottom: 95, hysteresis: 8, minStageMs: 200, minRepMs: 500, maxStageMs: 8000, minVisibility: MIN_FRAME_VISIBILITY })
+function segmentReps(frames: MotionFrame[], template: MotionActionTemplate): { intervals: RepInterval[]; count: number } {
+  const rule = repRuleForTemplate(template)
+  if (!rule || !template.segmentation) return { intervals: [], count: 0 }
+  const machine = createRepMachine(rule)
+  const joint = template.segmentation.joint
   const intervals: RepInterval[] = []
   for (const frame of frames) {
-    const sample = jointAngle(frame, action === 'deadlift' ? 'hip' : 'knee')
+    const sample = jointAngle(frame, joint)
     const snapshot = machine.feed(sample.angle, sample.visibility, frame.timeMs)
     if (snapshot.counted && snapshot.lastRep) intervals.push(snapshot.lastRep)
   }
@@ -247,11 +276,14 @@ function segmentReps(frames: MotionFrame[], action: AnalysisAction): { intervals
 
 /** 供实时模式复用：rep 结束时该次所有帧都是过去/当前，摘要与离线逐位相同 */
 export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: number, fps: number, action: AnalysisAction): RepAnalysis {
+  const template = templateFor(action)
+  // 主关节只由模板决定；未登记动作退回膝角，不再按动作名特判
+  const joint: 'knee' | 'hip' | 'elbow' = template.segmentation?.joint ?? 'knee'
   const repFrames = frames.filter(frame => frame.timeMs >= interval.startMs && frame.timeMs <= interval.endMs)
   let bottomFrame: MotionFrame | null = null
   let bottomAngle: number | null = null
   for (const frame of repFrames) {
-    const sample = jointAngle(frame, action === 'deadlift' ? 'hip' : 'knee')
+    const sample = jointAngle(frame, joint)
     if (sample.angle === null) continue
     if (bottomAngle === null || sample.angle < bottomAngle) {
       bottomAngle = sample.angle
@@ -264,7 +296,9 @@ export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: 
       bottomKneeAngle: null, bottomHipAngle: null, bottomTrunkAngle: null,
       endKneeAngle: null, endHipAngle: null, endTrunkAngle: null,
       depthOffset: null, leftKneeAngle: null, rightKneeAngle: null, kneeAnkleRatio: null,
-      shoulderHeightDiff: null, hipHeightDiff: null, eccentricMs: null, bottomHoldMs: null, visibilityMean: null
+      shoulderHeightDiff: null, hipHeightDiff: null, eccentricMs: null, bottomHoldMs: null, visibilityMean: null,
+      primaryJoint: joint, bottomPrimaryAngle: null, endPrimaryAngle: null, rangeOfMotion: null,
+      bodyAlignment: null, leftPrimaryAngle: null, rightPrimaryAngle: null
     }
   }
   const visibilityMean = repFrames.length
@@ -273,7 +307,7 @@ export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: 
   const endFrame = repFrames[repFrames.length - 1] ?? bottomFrame
   const endKnee = jointAngle(endFrame, 'knee')
   const endHip = jointAngle(endFrame, 'hip')
-  const endSide = sideJointPoint(endFrame, action === 'deadlift' ? 'hip' : 'knee')?.side ?? 'left'
+  const endSide = sideJointPoint(endFrame, joint)?.side ?? 'left'
   const endTrunk = trunkAngle(endFrame.points.shoulder[endSide], endFrame.points.hip[endSide])
   const leftKnee = bottomFrame.points.hip.left && bottomFrame.points.knee.left && bottomFrame.points.ankle.left
     ? angleAt(bottomFrame.points.hip.left, bottomFrame.points.knee.left, bottomFrame.points.ankle.left) : null
@@ -281,10 +315,13 @@ export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: 
     ? angleAt(bottomFrame.points.hip.right, bottomFrame.points.knee.right, bottomFrame.points.ankle.right) : null
   const knee = jointAngle(bottomFrame, 'knee')
   const hipJoint = jointAngle(bottomFrame, 'hip')
-  const side = sideJointPoint(bottomFrame, action === 'deadlift' ? 'hip' : 'knee')?.side ?? 'left'
+  const side = sideJointPoint(bottomFrame, joint)?.side ?? 'left'
   const shoulder = bottomFrame.points.shoulder[side]
   const hipPoint = bottomFrame.points.hip[side]
+  const anklePoint = bottomFrame.points.ankle[side]
   const trunk = trunkAngle(shoulder, hipPoint)
+  const leftPrimaryAngle = sideAngleAt(bottomFrame, joint, 'left')
+  const rightPrimaryAngle = sideAngleAt(bottomFrame, joint, 'right')
   const hipMid = midpoint(bottomFrame.points.hip.left, bottomFrame.points.hip.right)
   const kneeMid = midpoint(bottomFrame.points.knee.left, bottomFrame.points.knee.right)
   const torsoLength = shoulder && hipPoint ? Math.hypot(shoulder.x - hipPoint.x, shoulder.y - hipPoint.y) : 0
@@ -301,16 +338,23 @@ export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: 
   const frameStep = 1000 / Math.max(1, fps)
   const holdWindow = 10
   const holdFrames = repFrames.filter(frame => {
-    const sample = jointAngle(frame, action === 'deadlift' ? 'hip' : 'knee')
+    const sample = jointAngle(frame, joint)
     return sample.angle !== null && bottomAngle !== null && sample.angle <= bottomAngle + holdWindow
   })
   const bottomHoldMs = holdFrames.length ? Math.max(0, (holdFrames.length - 1) * frameStep + frameStep) : null
+  const endPrimary = jointAngle(endFrame, joint)
+  const rangeOfMotion = bottomAngle !== null && endPrimary.angle !== null
+    ? Math.abs(endPrimary.angle - bottomAngle) : null
+  const bodyAlignment = shoulder && hipPoint && anklePoint
+    ? angleAt(shoulder, hipPoint, anklePoint) : null
   return {
     index,
     startMs: interval.startMs,
     endMs: interval.endMs,
     bottomMs: bottomFrame.timeMs,
-    bottomKneeAngle: action === 'deadlift' ? (knee.angle ?? bottomAngle) : bottomAngle,
+    // 膝角只在主关节是膝时取主关节角；否则老实读膝角，读不到就留空。
+    // 这里绝不拿髋角去顶膝角：那会让"最低点膝角"显示成髋角数值。
+    bottomKneeAngle: joint === 'knee' ? bottomAngle : knee.angle,
     bottomHipAngle: hipJoint.angle,
     bottomTrunkAngle: trunk,
     endKneeAngle: endKnee.angle,
@@ -324,7 +368,14 @@ export function analyzeRep(frames: MotionFrame[], interval: RepInterval, index: 
     hipHeightDiff,
     eccentricMs: Math.max(0, bottomFrame.timeMs - interval.startMs),
     bottomHoldMs,
-    visibilityMean
+    visibilityMean,
+    primaryJoint: joint,
+    bottomPrimaryAngle: bottomAngle,
+    endPrimaryAngle: endPrimary.angle,
+    rangeOfMotion,
+    bodyAlignment,
+    leftPrimaryAngle,
+    rightPrimaryAngle
   }
 }
 
@@ -450,17 +501,145 @@ export function analyzeGait(frames: MotionFrame[], fps: number): GaitAnalysis {
   }
 }
 
+export interface HoldAnalysis {
+  durationSec: number
+  usableRatio: number
+  meanAlignment: number | null
+  maxHipSag: number | null
+  sway: number | null
+  sampleTimeMs: number | null
+}
+
+function bodySide(frame: MotionFrame): 'left' | 'right' {
+  const score = (side: 'left' | 'right') => {
+    const shoulder = frame.points.shoulder[side]
+    const hip = frame.points.hip[side]
+    const ankle = frame.points.ankle[side]
+    return shoulder && hip && ankle
+      ? Math.min(shoulder.visibility, hip.visibility, ankle.visibility)
+      : -1
+  }
+  return score('right') > score('left') ? 'right' : 'left'
+}
+
+export const HOLD_SEGMENT_THRESHOLDS = {
+  /** 躯干与竖直方向夹角；站立准备约 0°，平板接近 90° */
+  minTrunkAngle: 50,
+  /** 膝盖基本伸直；屈膝准备位不算支撑 */
+  minKneeAngle: 140,
+  /** 肩-髋-踝不能折成锐角；允许一定程度的塌腰 */
+  minAlignment: 120
+} as const
+
+/** 静态保持型动作：只测支撑段、肩-髋-踝对齐、髋部偏离与晃动，不出结论 */
+export function analyzeHold(frames: MotionFrame[], fps: number): HoldAnalysis {
+  const usable = frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
+  const usableRatio = frames.length ? usable.length / frames.length : 0
+  const frameStep = 1000 / Math.max(1, fps)
+  const isHoldFrame = (frame: MotionFrame): boolean => {
+    if (frame.visibility < MIN_FRAME_VISIBILITY) return false
+    const side = bodySide(frame)
+    const shoulder = frame.points.shoulder[side]
+    const hip = frame.points.hip[side]
+    const ankle = frame.points.ankle[side]
+    if (!shoulder || !hip || !ankle) return false
+    const knee = jointAngle(frame, 'knee').angle
+    const trunk = trunkAngle(shoulder, hip)
+    const alignment = angleAt(shoulder, hip, ankle)
+    return knee !== null && knee >= HOLD_SEGMENT_THRESHOLDS.minKneeAngle
+      && trunk !== null && trunk >= HOLD_SEGMENT_THRESHOLDS.minTrunkAngle
+      && alignment !== null && alignment >= HOLD_SEGMENT_THRESHOLDS.minAlignment
+  }
+
+  // 站立准备/走动进入机位不算保持；取最长的一段连续支撑帧
+  const runs: { start: number; end: number }[] = []
+  let runStart = -1
+  for (let index = 0; index < frames.length; index++) {
+    if (isHoldFrame(frames[index])) {
+      if (runStart < 0) runStart = index
+    } else if (runStart >= 0) {
+      runs.push({ start: runStart, end: index - 1 })
+      runStart = -1
+    }
+  }
+  if (runStart >= 0) runs.push({ start: runStart, end: frames.length - 1 })
+  const best = runs.sort((a, b) => (b.end - b.start) - (a.end - a.start))[0]
+  if (!best) {
+    return { durationSec: 0, usableRatio, meanAlignment: null, maxHipSag: null, sway: null, sampleTimeMs: null }
+  }
+
+  const holdFrames = frames.slice(best.start, best.end + 1)
+  const durationSec = Math.max(0, (holdFrames[holdFrames.length - 1].timeMs - holdFrames[0].timeMs + frameStep) / 1000)
+  const alignments: number[] = []
+  const sags: number[] = []
+  const hipXs: number[] = []
+  const torsoLengths: number[] = []
+  for (const frame of holdFrames) {
+    const side = bodySide(frame)
+    const shoulder = frame.points.shoulder[side]
+    const hip = frame.points.hip[side]
+    const ankle = frame.points.ankle[side]
+    if (!shoulder || !hip || !ankle) continue
+    const alignment = angleAt(shoulder, hip, ankle)
+    if (alignment !== null) alignments.push(alignment)
+    const dx = ankle.x - shoulder.x
+    const dy = ankle.y - shoulder.y
+    const lineLength = Math.hypot(dx, dy)
+    const torso = Math.hypot(hip.x - shoulder.x, hip.y - shoulder.y)
+    if (lineLength > 0.05) {
+      sags.push(Math.abs((hip.x - shoulder.x) * dy - (hip.y - shoulder.y) * dx) / lineLength)
+    }
+    if (torso > 0.05) torsoLengths.push(torso)
+    hipXs.push(hip.x)
+  }
+  const mean = (values: number[]) => values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+  const meanAlignment = mean(alignments)
+  const maxHipSag = sags.length ? Math.max(...sags) : null
+  const meanTorso = mean(torsoLengths)
+  let sway: number | null = null
+  if (hipXs.length > 1 && meanTorso) {
+    const hipMean = mean(hipXs)!
+    const variance = hipXs.reduce((sum, value) => sum + (value - hipMean) ** 2, 0) / hipXs.length
+    sway = Math.sqrt(variance) / meanTorso
+  }
+  return {
+    durationSec,
+    usableRatio,
+    meanAlignment,
+    maxHipSag,
+    sway,
+    sampleTimeMs: holdFrames[Math.floor(holdFrames.length / 2)]?.timeMs ?? null
+  }
+}
+
+function holdMetrics(hold: HoldAnalysis): MotionAnalysisMetric[] {
+  const round2 = (value: number) => Math.round(value * 100) / 100
+  return [
+    { id: 'metric-hold-duration', label: '保持时长（分析区间）', value: round2(hold.durationSec), unit: '秒' },
+    { id: 'metric-body-alignment', label: '肩-髋-踝平均对齐角', value: hold.meanAlignment === null ? '—' : Math.round(hold.meanAlignment), unit: '°' },
+    { id: 'metric-hip-sag', label: '髋部偏离肩-踝连线', value: hold.maxHipSag === null ? '—' : round2(hold.maxHipSag), unit: '（归一化）' },
+    { id: 'metric-sway', label: '髋部左右晃动', value: hold.sway === null ? '—' : round2(hold.sway), unit: '（归一化）' }
+  ]
+}
+
 export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
+  const template = templateFor(series.action)
   const usable = series.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
   const usableRatio = series.frames.length ? usable.length / series.frames.length : 0
-  const segmented = series.action === 'running' ? { intervals: [], count: 0 } : segmentReps(series.frames, series.action)
+  const segmented = template.kind === 'reps'
+    ? segmentReps(series.frames, template)
+    : { intervals: [], count: 0 }
   const reps = segmented.intervals.map((interval, index) =>
     analyzeRep(series.frames, interval, index + 1, series.fps, series.action)
   )
-  const kinematics = computeKinematics({ frames: series.frames, action: series.action, fps: series.fps, reps })
-  const gait = series.action === 'running' ? analyzeGait(series.frames, series.fps) : undefined
+  const kinematics = template.kinematics
+    ? computeKinematics({ frames: series.frames, action: series.action, fps: series.fps, reps })
+    : undefined
+  const gait = template.kind === 'gait' ? analyzeGait(series.frames, series.fps) : undefined
+  const hold = template.kind === 'hold' ? analyzeHold(series.frames, series.fps) : undefined
   const viewConfidence = detectView(series.frames).confidence
-  const context = { action: series.action, view: series.view, reps, fps: series.fps, gait, viewConfidence }
+  const context = { action: series.action, view: series.view, reps, fps: series.fps, gait, hold, viewConfidence }
   const findings: MotionAnalysisFinding[] = []
   const metrics: MotionAnalysisMetric[] = []
   for (const rule of [...rulesFor(series.action, series.view), ...consistencyRulesFor(series.action)]) {
@@ -468,24 +647,46 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     if (rule.output === 'finding') findings.push(...(output as MotionAnalysisFinding[]))
     else metrics.push(...(output as MotionAnalysisMetric[]))
   }
-  metrics.push(...kinematicsMetrics(kinematics, series.action))
+  if (kinematics) metrics.push(...kinematicsMetrics(kinematics, series.action))
+  if (hold) metrics.push(...holdMetrics(hold))
+  // 模板没配可核验阈值时一律不出关注项：即使将来有人给该动作加了 finding 规则，
+  // 也不会把测量值包装成结论（ADR-0003 的最后一道闸）
+  if (!template.findingsReady) findings.length = 0
+  const primaryJoint = template.segmentation?.joint ?? 'knee'
   const angles = series.frames.map(frame => {
     const knee = jointAngle(frame, 'knee')
     const hip = jointAngle(frame, 'hip')
-    const side = sideJointPoint(frame, series.action === 'deadlift' ? 'hip' : 'knee')?.side ?? 'left'
+    const elbow = jointAngle(frame, 'elbow')
+    const side = sideJointPoint(frame, primaryJoint)?.side ?? 'left'
     return {
       timeMs: frame.timeMs,
       visibility: frame.visibility,
       kneeAngle: knee.angle,
       hipAngle: hip.angle,
-      trunkAngle: trunkAngle(frame.points.shoulder[side], frame.points.hip[side])
+      trunkAngle: trunkAngle(frame.points.shoulder[side], frame.points.hip[side]),
+      elbowAngle: elbow.angle
     }
   })
+  // 弯举类短片段可能只拍到半次往返：逐次统计是空的，但全程肘角范围仍是可核对测量
+  if (template.segmentation?.joint === 'elbow') {
+    const elbowAngles = angles
+      .map(sample => sample.elbowAngle)
+      .filter((value): value is number => typeof value === 'number')
+    if (elbowAngles.length) {
+      metrics.push({
+        id: 'metric-elbow-range',
+        label: '全程肘角极差',
+        value: Math.round(Math.max(...elbowAngles) - Math.min(...elbowAngles)),
+        unit: '°'
+      })
+    }
+  }
   return {
     findings: dedupeFindings(findings),
     metrics: capMetrics(metrics),
-    repCount: series.action === 'running' ? null : segmented.count,
+    repCount: template.kind === 'reps' ? segmented.count : null,
     gaitCycles: gait?.cycles ?? null,
+    ...(hold ? { holdSeconds: hold.durationSec } : {}),
     usableRatio,
     fps: series.fps,
     reps,
@@ -562,10 +763,222 @@ export function classifyAction(frames: MotionFrame[], fps: number): ActionClassi
   return { action: 'squat', confident: false, signals }
 }
 
-export function precheckMotion(input: { fps: number; frames: MotionFrame[] }): MotionPrecheckResult {
+/**
+ * 通用运动特征：分类器只看这些可解释的量，不直接看动作名字。
+ * 新增动作时优先判断能否用这些特征区分，而不是给每个动作写一套全量分析。
+ */
+export interface MotionFeatures {
+  durationSec: number
+  usableRatio: number
+  minKneeAngle: number | null
+  maxKneeAngle: number | null
+  meanKneeAngle: number | null
+  kneeRange: number | null
+  minElbowAngle: number | null
+  maxElbowAngle: number | null
+  elbowRange: number | null
+  meanTrunkAngle: number | null
+  maxTrunkAngle: number | null
+  meanBodyAlignment: number | null
+  /** 髋部竖直位移 / 躯干长；站立动作大，平板接近 0 */
+  hipVerticalRange: number | null
+  gait: GaitAnalysis
+}
+
+const meanOf = (values: number[]) => values.length
+  ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+const rangeOf = (values: number[]) => values.length ? Math.max(...values) - Math.min(...values) : null
+
+export function summarizeMotionFeatures(frames: MotionFrame[], fps: number): MotionFeatures {
+  const usable = frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
+  const usableRatio = frames.length ? usable.length / frames.length : 0
+  const durationSec = frames.length > 1
+    ? Math.max(0, (frames[frames.length - 1].timeMs - frames[0].timeMs) / 1000) : 0
+  const kneeAngles: number[] = []
+  const elbowAngles: number[] = []
+  const trunkAngles: number[] = []
+  const alignments: number[] = []
+  const hipYs: number[] = []
+  const torsoLengths: number[] = []
+  for (const frame of usable) {
+    const knee = jointAngle(frame, 'knee')
+    if (knee.angle !== null) kneeAngles.push(knee.angle)
+    const elbow = jointAngle(frame, 'elbow')
+    if (elbow.angle !== null) elbowAngles.push(elbow.angle)
+    const side = sideJointPoint(frame, 'knee')?.side ?? 'left'
+    const lean = trunkAngle(frame.points.shoulder[side], frame.points.hip[side])
+    if (lean !== null) trunkAngles.push(lean)
+    const bodyS = bodySide(frame)
+    const shoulder = frame.points.shoulder[bodyS]
+    const hip = frame.points.hip[bodyS]
+    const ankle = frame.points.ankle[bodyS]
+    if (shoulder && hip && ankle) {
+      const alignment = angleAt(shoulder, hip, ankle)
+      if (alignment !== null) alignments.push(alignment)
+    }
+    const hipMid = midpoint(frame.points.hip.left, frame.points.hip.right)
+    const shoulderMid = midpoint(frame.points.shoulder.left, frame.points.shoulder.right)
+    if (hipMid && shoulderMid) {
+      const torso = Math.hypot(hipMid.x - shoulderMid.x, hipMid.y - shoulderMid.y)
+      if (torso > 0.05) {
+        torsoLengths.push(torso)
+        hipYs.push(hipMid.y)
+      }
+    }
+  }
+  const meanTorso = meanOf(torsoLengths)
+  return {
+    durationSec,
+    usableRatio,
+    minKneeAngle: kneeAngles.length ? Math.min(...kneeAngles) : null,
+    maxKneeAngle: kneeAngles.length ? Math.max(...kneeAngles) : null,
+    meanKneeAngle: meanOf(kneeAngles),
+    kneeRange: rangeOf(kneeAngles),
+    minElbowAngle: elbowAngles.length ? Math.min(...elbowAngles) : null,
+    maxElbowAngle: elbowAngles.length ? Math.max(...elbowAngles) : null,
+    elbowRange: rangeOf(elbowAngles),
+    meanTrunkAngle: meanOf(trunkAngles),
+    maxTrunkAngle: trunkAngles.length ? Math.max(...trunkAngles) : null,
+    meanBodyAlignment: meanOf(alignments),
+    hipVerticalRange: hipYs.length > 1 && meanTorso
+      ? (Math.max(...hipYs) - Math.min(...hipYs)) / meanTorso : null,
+    gait: analyzeGait(frames, fps)
+  }
+}
+
+export const TEMPLATE_CLASSIFY_THRESHOLDS = {
+  /** 弯举：肘角大幅往返、腿部稳定、躯干不过度前倾 */
+  curlMinElbowRange: 60,
+  curlStrongElbowRange: 90,
+  curlMinFlexion: 100,
+  curlMaxKneeRange: 30,
+  curlMaxTrunkLean: 50,
+  /** 平板：保持够久、躯干接近水平、髋部几乎不动、肘角不往返 */
+  plankMinDurationSec: 3,
+  plankStrongDurationSec: 5,
+  plankMinMeanTrunkAngle: 65,
+  plankStrongMeanTrunkAngle: 80,
+  plankMaxHipVerticalRange: 0.12,
+  plankMaxElbowRange: 35,
+  plankMinAlignment: 150,
+  /** 候选/置信门控：特征不够强时只预选，仍要求用户确认 */
+  candidateMinScore: 0.55,
+  confidentMinScore: 0.9,
+  confidentMinMargin: 0.1
+} as const
+
+function curlScore(features: MotionFeatures): number {
+  if (features.elbowRange === null || features.minElbowAngle === null || features.maxElbowAngle === null) return 0
+  let score = 0
+  if (features.elbowRange >= TEMPLATE_CLASSIFY_THRESHOLDS.curlMinElbowRange) score += 0.4
+  if (features.elbowRange >= TEMPLATE_CLASSIFY_THRESHOLDS.curlStrongElbowRange) score += 0.15
+  if (features.minElbowAngle <= TEMPLATE_CLASSIFY_THRESHOLDS.curlMinFlexion) score += 0.15
+  if (features.minElbowAngle <= 70) score += 0.05
+  if (features.maxElbowAngle >= 140) score += 0.15
+  if (features.kneeRange !== null && features.kneeRange <= TEMPLATE_CLASSIFY_THRESHOLDS.curlMaxKneeRange) score += 0.1
+  if (features.maxTrunkAngle !== null && features.maxTrunkAngle <= TEMPLATE_CLASSIFY_THRESHOLDS.curlMaxTrunkLean) score += 0.1
+  if (features.usableRatio >= 0.5) score += 0.05
+  return Math.min(1, score)
+}
+
+function plankScore(features: MotionFeatures): number {
+  // 膝盖弯曲的静止姿势是硬拉/靠墙静蹲的准备位，不是平板；先排除
+  if (features.meanKneeAngle === null || features.meanKneeAngle < 150) return 0
+  // 躯干不够水平或身体明显不直，不当作平板候选（硬拉准备位常见）
+  if (features.meanTrunkAngle === null
+    || features.meanTrunkAngle < 60) return 0
+  if (features.meanBodyAlignment === null
+    || features.meanBodyAlignment < TEMPLATE_CLASSIFY_THRESHOLDS.plankMinAlignment) return 0
+  let score = 0
+  if (features.durationSec >= TEMPLATE_CLASSIFY_THRESHOLDS.plankMinDurationSec) score += 0.2
+  if (features.durationSec >= TEMPLATE_CLASSIFY_THRESHOLDS.plankStrongDurationSec) score += 0.1
+  if (features.meanTrunkAngle !== null
+    && features.meanTrunkAngle >= TEMPLATE_CLASSIFY_THRESHOLDS.plankMinMeanTrunkAngle) score += 0.2
+  if (features.meanTrunkAngle !== null
+    && features.meanTrunkAngle >= TEMPLATE_CLASSIFY_THRESHOLDS.plankStrongMeanTrunkAngle) score += 0.1
+  if (features.hipVerticalRange !== null
+    && features.hipVerticalRange <= TEMPLATE_CLASSIFY_THRESHOLDS.plankMaxHipVerticalRange) score += 0.2
+  if (features.elbowRange !== null
+    && features.elbowRange <= TEMPLATE_CLASSIFY_THRESHOLDS.plankMaxElbowRange) score += 0.1
+  if (features.meanBodyAlignment !== null
+    && features.meanBodyAlignment >= TEMPLATE_CLASSIFY_THRESHOLDS.plankMinAlignment) score += 0.1
+  if (features.meanKneeAngle >= 160) score += 0.1
+  if (features.usableRatio >= 0.5) score += 0.05
+  return Math.min(1, score)
+}
+
+export interface TemplateClassification extends ActionClassification {
+  signals: ActionClassification['signals'] & {
+    kneeRange: number | null
+    elbowRange: number | null
+    meanTrunkAngle: number | null
+    hipVerticalRange: number | null
+  }
+}
+
+/**
+ * 模板级自动识别：先保留三个既有动作的判定；未命中时再用通用特征评估
+ * 弯举（肘主导往返）与平板（水平静止保持）。
+ * 特征不够强时只返回候选并标 confident=false，由用户确认，不硬猜。
+ */
+export function classifyTemplate(frames: MotionFrame[], fps: number): TemplateClassification {
+  const base = classifyAction(frames, fps)
+  const features = summarizeMotionFeatures(frames, fps)
+  const signals = {
+    ...base.signals,
+    kneeRange: features.kneeRange,
+    elbowRange: features.elbowRange,
+    meanTrunkAngle: features.meanTrunkAngle,
+    hipVerticalRange: features.hipVerticalRange
+  }
+  // 跑姿的步态特征最强，维持既有口径，不让其他分类器覆盖
+  if (base.action === 'running') return { ...base, signals }
+  const curl = curlScore(features)
+  const plank = plankScore(features)
+  const bestScore = Math.max(curl, plank)
+  const bestAction: AnalysisAction = curl >= plank ? 'curl' : 'plank'
+  const margin = Math.abs(curl - plank)
+  if (bestScore >= TEMPLATE_CLASSIFY_THRESHOLDS.candidateMinScore) {
+    return {
+      action: bestAction,
+      confident: bestScore >= TEMPLATE_CLASSIFY_THRESHOLDS.confidentMinScore
+        && margin >= TEMPLATE_CLASSIFY_THRESHOLDS.confidentMinMargin,
+      signals
+    }
+  }
+  return { ...base, signals }
+}
+
+export function precheckMotion(input: { fps: number; frames: MotionFrame[]; templateId?: string }): MotionPrecheckResult {
+  /**
+   * 视角判不准或模板不支持该视角时的统一返回形状：不直接拒绝，把视角交给用户选。
+   * 三条分支（判不出视角 / hold 模板 / 自动识别到单视角模板）都走这里，
+   * 免得字段各拼一份、漏一个就少一个 null。
+   */
+  const viewUnclear = (args: {
+    reasons: string[]
+    suggestedView?: AnalysisView | null
+    action: AnalysisAction
+    actionConfident: boolean
+  }): MotionPrecheckResult => ({
+    verdict: 'view-unclear',
+    reasons: args.reasons,
+    view: null,
+    suggestedView: args.suggestedView ?? null,
+    repCount: null,
+    gaitCycles: null,
+    holdSeconds: null,
+    action: args.action,
+    actionConfident: args.actionConfident
+  })
+  const selected = input.templateId ? templateFor(input.templateId) : undefined
   const usable = input.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
   if (!input.frames.length || !usable.length) {
-    return { verdict: 'rejected', reasons: ['没有检测到人体：请确认全身入镜、光线充足后重试'], view: null, repCount: null, gaitCycles: null, action: null, actionConfident: false }
+    return {
+      verdict: 'rejected', reasons: ['没有检测到人体：请确认全身入镜、光线充足后重试'],
+      view: null, repCount: null, gaitCycles: null, holdSeconds: null,
+      action: selected?.id ?? null, actionConfident: !!selected
+    }
   }
   const reasons: string[] = []
   let degraded = false
@@ -578,26 +991,62 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[] }): M
   if (!viewResult.view) {
     // 人体和动作都在，只是机位判不准：不再一刀切拒绝，把视角交给用户点一下。
     // 选完按降级结果走，规则仍按所选视角执行，结果页会明确标注低置信度。
-    const classification = classifyAction(input.frames, input.fps)
-    return {
-      verdict: 'view-unclear',
+    const classification = selected
+      ? { action: selected.id, confident: true }
+      : classifyTemplate(input.frames, input.fps)
+    return viewUnclear({
       reasons: [...reasons, '无法自动判定拍摄视角：请确认这段视频是侧面还是正面，选完按低置信度分析'],
-      view: null,
       suggestedView: viewResult.suggested,
-      repCount: null,
-      gaitCycles: null,
       action: classification.action,
       actionConfident: classification.confident
-    }
+    })
   }
-  const classification = classifyAction(input.frames, input.fps)
+  const classification = selected
+    ? { action: selected.id, confident: true }
+    : classifyTemplate(input.frames, input.fps)
+  const template = templateFor(classification.action)
+  if (!template.views.includes(viewResult.view)) {
+    const supported = template.views.map(view => view === 'side' ? '侧面' : '正面').join(' / ')
+    const source = selected ? `「${template.label}」` : `自动识别为「${template.label}」`
+    // 平板/静态保持的身体接近水平，detectView 用竖直躯干高度做分母会把侧拍误判成正面；
+    // 这类动作不直接拒绝，交给用户确认实际机位（只提供模板支持的视角）。
+    if (template.kind === 'hold') {
+      return viewUnclear({
+        reasons: [...reasons, `${source} 需要${supported}视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
+        suggestedView: template.views[0] ?? 'side',
+        action: template.id,
+        actionConfident: classification.confident
+      })
+    }
+    if (selected) {
+      return {
+        verdict: 'rejected',
+        reasons: [`「${template.label}」只支持${supported}视角：请按支持的机位重拍`],
+        view: viewResult.view,
+        repCount: null,
+        gaitCycles: null,
+        holdSeconds: null,
+        action: template.id,
+        actionConfident: true
+      }
+    }
+    // 自动识别猜到了只支持单一视角的模板时，不按不支持的机位直接分析，
+    // 也不直接拒绝：交给用户确认支持的视角。
+    return viewUnclear({
+      reasons: [...reasons, `${source} 只支持${supported}视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
+      suggestedView: template.views[0] ?? 'side',
+      action: template.id,
+      actionConfident: classification.confident
+    })
+  }
   let repCount: number | null = null
   let gaitCycles: number | null = null
-  if (classification.action === 'running') {
+  let holdSeconds: number | null = null
+  if (template.kind === 'gait') {
     const gait = analyzeGait(input.frames, input.fps)
     gaitCycles = gait.cycles
     if (gait.cycles === 0) {
-      return { verdict: 'rejected', reasons: ['没有检测到连续跑步步态：请拍摄包含至少 5 个步态周期的侧面或正面跑步画面'], view: viewResult.view, repCount: null, gaitCycles, action: 'running', actionConfident: true }
+      return { verdict: 'rejected', reasons: ['没有检测到连续跑步步态：请拍摄包含至少 5 个步态周期的侧面或正面跑步画面'], view: viewResult.view, repCount: null, gaitCycles, holdSeconds: null, action: template.id, actionConfident: classification.confident }
     }
     if (gait.cycles < 5) {
       degraded = true
@@ -606,15 +1055,23 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[] }): M
       degraded = true
       reasons.push('跑步步态特征不够明显：结果按跑姿分析，如这不是跑步视频请重新拍摄')
     }
+  } else if (template.kind === 'hold') {
+    const hold = analyzeHold(input.frames, input.fps)
+    holdSeconds = Math.round(hold.durationSec * 10) / 10
+    if (hold.durationSec < 3) {
+      degraded = true
+      reasons.push('静态保持区间不足 3 秒：请拍摄完整的支撑过程后重试')
+    }
   } else {
-    repCount = segmentReps(input.frames, classification.action).count
+    repCount = segmentReps(input.frames, template).count
     if (repCount === 0) {
       degraded = true
       reasons.push('未识别到完整重复动作：请完整拍摄至少 1 次动作后重试')
     }
     if (!classification.confident) {
       degraded = true
-      reasons.push('深蹲与硬拉特征不明确：已默认按深蹲分析，分析前可切换动作')
+      // 文案必须用实际模板名：自动识别可能预选的是弯举/平板候选，不是深蹲
+      reasons.push(`动作特征不明确：已按「${template.label}」预检，请在分析前选择实际动作`)
     }
   }
   return {
@@ -623,7 +1080,8 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[] }): M
     view: viewResult.view,
     repCount,
     gaitCycles,
-    action: classification.action,
+    holdSeconds,
+    action: template.id,
     actionConfident: classification.confident
   }
 }

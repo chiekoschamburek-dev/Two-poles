@@ -1181,12 +1181,19 @@ export const useAppStore = defineStore('app', () => {
   }
 
   /** 一次修改 = 一个新版本：旧版本进 planHistory，永不就地覆盖 */
-  function bumpVersion(plan: Plan, items: PlanItem[], reason: string, queue = true): Plan {
+  function bumpVersion(
+    plan: Plan,
+    items: PlanItem[],
+    reason: string,
+    queue = true,
+    options: { preserveReason?: boolean } = {}
+  ): Plan {
     allPlanHistory.value.push({ ...plan, items: plan.items.map(i => ({ ...i })) })
     plan.items = items
     plan.version += 1
     plan.clientId = `${plan.id}:v${plan.version}`
-    plan.reason = reason
+    // 完成标记不是处方变更：保留原计划说明，避免顶部解释被"标记完成"覆盖。
+    if (!options.preserveReason) plan.reason = reason
     plan.ruleVersion = PLAN_RULES_VERSION
     plan.createdAt = new Date().toISOString()
     plan.updatedAt = plan.createdAt
@@ -1263,7 +1270,7 @@ export const useAppStore = defineStore('app', () => {
     if (!plan) return
     const items = plan.items.map(i => (i.id === itemId ? { ...i, completed } : i))
     const name = items.find(i => i.id === itemId)?.exerciseName ?? itemId
-    bumpVersion(plan, items, `标记「${name}」为${completed ? '已完成' : '未完成'}`)
+    bumpVersion(plan, items, `标记「${name}」为${completed ? '已完成' : '未完成'}`, true, { preserveReason: true })
   }
 
   /** 手工录入：不满足自动推荐条件（如未满 18 岁）时的安排入口 */

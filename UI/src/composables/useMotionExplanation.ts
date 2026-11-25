@@ -53,6 +53,7 @@ export function useMotionExplanation() {
     metrics: MotionAnalysisMetric[]
     repCount: number | null
     gaitCycles: number | null
+    holdSeconds?: number | null
   }): MotionReport {
     abort?.abort()
     attemptedSignature = ''

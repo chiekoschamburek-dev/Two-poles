@@ -19,6 +19,8 @@ export interface AngleSample {
   kneeAngle: number | null
   hipAngle: number | null
   trunkAngle: number | null
+  /** 上肢动作的肘角；下肢动作通常为 null */
+  elbowAngle?: number | null
   /** 逐关节可见度；离线分析目前只给帧级可见度，缺失时不编造 0 */
   kneeVisibility?: number
   hipVisibility?: number
@@ -96,6 +98,8 @@ export function buildSeriesRecord(input: {
 }): MotionSeriesRecord {
   const order = [
     ['shoulder', 'left'], ['shoulder', 'right'],
+    ['elbow', 'left'], ['elbow', 'right'],
+    ['wrist', 'left'], ['wrist', 'right'],
     ['hip', 'left'], ['hip', 'right'],
     ['knee', 'left'], ['knee', 'right'],
     ['ankle', 'left'], ['ankle', 'right'],
@@ -115,7 +119,8 @@ export function buildSeriesRecord(input: {
     landmarks: input.frames.map(frame => ({
       timeMs: frame.timeMs,
       points: order.map(([joint, side]) => {
-        const point = frame.points[joint][side]
+        const group = frame.points[joint]
+        const point = group ? group[side] : null
         return point
           ? { x: round4(point.x), y: round4(point.y), v: round4(point.visibility) }
           : { x: 0, y: 0, v: 0 }

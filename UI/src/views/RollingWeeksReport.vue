@@ -15,6 +15,7 @@ import { computed } from 'vue'
 import PeriodReport from '@/components/reports/PeriodReport.vue'
 import { useAppStore } from '@/stores/app'
 import { buildRollingFourWeeksReport } from '@/services/reportRules'
+import { allPlannedDates } from '@/services/weekRules'
 
 const store = useAppStore()
 const now = new Date()
@@ -22,7 +23,7 @@ const report = computed(() => buildRollingFourWeeksReport(
   store.sessions,
   store.meals,
   now,
-  { profile: store.userProfile }
+  { plannedDates: allPlannedDates([...store.planHistory, ...store.plans]) }
 ))
 const md = (iso: string): string => {
   const [, m, d] = iso.split('-')

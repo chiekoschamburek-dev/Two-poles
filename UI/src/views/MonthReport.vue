@@ -22,6 +22,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import PeriodReport from '@/components/reports/PeriodReport.vue'
 import { useAppStore } from '@/stores/app'
 import { buildMonthlyReport } from '@/services/reportRules'
+import { allPlannedDates } from '@/services/weekRules'
 
 const props = defineProps<{ initialMonth?: string | null }>()
 const store = useAppStore()
@@ -36,7 +37,7 @@ const report = computed(() => buildMonthlyReport(
   store.sessions,
   store.meals,
   refDate.value,
-  { profile: store.userProfile },
+  { plannedDates: allPlannedDates([...store.planHistory, ...store.plans]) },
   now
 ))
 const md = (iso: string): string => {

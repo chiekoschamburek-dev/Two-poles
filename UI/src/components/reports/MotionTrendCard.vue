@@ -51,7 +51,7 @@
 import { computed } from 'vue'
 import BaseCard from '@/components/common/BaseCard.vue'
 import type { ActionTrend, TrendPoint } from '@/services/motionTrends'
-import type { AnalysisAction } from '@/types/domain'
+import { templateFor } from '@/services/motionTemplates'
 
 const props = defineProps<{ trend: ActionTrend }>()
 
@@ -60,8 +60,7 @@ const H = 120
 const PAD = 28
 const AXIS = 20
 
-const LABEL: Record<AnalysisAction, string> = { squat: '深蹲', deadlift: '硬拉', running: '跑姿' }
-const label = computed(() => LABEL[props.trend.action])
+const label = computed(() => templateFor(props.trend.action).label)
 
 const allPoints = computed(() => props.trend.segments.flatMap(seg => seg.points))
 const maxCount = computed(() => Math.max(1, ...allPoints.value.map(point => point.findingCount)))

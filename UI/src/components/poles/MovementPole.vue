@@ -81,8 +81,8 @@
 
       <div class="metric-grid">
         <div class="metric">
-          <span class="micro">本周完成</span>
-          <b>{{ week.completedSessions }}<em>/{{ plannedDays }}</em></b>
+          <span class="micro">计划日已记录</span>
+          <b>{{ week.recordedPlannedSessions ?? week.completedSessions }}<em>/{{ plannedDays }}</em></b>
           <small>场</small>
         </div>
         <div class="metric">
@@ -279,7 +279,7 @@ import { useAppStore } from '@/stores/app'
 import type { DayFacts } from '@/services/bridgeRules'
 import { buildDayPlan } from '@/services/planRules'
 import { demoExercises } from '@/services/demoCameraService'
-import { buildWeeklyReport, WEEK_LABELS, weekDates, weekStart } from '@/services/weekRules'
+ import { buildWeeklyReport, WEEK_LABELS, weekDates, weekStart, allPlannedDates } from '@/services/weekRules'
 import { buildLoadSeries, intensitySplit, loadZone, LOAD_ZONE_TEXT } from '@/services/loadRules'
 import { eyebrowDate, shortDate, toISODate } from '@/utils/time'
 import type { PlanItem, TrainingSession } from '@/types/domain'
@@ -335,7 +335,7 @@ const timeline = computed(() => items.value.map(item => {
 }))
 
 const week = computed(() => buildWeeklyReport(store.sessions, store.meals, now, {
-  profile: store.userProfile
+  plannedDates: allPlannedDates([...store.planHistory, ...store.plans])
 }))
 const weekRange = computed(() => {
   const start = weekStart(now)
@@ -394,11 +394,11 @@ const selectedCell = computed(() => weekCells.value.find(cell => cell.iso === se
 /** 以本机已存的周计划为准：模型计划可能是 5 天，不能再用规则模板的 3 天当分母 */
 const plannedDays = computed(() => weekCells.value.filter(cell => cell.plannedCount > 0).length)
 const weekChip = computed(() => plannedDays.value
-  ? `${week.value.completedSessions}/${plannedDays.value} 场`
+  ? `${week.value.recordedPlannedSessions ?? week.value.completedSessions}/${plannedDays.value} 场`
   : '本周无安排')
 const weekChipTone = computed<'' | 'ok' | 'part'>(() => {
   if (!plannedDays.value) return ''
-  if (week.value.completedSessions >= plannedDays.value) return 'ok'
+  if ((week.value.recordedPlannedSessions ?? week.value.completedSessions) >= plannedDays.value) return 'ok'
   return week.value.completedSessions > 0 ? 'part' : ''
 })
 

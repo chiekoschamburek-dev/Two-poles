@@ -2,6 +2,7 @@
 // Pre-scripted counting events for demonstration (one timeline per set)
 
 import type { DemoEvent, ExercisePhase, PlanItem, TrainingType, TrainingSession } from '@/types/domain'
+import { toISODate } from '@/utils/time'
 
 /** 课次类型（F18）：reps 计次 / time 计时保持 / steps 计步（DeviceMotion，降级手动计时） */
 export type FollowMode = 'reps' | 'time' | 'steps'
@@ -34,7 +35,7 @@ export interface DemoExercise {
 }
 
 /** 跟练页剪影的姿态类别；有摄像头计数规则的动作与规则关节保持一致 */
-export type FigureKind = 'knee' | 'elbow' | 'shoulder' | 'calf'
+export type FigureKind = 'knee' | 'elbow' | 'shoulder' | 'calf' | 'hip'
 
 const CONF = [0.88, 0.92, 0.90, 0.93, 0.89, 0.91]
 
@@ -143,7 +144,7 @@ export const demoExercises: DemoExercise[] = [
   makeExercise('弹力带划船', '其他', 'elbow', 2, 12, 2600, buildSet(12, 'down', 'up', 2600)),
   makeExercise('台阶上下', '其他', 'knee', 2, 10, 2800, buildSet(10, 'up', 'down', 2800)),
   makeExercise('深蹲', '其他', 'knee', 3, 10, 2800, buildSet(10, 'up', 'down', 2800)),
-  makeExercise('硬拉', '其他', 'knee', 3, 8, 3000, buildSet(8, 'up', 'down', 3000)),
+  makeExercise('硬拉', '其他', 'hip', 3, 8, 3000, buildSet(8, 'up', 'down', 3000)),
   makeExercise('提踵', '其他', 'calf', 2, 15, 1800, buildSet(15, 'up', 'down', 1800)),
   // —— 计时保持型（F18）——
   makeHold('靠墙静蹲', '其他', 2, 30),
@@ -275,7 +276,8 @@ const PHASE_TEXT: Record<FigureKind, { down: string; up: string }> = {
   knee: { down: '下蹲', up: '起身' },
   elbow: { down: '弯起', up: '还原' },
   shoulder: { down: '下摆', up: '上举' },
-  calf: { down: '落下', up: '提起' }
+  calf: { down: '落下', up: '提起' },
+  hip: { down: '俯身', up: '站直' }
 }
 
 /**
@@ -327,6 +329,8 @@ export interface SessionInput {
   /** 实时跟练按个人起始姿势校准后的中立位；未校准时为 null。离线分析永远是固定阈值 */
   calibratedNeutral?: number | null
   elapsedMs: number
+  /** 训练发生的本地日期；不传则按当前本地日期。显式传入便于测试与补记。 */
+  date?: string
 }
 
 /**
@@ -339,7 +343,8 @@ export function summarizeSession(input: SessionInput): Omit<TrainingSession, 'id
   const minutes = Math.max(Math.round((input.elapsedMs / 60_000) * 10) / 10, 0.1)
   const base = {
     planItemId: input.planItemId,
-    date: new Date().toISOString().slice(0, 10),
+    // 全站日期口径都是本地 ISO 日期（toISODate）；此前用 UTC 会让 0–8 点的记录落到前一天。
+    date: input.date ?? toISODate(new Date()),
     exerciseName: exercise.name,
     type: exercise.type,
     actualDuration: minutes,

@@ -275,7 +275,7 @@ import {
   mealTypeLabel,
   summarizeDay
 } from '@/services/mealRules'
-import { buildWeeklyReport, WEEK_LABELS, weekDates, weekStart } from '@/services/weekRules'
+ import { buildWeeklyReport, WEEK_LABELS, weekDates, weekStart, allPlannedDates } from '@/services/weekRules'
 import { eyebrowDate, shortDate, toISODate } from '@/utils/time'
 import { hydrateMealThumbs } from '@/services/mealThumbs'
 import type { Meal, MealType } from '@/types/domain'
@@ -355,7 +355,7 @@ const coverageRows = computed(() => FOOD_CATEGORIES.slice(0, 8).map(name => ({
 })))
 
 const weekReport = computed(() => buildWeeklyReport(store.sessions, store.meals, now, {
-  profile: store.userProfile
+  plannedDates: allPlannedDates([...store.planHistory, ...store.plans])
 }))
 const weekCells = computed(() => weekDates(weekStart(now)).map(d => {
   const iso = toISODate(d)

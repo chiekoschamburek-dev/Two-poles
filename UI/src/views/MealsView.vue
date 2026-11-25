@@ -4,7 +4,6 @@
       <div>
         <span class="micro kick"><i></i>Meal log · {{ dateLabel }}</span>
         <h1>记录饮食，拍一张就好</h1>
-        <p>{{ headerCopy }}</p>
       </div>
       <div class="lede-r">
         <span class="chip" :class="recordedSlots === 3 ? 'ok' : recordedSlots ? 'part' : ''">
@@ -32,9 +31,6 @@
       <div class="hero-copy">
         <span class="micro">Photo first</span>
         <h2>{{ isToday ? '拍一张，记一顿' : '补记这一天的饮食' }}</h2>
-        <p>{{ isToday
-          ? '不用先选早餐还是晚餐：系统按拍摄时间自动判断餐次，识别后默认直接保存，想改再展开。'
-          : `正在查看${dateLabel}。新增会记录到这一天；餐次仍按当前时间判断，保存前可以在弹窗里改。` }}</p>
         <div class="hero-meta">
           <span class="mode-chip" :class="{ ok: modelAvailable }">
             <i class="dot"></i>{{ recognitionLabel }}
@@ -325,12 +321,6 @@ const recognitionLabel = computed(() => {
   return `模型识别 · ${model || '已配置'}`
 })
 
-const headerCopy = computed(() => !isToday.value
-  ? `正在查看${dateLabel.value}的历史记录；下面的统计、餐次与类别覆盖都按这一天计算。`
-  : showEstimate.value
-    ? '拍照或选图后自动识别食物，餐次按拍摄时间判断；热量只作区间粗估，不评价吃得多不多。'
-    : '拍照或选图后自动识别食物，餐次按拍摄时间判断；只记录结构，不估算热量，也不评价吃得多不多。')
-
 const timeline = computed(() => {
   const completenessText = (c: Meal['completeness']) => (c === 'complete' ? '完整记录' : c === 'partial' ? '部分记录' : '未记完整')
   const rows = [
@@ -606,7 +596,6 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .lede{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:18px 0 16px}
 .kick{display:inline-flex;align-items:center;gap:8px}.kick i{width:14px;height:1px;background:var(--color-accent);display:block}
 .lede h1{margin:9px 0 0;font-size:36px;letter-spacing:-.03em;color:var(--color-ink)}
-.lede p{margin:8px 0 0;max-width:660px;font-size:12.5px;color:var(--color-text-muted);line-height:1.7}
 .lede-r{flex:none;padding-bottom:3px}
 .chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-card);font-family:var(--font-num);font-size:11.5px;font-weight:600;color:var(--color-text-secondary);font-variant-numeric:tabular-nums}
 .chip .dot{width:5px;height:5px;border-radius:50%;background:var(--color-text-muted)}

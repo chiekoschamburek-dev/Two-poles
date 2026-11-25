@@ -1,13 +1,37 @@
 // 周报聚合：负荷只在 RPE 有记录的日子计算，缺失的日子保持"未记录"而不是 0。
-import type { FoodCategory, Meal, TrainingSession, UserProfile, WeeklyReport } from '@/types/domain'
+import type { FoodCategory, Meal, Plan, TrainingSession, WeeklyReport } from '@/types/domain'
 import { toISODate } from '@/utils/time'
-import { isPlanDay } from './planRules'
 import { FOOD_CATEGORIES, RULE_VERSION } from './mealRules'
 
 export const WEEK_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 
 export interface ReportContext {
-  profile?: UserProfile | null
+  /**
+   * 这一周的计划日（ISO 日期），来源是**计划条目**，不是按档案规则推算。
+   * 服务端 `/reports/weekly` 就是这么算的；前端如果改按档案规则推算，
+   * 同一周联网看服务端结果、离线看本地结果会出现两个覆盖率。
+   * 没有计划就是空数组，此时不计算覆盖率。
+   */
+  plannedDates?: string[]
+}
+
+/**
+ * 从计划（含历史版本）里取出落在区间内的计划日。
+ * 各视图都从这里取，避免「哪些天算计划日」在五处各写一套。
+ */
+export function plannedDatesOf(plans: Plan[], fromISO: string, toISO: string): string[] {
+  const dates = new Set<string>()
+  for (const plan of plans) {
+    for (const item of plan.items) {
+      if (item.date >= fromISO && item.date <= toISO) dates.add(item.date)
+    }
+  }
+  return [...dates].sort()
+}
+
+/** 所有计划日（不限区间）：报告层自己会按窗口过滤，视图不必重复算区间 */
+export function allPlannedDates(plans: Plan[]): string[] {
+  return plannedDatesOf(plans, '0000-01-01', '9999-12-31')
 }
 
 export function weekStart(d: Date): Date {
@@ -32,13 +56,16 @@ export function loadOf(session: TrainingSession): number | null {
 }
 
 export interface WeekSummary extends WeeklyReport {
-  /** 本周模板安排的天数（按档案过滤后的实际安排） */
+  /** 本周的计划日（计划条目所在日期） */
   plannedDays: string[]
   /** 有完整 RPE 因而计入负荷的天数 */
   loadDays: number
   /** 因缺 RPE 而未计入负荷的天数 */
   unloadedDays: number
-  /** 没有安排训练时不计算完成率 */
+  /**
+   * 计划记录覆盖率 = 计划日中有记录的天数 / 计划日数。
+   * 必须能用 recordedPlannedSessions / plannedSessions 复算出来；没有计划时为 null。
+   */
   completionRate: number | null
   /** 本周任一天报了不适：阻止自动加量建议（文档 §7） */
   blockedByDiscomfort: boolean
@@ -50,7 +77,6 @@ export function buildWeeklyReport(
   reference: Date,
   ctx: ReportContext = {}
 ): WeekSummary {
-  const profile = ctx.profile ?? null
   const start = weekStart(reference)
   const days = weekDates(start)
   const isoDays = days.map(toISODate)
@@ -66,11 +92,14 @@ export function buildWeeklyReport(
     return loads.reduce<number>((sum, l) => sum + (l ?? 0), 0)
   })
 
-  const plannedDays = days.filter(d => isPlanDay(d, profile)).map(toISODate)
-  const completedDates = [...new Set(inWeek.map(s => s.date))]
+  const plannedDays = (ctx.plannedDates ?? []).filter(date => isoDays.includes(date)).sort()
+  const recordedDays = [...new Set(inWeek.map(s => s.date))].sort()
+  // 覆盖率只看计划日有没有记录；非计划日的训练单独说明，不把分子做大
+  const recordedPlannedDays = plannedDays.filter(date => recordedDays.includes(date))
+  const offPlanDays = recordedDays.filter(date => !plannedDays.includes(date))
   const countedDays = loadByDay.filter(l => l !== null)
   // 合计只累加有 RPE 的天；缺的天不进合计，并在数据质量里说明覆盖范围
-  const totalLoad = countedDays.length ? countedDays.reduce((sum, l) => sum + (l ?? 0), 0) : null
+  const totalLoad = countedDays.length ? countedDays.reduce<number>((sum, l) => sum + (l ?? 0), 0) : null
   const rpeMissing = inWeek.filter(s => s.rpe === null).map(s => `${s.date.slice(5)} ${s.exerciseName}`)
 
   const categoryCoverage = Object.fromEntries(FOOD_CATEGORIES.map(c => [c, 0])) as Record<FoodCategory, number>
@@ -83,12 +112,15 @@ export function buildWeeklyReport(
   if (!inWeek.length) dataQuality.push('本周还没有训练记录，负荷图表为空而不是 0。')
   if (rpeMissing.length) dataQuality.push(`${rpeMissing.length} 条训练未记录 RPE：${rpeMissing.join('、')}。这些条目不参与负荷计算。`)
   if (totalLoad !== null) {
-    dataQuality.push(`负荷合计覆盖 ${countedDays.length} 天（本周有记录的 ${new Set(inWeek.map(s => s.date)).size} 天中）；缺 RPE 的天按未计入处理，不按 0 补齐。`)
+    dataQuality.push(`负荷合计覆盖 ${countedDays.length} 天（本周有记录的 ${recordedDays.length} 天中）；缺 RPE 的天按未计入处理，不按 0 补齐。`)
   }
   if (!plannedDays.length) {
-    dataQuality.push('按你的档案，这一周没有安排训练，因此不计算完成率。')
-  } else if (completedDates.length < plannedDays.length) {
-    dataQuality.push(`安排 ${plannedDays.length} 天，有记录 ${completedDates.length} 天；未记录不等于没练，也不计入完成率。`)
+    dataQuality.push('这一周没有计划条目，因此不计算计划记录覆盖率。到计划页可以生成这一周的安排。')
+  } else if (recordedPlannedDays.length < plannedDays.length) {
+    dataQuality.push(`计划 ${plannedDays.length} 天，其中有记录 ${recordedPlannedDays.length} 天；未记录的计划日按未覆盖计（未记录不等于没练）。`)
+  }
+  if (offPlanDays.length) {
+    dataQuality.push(`另有 ${offPlanDays.length} 天有训练记录但不在计划日，不计入计划记录覆盖率。`)
   }
   dataQuality.push(`餐食：本周 ${mealDays.size} 天有记录，其余显示"未记录"，不代表未摄入。`)
 
@@ -97,7 +129,11 @@ export function buildWeeklyReport(
     weekStartDate: isoDays[0],
     weekEndDate: isoDays[6],
     plannedSessions: plannedDays.length,
-    completedSessions: completedDates.length,
+    // 有记录场次：本周有训练记录的天数，含非计划日；与计划场次不是同一个分母
+    completedSessions: recordedDays.length,
+    // 计划日中有记录的天数：completionRate 的分子，单独给出来才能被复算
+    recordedPlannedSessions: recordedPlannedDays.length,
+    offPlanSessions: offPlanDays.length,
     totalDuration: inWeek.reduce((sum, s) => sum + (s.actualDuration ?? 0), 0),
     totalDistance: inWeek.reduce((sum, s) => sum + (s.actualDistance ?? 0), 0),
     totalLoad,
@@ -111,8 +147,8 @@ export function buildWeeklyReport(
     ruleVersion: `report-rules-v2 / ${RULE_VERSION}`,
     plannedDays,
     loadDays: countedDays.length,
-    unloadedDays: new Set(inWeek.map(s => s.date)).size - countedDays.length,
-    completionRate: plannedDays.length ? completedDates.length / plannedDays.length : null,
+    unloadedDays: recordedDays.length - countedDays.length,
+    completionRate: plannedDays.length ? recordedPlannedDays.length / plannedDays.length : null,
     blockedByDiscomfort: inWeek.some(s => s.discomfort)
   }
 }
