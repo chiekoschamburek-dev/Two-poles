@@ -12,13 +12,16 @@
       </template>
     </PageHeader>
 
-    <BaseCard class="section animate-slide-in-up">
-      <h2>档案</h2>
-      <p class="sub">训练与饮食安排按档案生成；专项、周期与比赛目标等信息选填，填写后会纳入计划与负荷展示。</p>
-      <div class="row-line">
-        <div><strong>档案</strong><small>{{ profileLine }}</small><em v-if="goalLine" class="goal-line">{{ goalLine }}</em></div>
+    <BaseCard class="section profile-card animate-slide-in-up">
+      <div class="row-line profile-row">
+        <div>
+          <strong>档案</strong>
+          <small>{{ profileLine }}</small>
+          <em v-if="goalLine" class="goal-line">{{ goalLine }}</em>
+        </div>
         <RouterLink class="link" to="/onboarding">{{ store.hasProfile ? '修改档案' : '去建档' }} <ArrowRight :size="14" /></RouterLink>
       </div>
+      <p class="fine">训练与饮食安排按档案生成；专项、周期与比赛目标等信息选填，填写后会纳入计划与负荷展示。</p>
     </BaseCard>
 
     <!-- 账号与同步：未配置后端时保持纯本机；登录后才启用 outbox 补传 -->
@@ -40,10 +43,11 @@
       </template>
 
       <template v-else-if="!syncState.user">
-        <div class="chips" role="group" aria-label="登录或注册">
-          <button type="button" class="chip" :class="{ active: authMode === 'login' }" :aria-pressed="authMode === 'login'" @click="authMode = 'login'">登录</button>
-          <button type="button" class="chip" :class="{ active: authMode === 'register' }" :aria-pressed="authMode === 'register'" @click="authMode = 'register'">注册</button>
-        </div>
+        <SegmentedControl
+          v-model="authMode"
+          label="登录或注册"
+          :options="[{ value: 'login', label: '登录' }, { value: 'register', label: '注册' }]"
+        />
         <div class="fields">
           <label class="field">
             <span class="field-label">邮箱或手机号</span>
@@ -170,19 +174,16 @@
       </p>
 
       <!-- 用哪个模型是偏好，不是清空：切到内置后，下面填的配置原样保留 -->
-      <div class="llm-pick" role="group" aria-label="使用哪个模型">
-        <button type="button" :class="{ on: !usingBuiltin }" :aria-pressed="!usingBuiltin" @click="setPreference('custom')">
-          使用我填的接口
-        </button>
-        <button
-          type="button"
-          :class="{ on: usingBuiltin }"
-          :aria-pressed="usingBuiltin"
-          :disabled="!store.llmDefault.available"
-          @click="setPreference('default')"
-        >
-          使用内置模型
-        </button>
+      <div class="llm-pick">
+        <SegmentedControl
+          :model-value="usingBuiltin ? 'default' : 'custom'"
+          label="使用哪个模型"
+          :options="[
+            { value: 'custom', label: '使用我填的接口' },
+            { value: 'default', label: '使用内置模型', disabled: !store.llmDefault.available }
+          ]"
+          @update:model-value="(value) => setPreference(value as 'custom' | 'default')"
+        />
         <span v-if="usingBuiltin" class="pick-note">已切到内置；下面填的配置都还在，随时切回来</span>
         <span v-else-if="!hasCustom" class="pick-note warn">还没填接口，会先回退到内置模型</span>
       </div>
@@ -438,6 +439,7 @@ import { ArrowRight, Download, Smartphone, Trash2 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import InstallAppDialog from '@/components/common/InstallAppDialog.vue'
 import { SITE_INFO } from '@/config/site'
@@ -912,6 +914,9 @@ async function wipe() {
 .section h2{font-size:17px;margin-bottom:6px}
 .sub{font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:0 0 14px}
 .row-line{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-top:14px;border-top:1px solid var(--color-divider)}
+/* 档案只做一张紧凑的单行卡：标题 + 摘要 + 修改入口，不再套一层同名标题 */
+.profile-row{padding-top:0;border-top:0}
+.profile-card .fine{margin-top:10px}
 .row-line strong{display:block;font-size:13px;color:var(--color-ink)}
 .row-line small{display:block;font-size:12px;color:var(--color-text-secondary);margin-top:3px}
 .link{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--color-accent);white-space:nowrap}
@@ -951,10 +956,7 @@ async function wipe() {
 .site-beian a{color:inherit;text-decoration:none;border-bottom:1px solid transparent;transition:color var(--motion-fast) var(--easing-ease-out),border-color var(--motion-fast) var(--easing-ease-out)}
 .site-beian a:hover,.site-beian a:focus-visible{color:var(--color-accent);border-bottom-color:var(--color-accent-line);outline:none}
 @media(max-width:767px){.fields,.stats{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.actions :deep(button){width:100%}}
-.llm-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 14px}
-.llm-pick button{padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:600;min-height:38px;color:var(--color-text-secondary);background:var(--color-neutral-soft);border:1px solid transparent}
-.llm-pick button.on{background:var(--color-accent);color:var(--color-on-accent)}
-.llm-pick button:disabled{opacity:.45;cursor:not-allowed}
+.llm-pick{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px}
 .pick-note{font-size:11.5px;color:var(--color-text-muted)}
 .pick-note.warn{color:var(--color-caution)}
 .llm-default{font-size:12px;color:var(--color-text-secondary);margin:-4px 0 14px;line-height:1.6}
