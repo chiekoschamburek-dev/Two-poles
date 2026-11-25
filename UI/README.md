@@ -113,6 +113,7 @@ UI/
 │   ├── components/
 │   │   ├── common/          # BaseButton / BaseCard / StatusBadge / InsightCard / ToastRegion
 │   │   │                    # + TwoPoleDial（双极环）/ StatStrip（指标条）/ ShapeState（三态形状）
+│   │   │                    # + PageHeader（二级页统一页头）/ SegmentedControl（分段切换条）
 │   │   ├── poles/           # PoleShell / PoleTabs / PoleMark / MovementPole / NutritionPole
 │   │   │                    # + BridgeBand（底部同期对照）/ BridgeDialog（完整协同弹层）
 │   │   ├── meals/           # FoodCaptureDialog（拍照/同意/识别结果/轻量修改）+ MealForm（保存后的可选编辑）
@@ -254,6 +255,9 @@ UI/
 - 字体：正文系统字族；数字与小标签走 `--font-num`（Bahnschrift → DIN 骨架）
 - 圆角 6 / 8 / 10 / 12 / 16；投影只留给弹层、Toast 这类真的浮起来的东西
 - 布局：`--sidebar-width: 86px` 图标脊 + `--topbar-height: 58px` 纸面页头 + ≤767px 浮动胶囊底栏
+- 二级页容器：统一 `max-width: var(--page-max-width)`（1160px）居中；单栏表单页在容器内**左对齐**收窄（档案 880 / 设置 900），页头与卡片共用同一条左边线，切左侧菜单时标题与主内容不左右跳
+- 二级页页头：一律 `components/common/PageHeader.vue` —— 运动/饮食页是「两仪标记 + 左极/右极身份行 + 标题 + 小标 + 主副标 + 说明 + 右侧操作」，中性页（档案 / 设置 / 报告 / 动作库）退成「小方块 + 英文栏目名 + 标题」，不新造「中性」字样；工作台（`/`）不参与这套容器
+- 互斥二选一优先用 `SegmentedControl`（一个轨道里的分段条），不要并排两个实心色按钮跟主按钮抢焦点
 
 ### 动效时序
 - Fast (150ms): Hover状态、焦点环
@@ -335,6 +339,7 @@ npm run camera:assets
 1. 在`src/views/`创建Vue组件
 2. 在`src/router/index.ts`添加路由
 3. 在侧边导航中添加链接
+4. 二级页一律用 `PageHeader`（`pole="movement" / "nutrition" / "neutral"`），容器用 `max-width: var(--page-max-width)`，见下方「表面与排版」
 
 ### 添加新组件
 1. 选择合适的文件夹（common/journey/training等）
