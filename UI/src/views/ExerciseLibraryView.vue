@@ -8,11 +8,11 @@
         ? `${coverage.total} 个动作都配了教学视频。视频来自 B 站等外部平台，点开会在新页面播放。`
         : `${coverage.total} 个动作，其中 ${coverage.covered} 个挂了教学视频；其余的给平台搜索出口。视频点开会在新页面播放。`"
     >
-      <!-- 动作库不占导航位，入口在跟练开始页；这里补一条明确的返程 -->
+      <!-- 动作库不占导航位：有来路就回上一页，直接打开时回跟练开始页 -->
       <template #actions>
-        <RouterLink to="/execution" class="back-link">
-          <ChevronLeft :size="14" aria-hidden="true" />返回跟练
-        </RouterLink>
+        <button type="button" class="back-link" @click="goBack">
+          <ChevronLeft :size="14" aria-hidden="true" />返回
+        </button>
       </template>
     </PageHeader>
 
@@ -93,9 +93,9 @@
 
     <!-- 页面很长，滚到底也能直接回去，不用再去找左侧导航 -->
     <div class="foot-back">
-      <RouterLink to="/execution" class="back-link">
-        <ChevronLeft :size="14" aria-hidden="true" />返回跟练
-      </RouterLink>
+      <button type="button" class="back-link" @click="goBack">
+        <ChevronLeft :size="14" aria-hidden="true" />返回
+      </button>
     </div>
   </div>
 </template>
@@ -105,6 +105,7 @@ import { computed, ref } from 'vue'
 import { Play, Search, ChevronLeft } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { useAppBack } from '@/composables/useAppBack'
 import { exercises, type Exercise } from '@/services/exercises'
 import {
   providerLabel,
@@ -116,6 +117,8 @@ import {
 
 const keyword = ref('')
 const typeFilter = ref('')
+/** 动作库的来路通常是跟练开始页；直接打开时退回那里 */
+const goBack = useAppBack('/execution')
 
 /** 停用动作不进库：它们本来就不该被推荐，更不该配视频 */
 const active = computed(() => exercises.filter(item => item.status === 'active'))
@@ -150,8 +153,8 @@ function doseOf(item: Exercise): string {
 <style scoped>
 .page-wrap{max-width:var(--page-max-width);margin:auto}
 
-/* 返程：动作库不在导航里，返回跟练开始页 */
-.back-link{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-card);font-size:12.5px;font-weight:600;color:var(--color-text-secondary);text-decoration:none;white-space:nowrap;transition:border-color var(--motion-fast),color var(--motion-fast)}
+/* 返程：有来路回上一页，直接打开时回跟练开始页 */
+.back-link{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-card);font-family:inherit;font-size:12.5px;font-weight:600;color:var(--color-text-secondary);white-space:nowrap;cursor:pointer;transition:border-color var(--motion-fast),color var(--motion-fast)}
 .back-link:hover{border-color:var(--color-ink);color:var(--color-ink)}
 .back-link:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
 

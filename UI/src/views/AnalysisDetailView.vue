@@ -3,7 +3,7 @@
     <template v-if="record">
       <header class="detail-bar">
         <div class="bar-copy">
-          <RouterLink to="/analysis" class="back">← 返回分析</RouterLink>
+          <button type="button" class="back" @click="goBack">← 返回</button>
           <h1>{{ record.exerciseName }} · {{ viewLabel(record.view) }}视角</h1>
           <p>{{ record.date }} · 分析口径见页底说明</p>
         </div>
@@ -106,7 +106,7 @@
       <h2>分析记录不存在</h2>
       <p class="muted">这条记录可能已被删除，或只在其他设备上保存。</p>
       <div class="actions">
-        <BaseButton variant="secondary" @click="router.push('/analysis')">返回分析</BaseButton>
+        <BaseButton variant="secondary" @click="goBack">返回上一页</BaseButton>
       </div>
     </BaseCard>
   </div>
@@ -119,6 +119,7 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import KinematicsPanel from '@/components/analysis/KinematicsPanel.vue'
+import { useAppBack } from '@/composables/useAppBack'
 import { useAppStore } from '@/stores/app'
 import { getAnalysisKeyframe } from '@/services/analysisKeyframes'
 import { getMotionSeries, type MotionSeriesRecord } from '@/services/motionSeries'
@@ -128,6 +129,8 @@ import type { AnalysisView, MotionAnalysisFinding } from '@/types/domain'
 
 const route = useRoute()
 const router = useRouter()
+/** 详情页：有来路回分析页上一次的位置，直接打开时回分析页 */
+const goBack = useAppBack('/analysis')
 const store = useAppStore()
 
 const record = computed(() => store.analyses.find(item => item.id === route.params.id) ?? null)
@@ -233,8 +236,9 @@ onUnmounted(revokeKeyframeUrls)
 .page { max-width: var(--page-max-width); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .detail-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 16px 0 12px; border-bottom: 1px solid var(--color-divider); }
 .bar-copy { min-width: 0; }
-.back { font-size: 12px; color: var(--color-text-muted); text-decoration: none; }
+.back { padding: 0; border: 0; background: none; font-family: inherit; font-size: 12px; color: var(--color-text-muted); text-decoration: none; cursor: pointer; }
 .back:hover { color: var(--color-accent-strong); }
+.back:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .bar-copy h1 { margin: 6px 0 0; font-size: 22px; letter-spacing: -0.02em; }
 .bar-copy p { margin: 5px 0 0; font-size: 12px; color: var(--color-text-muted); }
 .panel { padding: 18px 20px; }

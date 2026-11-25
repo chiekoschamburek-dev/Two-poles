@@ -372,7 +372,7 @@
 
         <p class="stored-note">{{ recordedNote }}</p>
         <BaseButton size="sm" :icon="Play" @click="showModePicker">重新选择跟练方式</BaseButton>
-        <BaseButton variant="secondary" size="sm" @click="leave">返回概览</BaseButton>
+        <BaseButton variant="secondary" size="sm" @click="leave">返回上一页</BaseButton>
       </BaseCard>
     </div>
     </template>
@@ -381,11 +381,12 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteUpdate, useRoute } from 'vue-router'
 import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText, ArrowRight, CalendarDays } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { useAppBack } from '@/composables/useAppBack'
 import { demoVideos } from '@/services/demoVideos'
 import { useAppStore } from '@/stores/app'
 import { usePoseCamera, type PoseSample } from '@/composables/usePoseCamera'
@@ -410,7 +411,8 @@ import {
 import type { TrainingGuide } from '@/services/demoCameraService'
 
 const route = useRoute()
-const router = useRouter()
+/** 离开跟练页：有来路就回去，直接打开时回概览 */
+const goBack = useAppBack('/')
 const store = useAppStore()
 
 const planDate = computed(() => {
@@ -1317,7 +1319,7 @@ function leave() {
   stopCamera()
   wakeLock.release()
   disarmDiscard()
-  router.push('/')
+  goBack()
 }
 
 /** 头部按钮：有进度就「结束并记录」，没有进度就直接返回，绝不静默丢弃 */
