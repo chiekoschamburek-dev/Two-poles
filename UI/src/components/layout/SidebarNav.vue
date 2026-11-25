@@ -120,6 +120,8 @@
             <span class="full">今日 Tips</span>
             <span class="rw-sub">{{ wellnessCard.category }} · 点开小卡片</span>
           </span>
+          <!-- 只有"今天的 Tips 还没看"时才点一颗小点，不常驻抢当前页的状态 -->
+          <i v-if="showTipDot" class="tip-dot" aria-hidden="true"></i>
         </button>
       </Transition>
 
@@ -175,8 +177,17 @@ const {
   modalOpen: wellnessModalOpen,
   cardOpen: wellnessCardOpen,
   card: wellnessCard,
+  dismissedToday: wellnessDismissed,
   toggleCard: toggleWellnessCard
 } = useWellnessDock()
+
+/** 今天的 Tips 还没看过（进站弹窗被关掉、小卡片也没开）时才提示未读 */
+const showTipDot = computed(() =>
+  wellnessReady.value
+  && !wellnessModalOpen.value
+  && !wellnessCardOpen.value
+  && !wellnessDismissed.value
+)
 
 function openWellness() {
   toggleWellnessCard()
@@ -256,6 +267,9 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
 }
 .nav-item.movement.router-link-active { box-shadow: inset 2px 0 0 var(--pole-movement), var(--shadow-card); }
 .nav-item.nutrition.router-link-active { box-shadow: inset 2px 0 0 var(--pole-nutrition), var(--shadow-card); }
+/* 当前项的文字与图标也吃本极的强色：比旁边的常驻 Tips 更"亮"，一眼能认出在哪一页 */
+.nav-item.movement.router-link-active { color: var(--pole-movement-strong); }
+.nav-item.nutrition.router-link-active { color: var(--pole-nutrition-strong); }
 
 .nav-item .full { display: none; }
 
@@ -322,8 +336,9 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
 .rail-foot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 10px; width: 100%; }
 .rail-foot .nav-item { font-size: 9.5px; padding: 7px 0 6px; }
 
-/* 每日 Tips：不是导航项，是一张可以随时点开的小卡片 */
+/* 每日 Tips：不是导航项，是一张可以随时点开的小卡片；默认降权，别抢当前页 */
 .rail-wellness {
+  position: relative;
   width: 64px;
   min-height: 58px;
   margin-bottom: 8px;
@@ -334,16 +349,17 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
   align-items: center;
   justify-content: center;
   gap: 4px;
-  border: 1px solid var(--color-border);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background: var(--color-card);
-  color: var(--color-text-secondary);
+  background: transparent;
+  color: var(--color-text-muted);
   text-align: center;
   transition: border-color var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
 }
 .rail-wellness:hover {
-  border-color: var(--color-accent-line);
-  color: var(--color-accent-strong);
+  border-color: var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text-secondary);
 }
 .rail-wellness.on {
   border-color: var(--color-accent-line);
@@ -357,11 +373,23 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
   border-radius: var(--radius-sm);
   display: grid;
   place-items: center;
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: var(--color-neutral-soft);
+  color: var(--color-text-secondary);
   flex: none;
 }
-.rail-wellness.on .rw-icon { background: var(--color-card); }
+.rail-wellness:hover .rw-icon { color: var(--color-ink); }
+.rail-wellness.on .rw-icon { background: var(--color-card); color: var(--color-accent); }
+.tip-dot {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-bg);
+  flex: none;
+}
 .rw-text { display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .rail-wellness .full { display: none; }
 .rail-wellness .short { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.2; }
@@ -425,11 +453,15 @@ nav { display: flex; flex-direction: column; align-items: center; gap: 2px; widt
     justify-content: flex-start;
     gap: 10px;
     text-align: left;
+    /* 抽屉里是整行卡片，回到有底色的常态；桌面图标脊才需要降权 */
+    border-color: var(--color-border);
+    background: var(--color-card);
   }
   .rail-wellness .rw-text { align-items: flex-start; }
   .rail-wellness .short { display: none; }
   .rail-wellness .full { display: block; font-size: 13px; font-weight: 600; }
   .rw-sub { display: block; margin-top: 1px; font-size: 10.5px; font-weight: 500; color: var(--color-text-muted); }
+  .tip-dot { top: 8px; right: 12px; }
 
   .rail-foot { padding-top: 10px; border-top: 1px solid var(--color-divider); }
   .rail-foot .nav-item { font-size: 13.5px; }

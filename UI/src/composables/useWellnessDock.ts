@@ -14,6 +14,8 @@ const ready = ref(false)
 const modalOpen = ref(false)
 const cardOpen = ref(false)
 const today = ref(new Date())
+/** 今天是否已经点过「今日不再出现」；侧栏用它决定要不要点那颗未读小点 */
+const dismissedToday = ref(false)
 const card = computed(() => pickDailyWellnessCard(today.value))
 let initialized = false
 
@@ -31,7 +33,8 @@ function init() {
   initialized = true
   today.value = new Date()
   ready.value = true
-  modalOpen.value = !readDismissed(today.value)
+  dismissedToday.value = readDismissed(today.value)
+  modalOpen.value = !dismissedToday.value
   cardOpen.value = false
 }
 
@@ -48,6 +51,7 @@ function dismissToday(): boolean {
   } catch {
     // 写不进去就只在本次会话里生效，不假装已经记住
   }
+  dismissedToday.value = true
   modalOpen.value = false
   cardOpen.value = false
   return persisted
@@ -67,6 +71,7 @@ export function useWellnessDock() {
     ready,
     modalOpen,
     cardOpen,
+    dismissedToday,
     card,
     init,
     closeModal,

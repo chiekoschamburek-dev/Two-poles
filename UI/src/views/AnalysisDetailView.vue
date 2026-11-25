@@ -230,7 +230,7 @@ onUnmounted(revokeKeyframeUrls)
 </script>
 
 <style scoped>
-.page { max-width: var(--content-max-width); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.page { max-width: var(--page-max-width); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .detail-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 16px 0 12px; border-bottom: 1px solid var(--color-divider); }
 .bar-copy { min-width: 0; }
 .back { font-size: 12px; color: var(--color-text-muted); text-decoration: none; }

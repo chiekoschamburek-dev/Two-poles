@@ -1,39 +1,89 @@
 <template>
-  <div class="execution-page">
-    <div class="page-header">
-      <div>
-        <span class="micro kick"><i></i>训练跟练</span>
-        <h1>{{ trainingMode ? `${exercise.name} · 第 ${displaySet} 组` : '选择跟练方式' }}</h1>
-        <p v-if="trainingMode === 'camera'">摄像头在本次跟练中持续开启。画面只在本机处理。</p>
-        <p v-else-if="trainingMode === 'timer'">计时与语音 · 摄像头关闭</p>
+  <div class="execution-page" :class="{ 'is-training': !!trainingMode }">
+    <PageHeader
+      pole="movement"
+      :title="trainingMode ? `${exercise.name} · 第 ${displaySet} 组` : '选择跟练方式'"
+      :subtitle="trainingMode === 'camera' ? '摄像头在本次跟练中持续开启。画面只在本机处理。' : trainingMode === 'timer' ? '计时与语音 · 摄像头关闭。' : '先选一种方式开始；跟练过程只在这台设备上计算。'"
+    >
+      <template #actions>
+        <BaseButton variant="secondary" :icon="X" @click="onFinishClick">{{ trainingMode ? '结束并记录' : '返回' }}</BaseButton>
+      </template>
+      <template #below>
         <p v-if="trainingMode && trainingItems.length > 1" class="queue-progress">
           第 {{ itemIndex + 1 }} / {{ trainingItems.length }} 项<template v-if="nextItem && !finished"> · 下一项 {{ nextItem.exerciseName }}</template>
         </p>
-      </div>
-      <BaseButton variant="secondary" :icon="X" @click="onFinishClick">{{ trainingMode ? '结束并记录' : '返回' }}</BaseButton>
-    </div>
+      </template>
+    </PageHeader>
 
     <BaseCard v-if="!trainingMode" class="guide-picker">
-      <h2>{{ planDate }} 的训练计划</h2>
-      <ol v-if="plannedItems.length" class="guide-queue">
-        <li v-for="item in plannedItems" :key="item.id || item.exerciseName">
-          <strong>{{ item.exerciseName }}</strong>
-          <span v-if="planItemSpec(item)"> · {{ planItemSpec(item) }}</span>
-          <span v-if="item.completed"> · 已完成</span>
-        </li>
-      </ol>
+      <div class="gp-head">
+        <h2>{{ planDate }} 的训练计划</h2>
+        <span v-if="dayItems.length" class="gp-count">已完成 {{ dayItems.length - pendingItems.length }} / {{ dayItems.length }} 项</span>
+        <span v-else class="gp-count">未排课</span>
+      </div>
+
       <p v-if="adhocItem" class="adhoc-note" role="status">
         当天计划里没有「{{ adhocItem.exerciseName }}」，本次按单独跟练记录，不计入计划完成率。
       </p>
-      <div class="guide-actions">
-        <BaseButton :icon="Camera" :disabled="pendingItems.length > 0 && !store.privacy.cameraEnabled" @click="startTraining('camera')">摄像头跟练</BaseButton>
-        <BaseButton variant="secondary" :icon="Play" @click="startTraining('timer')">计时与语音</BaseButton>
-      </div>
-      <p v-if="!pendingItems.length" role="status">{{ emptyStartAttempted ? emptyPlanMessage : emptyPlanStatus }}</p>
-      <template v-else>
-        <p>摄像头跟练支持的动作会自动计数。计时与语音会按计划时长推进，没有可用时长的动作可手动结束。</p>
-        <p v-if="!store.privacy.cameraEnabled">摄像头已在「设置 → 隐私」关闭。</p>
+
+      <template v-if="pendingItems.length">
+        <ol class="guide-queue">
+          <li v-for="item in plannedItems" :key="item.id || item.exerciseName">
+            <strong>{{ item.exerciseName }}</strong>
+            <span v-if="planItemSpec(item)"> · {{ planItemSpec(item) }}</span>
+            <span v-if="item.completed"> · 已完成</span>
+          </li>
+        </ol>
+
+        <div class="mode-grid">
+          <button
+            type="button"
+            class="mode-card"
+            :disabled="!store.privacy.cameraEnabled"
+            @click="startTraining('camera')"
+          >
+            <span class="mc-icon"><Camera :size="18" aria-hidden="true" /></span>
+            <strong>摄像头跟练</strong>
+            <span class="mc-desc">实时姿态识别，按组自动计数；画面只在本机处理，不上传。</span>
+            <span class="mc-meta" :class="{ warn: !store.privacy.cameraEnabled }">
+              {{ store.privacy.cameraEnabled ? '需要把手机架好，让人完整入镜' : '摄像头已在「设置 → 隐私」关闭' }}
+            </span>
+          </button>
+          <button type="button" class="mode-card" @click="startTraining('timer')">
+            <span class="mc-icon timer"><Play :size="18" aria-hidden="true" /></span>
+            <strong>计时与语音</strong>
+            <span class="mc-desc">按计划时长推进，组间有语音节拍提示；摄像头保持关闭。</span>
+            <span class="mc-meta">不需要摄像头，随时可以手动结束这一组</span>
+          </button>
+        </div>
+
+        <p class="gp-fine">摄像头跟练支持的动作会自动计数；没有可用时长的动作可以在进行中手动结束。</p>
       </template>
+
+      <div v-else class="rest-state" role="status">
+        <div class="rs-copy">
+          <strong class="rs-title">{{ restTitle }}</strong>
+          <p>{{ dayItems.length
+            ? '想再动一动可以练个自由动作，也可以在计划页看看剩下的安排。'
+            : '不安排训练也是计划的一部分。想练就挑个自由动作，不计入计划完成率。' }}</p>
+        </div>
+        <div class="rs-actions">
+          <RouterLink class="rs-card" to="/execution?exercise=大腿后侧拉伸">
+            <span class="mc-icon"><Play :size="16" aria-hidden="true" /></span>
+            <span class="rs-copy">
+              <strong>自由拉伸</strong>
+              <small>大腿后侧拉伸 2 组 × 25 秒，不写进计划</small>
+            </span>
+          </RouterLink>
+          <RouterLink class="rs-card" to="/plan">
+            <span class="mc-icon timer"><CalendarDays :size="16" aria-hidden="true" /></span>
+            <span class="rs-copy">
+              <strong>看本周其他日期</strong>
+              <small>换一天跟练，或调整这周的安排</small>
+            </span>
+          </RouterLink>
+        </div>
+      </div>
     </BaseCard>
 
     <!-- 动作库入口：不占导航位，放在跟练开始页下方这块空白里，练之前顺手查 -->
@@ -330,9 +380,10 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText, ArrowRight } from 'lucide-vue-next'
+import { X, Pause, Play, SkipForward, Square, Camera, Edit3, FileText, ArrowRight, CalendarDays } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { demoVideos } from '@/services/demoVideos'
 import { useAppStore } from '@/stores/app'
 import { usePoseCamera, type PoseSample } from '@/composables/usePoseCamera'
@@ -413,15 +464,13 @@ const libraryLinks = computed(() => {
   return rows
 })
 const libraryCoverage = videoCoverage()
-const emptyStartAttempted = ref(false)
+/** 没有待练项时的状态文案；既当卡内标题，也说明"是没排课还是已经练完" */
 const emptyPlanStatus = computed(() => {
   if (!dayItems.value.length) return '当天还没有计划。'
   if (!plannedItems.value.length) return '这项训练已不在当天计划中。'
   return route.query.planItemId ? '这项训练已完成。' : '当天的计划已全部完成。'
 })
-const emptyPlanMessage = computed(() => dayItems.value.length
-  ? emptyPlanStatus.value
-  : '当天还没有计划。可以先到计划页录入训练安排。')
+const restTitle = computed(() => emptyPlanStatus.value.replace(/。$/, ''))
 const trainingMode = ref<TrainingGuide | null>(null)
 const trainingItems = shallowRef<PlanItem[]>([])
 const itemIndex = ref(0)
@@ -1170,10 +1219,7 @@ function configureExercise() {
 
 function startTraining(guide: TrainingGuide) {
   if (trainingMode.value) return
-  if (!pendingItems.value.length) {
-    emptyStartAttempted.value = true
-    return
-  }
+  if (!pendingItems.value.length) return
   if (guide === 'camera' && !store.privacy.cameraEnabled) return
   trainingItems.value = pendingItems.value.map(item => ({ ...item }))
   itemIndex.value = 0
@@ -1200,7 +1246,6 @@ function showModePicker() {
   discardArmed.value = false
   trainingMode.value = null
   exercise.value = idleExercise
-  emptyStartAttempted.value = false
   finished.value = false
 }
 
@@ -1318,16 +1363,42 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.execution-page{max-width:1400px;margin:auto}
-.page-header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;gap:16px}
-.kick{display:inline-flex;align-items:center;gap:8px}.kick i{width:14px;height:1px;background:var(--pole-movement);display:block}
-.page-header h1{font-size:28px;margin:7px 0 5px}
-.page-header p{color:var(--color-text-muted);font-size:13px;margin:0}
-.page-header .queue-progress{margin-top:8px;font-weight:600}
-.guide-picker h2{font-size:18px;margin:0 0 12px}
-.guide-queue{margin:0 0 14px;padding-left:22px;color:var(--color-text-secondary);line-height:1.65}
-.guide-actions{display:flex;gap:10px;flex-wrap:wrap}
-.guide-picker p,.voice-status{font-size:13px;color:var(--color-text-muted);line-height:1.6}
+.execution-page{max-width:var(--page-max-width);margin:auto}
+/* 进入跟练是"换模式"而不是切菜单：舞台需要更宽，回退到全宽内容区 */
+.execution-page.is-training{max-width:1400px}
+.queue-progress{margin:0;font-weight:600;font-size:12px;color:var(--color-text-muted)}
+.gp-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.gp-head h2{font-size:18px;margin:0}
+.gp-count{font-family:var(--font-num);font-size:11.5px;font-weight:600;color:var(--color-text-muted)}
+.guide-queue{margin:0 0 16px;padding-left:22px;color:var(--color-text-secondary);line-height:1.7;font-size:13px}
+/* 两种跟练方式是两张可选的大卡：说明、前提条件都写在卡上，不再只给两个按钮 */
+.mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.mode-card{
+  display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:left;
+  padding:16px 16px 14px;border-radius:var(--radius-lg);border:1px solid var(--color-border);
+  background:var(--color-card);color:var(--color-ink);font-family:inherit;cursor:pointer;min-height:44px;
+  transition:border-color var(--motion-fast),box-shadow var(--motion-fast),transform var(--motion-fast);
+}
+.mode-card:hover:enabled{border-color:var(--pole-movement-line);box-shadow:var(--shadow-sm);transform:translateY(-1px)}
+.mode-card:disabled{opacity:.55;cursor:not-allowed}
+.mode-card strong{font-size:15px}
+.mc-icon{width:34px;height:34px;margin-bottom:2px;border-radius:10px;display:grid;place-items:center;background:var(--pole-movement-soft);color:var(--pole-movement-strong);flex:none}
+.mc-icon.timer{background:var(--color-neutral-soft);color:var(--color-text-secondary)}
+.mc-desc{font-size:12.5px;line-height:1.65;color:var(--color-text-muted)}
+.mc-meta{font-family:var(--font-num);font-size:11px;font-weight:600;color:var(--color-text-secondary);margin-top:2px}
+.mc-meta.warn{color:var(--color-caution)}
+.gp-fine{margin:12px 0 0;font-size:11.5px;line-height:1.6;color:var(--color-text-muted)}
+/* 没排课 / 已经练完：给两个出路，而不是把主按钮留在那儿等人点 */
+.rest-state{display:grid;gap:14px;padding:6px 0 2px}
+.rs-title{display:block;font-size:16px;color:var(--color-ink)}
+.rs-copy{min-width:0}
+.rs-copy p{margin:6px 0 0;font-size:12.5px;line-height:1.7;color:var(--color-text-muted)}
+.rs-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.rs-card{display:flex;align-items:center;gap:11px;padding:12px 14px;border-radius:var(--radius-lg);border:1px solid var(--color-border);background:var(--color-card);text-decoration:none;color:inherit;transition:border-color var(--motion-fast),background var(--motion-fast)}
+.rs-card:hover{border-color:var(--color-ink)}
+.rs-card strong{font-size:13px}
+.rs-card small{display:block;margin-top:2px;font-size:11px;line-height:1.5;color:var(--color-text-muted)}
+@media(max-width:900px){.mode-grid,.rs-actions{grid-template-columns:1fr}}
 .adhoc-note{margin:0 0 12px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--color-neutral-soft)}
 /* 动作库入口：开始页下方这块空白，不占导航位 */
 .library-entry{margin-top:16px}
@@ -1344,7 +1415,7 @@ onUnmounted(() => {
 .le-video-title{max-width:52ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .le-meta{flex:none;font-size:11px;font-weight:500;color:var(--color-text-muted)}
 .le-hint{font-size:12.5px;color:var(--color-text-muted);line-height:1.65;margin:14px 0 0;padding-top:14px;border-top:1px solid var(--color-divider)}
-.voice-status{margin:0 0 12px}
+.voice-status{margin:0 0 12px;font-size:13px;color:var(--color-text-muted);line-height:1.6}
 .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:600;color:var(--pole-movement-strong);background:var(--pole-movement-soft);transition:background var(--motion-fast),color var(--motion-fast),transform var(--motion-fast),box-shadow var(--motion-fast)}
 .chip.active{background:var(--pole-movement);color:var(--color-on-accent)}
 .chip:hover:enabled{transform:translateY(-1px);box-shadow:var(--shadow-sm)}
@@ -1487,8 +1558,6 @@ onUnmounted(() => {
 }
 /* 手机：摄像头缩成演示画面右上角的小框（PiP），其余内容单列 */
 @media(max-width:767px){
-  .page-header{align-items:flex-start}
-  .page-header h1{font-size:22px}
   .stage-grid{display:block;position:relative}
   .pane-demo{margin-bottom:12px}
   .pane-cam{position:absolute;top:8px;right:8px;width:min(138px,40vw);z-index:7;box-shadow:var(--shadow-md);border-radius:var(--radius-md)}

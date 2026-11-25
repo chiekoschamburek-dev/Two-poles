@@ -30,7 +30,14 @@
       </div>
     </Transition>
 
-    <!-- 点导航栏小卡片后，贴在它旁边浮在主页上的小卡；没有遮罩，不拦页面 -->
+    <!--
+      点导航栏小卡片后浮在旁边的贴边卡片：
+      透明点击层负责"点空白关闭"，卡片自己带强投影与描边，读起来是一层浮层而不是正文的一部分。
+      不锁页面滚动、不做全高抽屉——它只是一张 Tips 卡。
+    -->
+    <Transition name="wk-fade">
+      <div v-if="cardOpen && !modalOpen" class="wk-card-catcher" @pointerdown.self="closeCard"></div>
+    </Transition>
     <Transition name="wk-pop">
       <aside
         v-if="cardOpen && !modalOpen"
@@ -38,7 +45,7 @@
         ref="floatPanel"
         class="wk-float"
         role="dialog"
-        aria-modal="false"
+        aria-modal="true"
         aria-label="今日 Tips 小卡片"
         tabindex="-1"
       >
@@ -112,9 +119,25 @@ function onModalKeydown(event: KeyboardEvent) {
 }
 
 function onFloatKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape') return
-  event.preventDefault()
-  closeCard()
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeCard()
+    return
+  }
+  if (event.key !== 'Tab' || !floatPanel.value) return
+  const nodes = floatPanel.value.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )
+  if (!nodes.length) return
+  const first = nodes[0]
+  const last = nodes[nodes.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
 function cleanupModal() {
@@ -255,21 +278,30 @@ onBeforeUnmount(() => {
   margin-top: 14px;
 }
 
-/* ——— 悬浮小卡片 ——— */
+/* ——— 贴边 Tips 卡片：透明点击层 + 强投影，明确是浮层 ——— */
+.wk-card-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop);
+  background: transparent;
+}
 .wk-float {
   position: fixed;
-  left: calc(var(--sidebar-width) + 14px);
-  bottom: 110px;
-  z-index: calc(var(--z-sticky) + 2);
-  width: min(380px, calc(100vw - var(--sidebar-width) - 28px));
-  max-height: min(calc(100dvh - 140px), 680px);
+  left: calc(var(--sidebar-width) + 12px);
+  bottom: 16px;
+  z-index: var(--z-modal);
+  width: min(380px, calc(100vw - var(--sidebar-width) - 24px));
+  max-height: min(calc(100dvh - 96px), 560px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
-  box-shadow: 0 24px 60px -34px rgba(11, 16, 20, 0.55), var(--inner-light);
+  box-shadow:
+    0 28px 70px -30px rgba(11, 16, 20, 0.72),
+    0 2px 8px rgba(11, 16, 20, 0.18),
+    var(--inner-light);
   outline: none;
   transform-origin: bottom left;
 }
@@ -309,6 +341,15 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
+.wk-fade-enter-active,
+.wk-fade-leave-active {
+  transition: opacity var(--motion-fast) var(--easing-ease-out);
+}
+.wk-fade-enter-from,
+.wk-fade-leave-to {
+  opacity: 0;
+}
+
 .wk-pop-enter-active,
 .wk-pop-leave-active {
   transition: opacity var(--motion-base) var(--easing-ease-out), transform var(--motion-base) var(--easing-ease-out);
@@ -338,14 +379,10 @@ onBeforeUnmount(() => {
     left: 10px;
     bottom: calc(var(--mobile-nav-height) + 18px);
     width: calc(100vw - 20px);
+    max-height: min(calc(100dvh - var(--mobile-nav-height) - 46px), 560px);
   }
   .wk-float-bar {
     padding-left: 12px;
-  }
-}
-@media (max-height: 700px) and (min-width: 1100px) {
-  .wk-float {
-    bottom: 86px;
   }
 }
 
@@ -354,6 +391,8 @@ onBeforeUnmount(() => {
   .wk-scrim-leave-active,
   .wk-scrim-enter-active .wk-modal,
   .wk-scrim-leave-active .wk-modal,
+  .wk-fade-enter-active,
+  .wk-fade-leave-active,
   .wk-pop-enter-active,
   .wk-pop-leave-active {
     transition: none;

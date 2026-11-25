@@ -1,12 +1,11 @@
 <template>
   <div class="page-wrap">
-    <div class="page-head">
-      <div>
-        <span class="eyebrow">LIBRARY</span>
-        <h1>动作库</h1>
-        <p>{{ coverage.total }} 个动作，其中 {{ coverage.covered }} 个挂了教学视频。视频来自 B 站等外部平台，点开会在新页面播放。</p>
-      </div>
-    </div>
+    <PageHeader
+      pole="neutral"
+      label="LIBRARY"
+      title="动作库"
+      :subtitle="`${coverage.total} 个动作，其中 ${coverage.covered} 个挂了教学视频。视频来自 B 站等外部平台，点开会在新页面播放。`"
+    />
 
     <div class="toolbar">
       <label class="search">
@@ -89,6 +88,7 @@
 import { computed, ref } from 'vue'
 import { Play, Search } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import { exercises, type Exercise } from '@/services/exercises'
 import {
   providerLabel,
@@ -132,12 +132,7 @@ function doseOf(item: Exercise): string {
 </script>
 
 <style scoped>
-.page-wrap{max-width:980px;margin:auto}
-.page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:18px}
-.eyebrow{display:inline-flex;align-items:center;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-accent);font-weight:700}
-.eyebrow::before{content:'';width:6px;height:6px;border-radius:2px;background:var(--color-accent);transform:rotate(45deg);margin-right:8px}
-.page-head h1{font-size:28px;margin:9px 0 8px;color:var(--color-ink)}
-.page-head p{color:var(--color-text-secondary);font-size:13px;margin:0;line-height:1.7;max-width:62ch}
+.page-wrap{max-width:var(--page-max-width);margin:auto}
 
 /* 搜索与筛选 */
 .toolbar{display:grid;gap:10px;margin-bottom:14px}

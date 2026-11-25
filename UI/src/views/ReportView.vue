@@ -1,25 +1,28 @@
 <template>
   <div class="page">
-    <header class="report-bar">
-      <div class="bar-copy">
-        <span class="micro">REPORT</span>
-        <h1>记录报告</h1>
-        <p>本周、近四周、本月与长期趋势；没记录不当作 0。</p>
-      </div>
-      <div class="report-tabs" role="tablist" aria-label="报告时间窗">
-        <button
-          v-for="tab in tabs"
-          :id="`report-tab-${tab.id}`"
-          :key="tab.id"
-          type="button"
-          role="tab"
-          :aria-selected="active === tab.id"
-          :aria-controls="`report-panel-${tab.id}`"
-          :class="{ on: active === tab.id }"
-          @click="selectTab(tab.id)"
-        >{{ tab.label }}</button>
-      </div>
-    </header>
+    <PageHeader
+      pole="neutral"
+      label="REPORT"
+      title="记录报告"
+      subtitle="本周、近四周、本月与长期趋势；没记录不当作 0。"
+      class="report-header"
+    >
+      <template #actions>
+        <div class="report-tabs" role="tablist" aria-label="报告时间窗">
+          <button
+            v-for="tab in tabs"
+            :id="`report-tab-${tab.id}`"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            :aria-selected="active === tab.id"
+            :aria-controls="`report-panel-${tab.id}`"
+            :class="{ on: active === tab.id }"
+            @click="selectTab(tab.id)"
+          >{{ tab.label }}</button>
+        </div>
+      </template>
+    </PageHeader>
 
     <WeekReport v-if="active === 'week'" />
     <RollingWeeksReport v-else-if="active === 'four-weeks'" />
@@ -30,6 +33,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import PageHeader from '@/components/common/PageHeader.vue'
 import WeekReport from './WeekReport.vue'
 import RollingWeeksReport from './RollingWeeksReport.vue'
 import MonthReport from './MonthReport.vue'
@@ -59,19 +63,9 @@ function openMonth(month: string) {
 </script>
 
 <style scoped>
-.page { max-width: var(--content-max-width); margin: 0 auto; }
+.page { max-width: var(--page-max-width); margin: 0 auto; }
 
-.report-bar {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 16px 0 12px;
-  border-bottom: 1px solid var(--color-divider);
-}
-.bar-copy { min-width: 0; }
-.bar-copy h1 { margin: 5px 0 0; font-size: 24px; letter-spacing: -0.025em; }
-.bar-copy p { margin: 5px 0 0; font-size: 12px; color: var(--color-text-muted); line-height: 1.65; }
+/* 页头由 PageHeader 统一负责；这里只留时间窗切换条 */
 .report-tabs { display: inline-flex; gap: 3px; padding: 3px; border-radius: 10px; background: var(--color-neutral-soft); box-shadow: inset 0 0 0 1px var(--color-border); flex: none; }
 .report-tabs button {
   font-family: inherit;
@@ -87,9 +81,7 @@ function openMonth(month: string) {
 .report-tabs button.on { background: var(--color-card); color: var(--color-ink); box-shadow: 0 1px 4px rgba(21,24,27,.12), inset 0 0 0 1px var(--color-border); }
 
 @media (max-width: 767px) {
-  .report-bar { flex-direction: column; align-items: stretch; gap: 10px; padding: 13px 0 10px; }
-  .bar-copy h1 { font-size: 22px; }
-  .report-tabs { align-self: flex-start; max-width: 100%; overflow-x: auto; }
+  .report-tabs { max-width: 100%; overflow-x: auto; }
   .report-tabs button { padding: 6px 11px; }
 }
 </style>
