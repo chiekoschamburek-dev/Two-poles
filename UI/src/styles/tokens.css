@@ -192,9 +192,12 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --content-max-width: 1440px;
-  /* 二级页面统一内容容器：所有非工作台页面共用的居中宽度，
-     配合 PageHeader 保证切左侧菜单时标题与主内容不左右跳 */
-  --page-max-width: 1160px;
+  /* 二级页面统一内容容器：所有非工作台页面共用同一宽度，
+     配合 PageHeader 保证切左侧菜单时标题与主内容不左右跳。
+     取 min(上限, 100%)：宽屏先把可用宽度用满（和通栏的「今日两仪」同一骨架），
+     只有超宽屏才收口；上限与工作台的 --content-max-width 对齐，
+     避免表单页在 2K 屏上把输入框拉成一米长。 */
+  --page-max-width: min(1440px, 100%);
   --gutter: clamp(16px, 2.4vw, 34px);
   /* 交互目标最小尺寸：鼠标 24px（WCAG 2.5.8），触屏 44px（WCAG 2.5.5）。
      只有确实偏小的控件显式引用它，不做全局兜底——这套版面密度高，

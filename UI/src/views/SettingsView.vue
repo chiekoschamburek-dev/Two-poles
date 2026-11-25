@@ -909,10 +909,10 @@ async function wipe() {
 
 <style scoped>
 .page-wrap{max-width:var(--page-max-width);margin:auto}
-/* 单栏设置页在统一容器内左对齐收窄：页头与卡片同一条左边线，只是卡片不铺满整行 */
-.section{max-width:900px;padding:22px;margin-bottom:14px}
+/* 单栏设置页：卡片直接铺满统一容器，不再在容器里再收一层，避免右侧留一条空白 */
+.section{padding:22px;margin-bottom:14px}
 .section h2{font-size:17px;margin-bottom:6px}
-.sub{font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:0 0 14px}
+.sub{max-width:780px;font-size:12px;color:var(--color-text-muted);line-height:1.7;margin:0 0 14px}
 .row-line{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-top:14px;border-top:1px solid var(--color-divider)}
 /* 档案只做一张紧凑的单行卡：标题 + 摘要 + 修改入口，不再套一层同名标题 */
 .profile-row{padding-top:0;border-top:0}
@@ -947,7 +947,7 @@ async function wipe() {
 .actions{display:flex;gap:10px;flex-wrap:wrap}
 .actions :deep(button){width:auto;padding:0 20px}
 .error{font-size:13px;color:var(--color-danger);background:var(--color-danger-soft);border-radius:11px;padding:10px 13px;margin:12px 0 0}
-.fine{font-size:11px;color:var(--color-text-muted);margin:8px 0 0;line-height:1.6}
+.fine{max-width:820px;font-size:11px;color:var(--color-text-muted);margin:8px 0 0;line-height:1.6}
 .confirm{padding:16px;border-radius:14px;background:var(--color-danger-soft);border:1px solid var(--color-danger)}
 .confirm p{font-size:13px;color:var(--color-danger);margin:0 0 12px;line-height:1.7}
 .section.danger h2{color:var(--color-danger)}

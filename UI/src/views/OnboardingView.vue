@@ -338,8 +338,8 @@ function resetOnboarding() {
 
 <style scoped>
 .page-wrap{max-width:var(--page-max-width);margin:auto}
-/* 单栏档案表单在统一容器内左对齐收窄，与页头共用同一条左边线 */
-.profile-form{display:grid;gap:16px;max-width:880px}
+/* 档案表单直接铺满统一容器；宽屏下内部字段自己排两列，不靠外面留白 */
+.profile-form{display:grid;gap:16px}
 .panel{padding:26px}
 .q{font-size:18px;margin-bottom:16px}
 .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
@@ -374,8 +374,8 @@ function resetOnboarding() {
 .error{font-size:13px;color:var(--color-danger);background:var(--color-danger-soft);border-radius:11px;padding:11px 14px;margin:0}
 .nav{display:flex;justify-content:flex-end}
 .nav :deep(button){width:auto;padding:0 22px}
-.privacy{max-width:880px;font-size:12px;color:var(--color-text-muted);text-align:center;margin-top:16px}
-.debug-reset{max-width:880px;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--color-text-muted)}
+.privacy{font-size:12px;color:var(--color-text-muted);text-align:center;margin-top:16px}
+.debug-reset{margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--color-text-muted)}
 .debug-reset button{font-family:inherit;font-size:11px;font-weight:600;color:var(--color-text-muted);padding:5px 10px;border-radius:var(--radius-sm);border:1px dashed var(--color-border);transition:color var(--motion-fast),border-color var(--motion-fast)}
 .debug-reset button:hover{color:var(--color-caution);border-color:var(--color-caution)}
 @media(max-width:640px){.grid2{grid-template-columns:1fr}.panel{padding:18px}.nav :deep(button){width:100%}}
