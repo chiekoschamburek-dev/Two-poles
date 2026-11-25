@@ -8,7 +8,13 @@
           <span>运动与饮食协同</span>
         </div>
       </div>
-      <span class="w-badge">首次设置 · 约 2 分钟</span>
+      <div class="w-top-right">
+        <!-- 档案已存在（重看引导）时给一条退出路径：只恢复完成标记，不写档案 -->
+        <button v-if="store.hasProfile" type="button" class="w-exit" @click="exitOnboarding">
+          <X :size="14" aria-hidden="true" />返回应用
+        </button>
+        <span class="w-badge">{{ store.hasProfile ? '重新查看 · 约 2 分钟' : '首次设置 · 约 2 分钟' }}</span>
+      </div>
     </header>
 
     <main class="w-main">
@@ -392,7 +398,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Check, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-vue-next'
+import { Check, ChevronLeft, ChevronRight, ShieldCheck, X } from 'lucide-vue-next'
 import BaseButton from '@/components/common/BaseButton.vue'
 import BaseCard from '@/components/common/BaseCard.vue'
 import AvatarPicker from '@/components/profile/AvatarPicker.vue'
@@ -575,6 +581,21 @@ function skipStep() {
   void goToStep(step.value + 1)
 }
 
+/**
+ * 重看引导时的退出路径：档案本来就在，直接恢复完成标记回主界面。
+ * 这里不写档案，草稿的临时改动会被丢弃——和"只是看看"的预期一致。
+ */
+function exitOnboarding() {
+  if (!store.completeOnboarding()) return
+  store.showToast({
+    type: 'info',
+    title: '已返回',
+    message: '档案和完成标记都保留着；想再看随时可以在「设置 → 帮助」重新进入。',
+    duration: 4000
+  })
+  void router.push('/')
+}
+
 async function finish() {
   if (saving.value || avatarLoading.value) return
   error.value = ''
@@ -628,6 +649,11 @@ async function finish() {
 .w-brand-copy b{font-family:var(--font-num);font-size:12px;letter-spacing:.14em;color:var(--color-ink);line-height:1.2}
 .w-brand-copy span{font-size:10.5px;color:var(--color-text-muted);white-space:nowrap}
 .w-badge{flex:none;display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-card);font-family:var(--font-num);font-size:10.5px;font-weight:600;color:var(--color-text-secondary);white-space:nowrap}
+.w-top-right{display:flex;align-items:center;gap:8px;flex:none;min-width:0}
+/* 重看引导时的出口：轻量描边按钮，不抢「下一步」的注意力 */
+.w-exit{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 11px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-card);font-family:inherit;font-size:12px;font-weight:600;color:var(--color-text-secondary);white-space:nowrap;transition:border-color var(--motion-fast),color var(--motion-fast)}
+.w-exit:hover{border-color:var(--color-ink);color:var(--color-ink)}
+.w-exit:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
 .w-main{max-width:1160px;margin:0 auto;display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:46px;padding-top:34px;align-items:start}
 .w-intro{position:sticky;top:24px;min-width:0}
 .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:11px;letter-spacing:var(--tracking-eyebrow);color:var(--color-accent);font-weight:700}
@@ -747,6 +773,8 @@ async function finish() {
 @media(max-width:640px){
   .welcome{padding:16px var(--space-4) 40px}
   .w-badge{font-size:9.5px;padding:0 8px}
+  /* 手机顶栏放不下两个胶囊：重看引导时优先保留「返回应用」 */
+  .w-top-right .w-exit + .w-badge{display:none}
   .w-intro h1{font-size:29px}
   .w-intro p{font-size:12.5px}
   .panel{--card-pad:18px}

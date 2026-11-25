@@ -229,11 +229,6 @@
     </form>
 
     <p class="privacy">档案默认保存在本机。登录并启用同步后，档案会同步至账号。</p>
-
-    <div class="debug-reset">
-      <button type="button" @click="resetOnboarding">重置新手引导（调试用）</button>
-      <span>只清除完成标记，回到引导第一步；已保存的档案不会被删除。</span>
-    </div>
   </div>
 </template>
 
@@ -381,12 +376,6 @@ function saveProfile() {
   })
   router.push('/')
 }
-
-/** 调试入口：清掉完成标记，AppShell 会立即用引导流替换主界面 */
-function resetOnboarding() {
-  store.resetOnboarding()
-  void router.push('/')
-}
 </script>
 
 <style scoped>
@@ -433,8 +422,5 @@ function resetOnboarding() {
 .nav{display:flex;justify-content:flex-end}
 .nav :deep(button){width:auto;padding:0 22px}
 .privacy{font-size:12px;color:var(--color-text-muted);text-align:center;margin-top:16px}
-.debug-reset{margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--color-text-muted)}
-.debug-reset button{font-family:inherit;font-size:11px;font-weight:600;color:var(--color-text-muted);padding:5px 10px;border-radius:var(--radius-sm);border:1px dashed var(--color-border);transition:color var(--motion-fast),border-color var(--motion-fast)}
-.debug-reset button:hover{color:var(--color-caution);border-color:var(--color-caution)}
 @media(max-width:640px){.grid2{grid-template-columns:1fr}.panel{padding:18px}.nav :deep(button){width:100%}}
 </style>

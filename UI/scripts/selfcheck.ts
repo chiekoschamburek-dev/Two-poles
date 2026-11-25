@@ -2868,5 +2868,27 @@ ok('自检能抓出格式错误的 BV 号', (() => {
   return problems.some(text => text.includes('BV 号格式不对'))
 })())
 
+console.log('\n56. 引导完成标记：重看入口只清标记、不动档案')
+clearStoredState()
+const onboardingPinia = createPinia()
+setActivePinia(onboardingPinia)
+const onboardingStore = useAppStore()
+onboardingStore.init()
+ok('没有档案时不能标记引导完成',
+  onboardingStore.completeOnboarding() === false && onboardingStore.hasCompletedOnboarding === false)
+onboardingStore.updateProfile(p({}))
+ok('有档案后可以标记引导完成',
+  onboardingStore.completeOnboarding() === true && onboardingStore.hasCompletedOnboarding === true)
+onboardingStore.resetOnboarding()
+ok('重置引导只清完成标记，档案仍在',
+  onboardingStore.hasCompletedOnboarding === false && !!onboardingStore.userProfile)
+ok('重看中途退出可以恢复完成标记（「返回应用」走的就是这条）',
+  onboardingStore.completeOnboarding() === true && onboardingStore.hasCompletedOnboarding === true)
+onboardingStore.resetOnboarding()
+const storedAfterReset = loadStoredState()
+ok('重置后的完成标记已落盘（刷新也不会卡在引导）', storedAfterReset.onboardingCompleted === false)
+ok('重置不删除已保存的档案', !!storedAfterReset.profile)
+clearStoredState()
+
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

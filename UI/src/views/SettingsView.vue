@@ -363,6 +363,16 @@
       </div>
     </BaseCard>
 
+    <!-- 帮助：引导流只在首次进入时自动出现，这里给一个随时可用的重看入口 -->
+    <BaseCard class="section animate-slide-in-up">
+      <h2>帮助</h2>
+      <p class="sub">新手指引（四步，约 2 分钟）只在第一次进入时自动出现。想重看可以随时从这里重新进入；档案与完成标记都不会被清掉，进错了也能点「返回应用」直接退出。</p>
+      <div class="actions">
+        <BaseButton variant="secondary" :icon="Compass" @click="replayOnboarding">重新查看新手指引</BaseButton>
+      </div>
+      <p class="fine">重看时会用现有档案预填每一步；一路点完等于再确认一次同样的档案，不会生成重复计划。</p>
+    </BaseCard>
+
     <!-- 安装 App：把本站装到手机；安卓下载 APK 直链，iOS 走添加到主屏幕 -->
     <BaseCard class="section animate-slide-in-up">
       <h2>安装 App</h2>
@@ -435,7 +445,8 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ArrowRight, Download, Smartphone, Trash2 } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { ArrowRight, Compass, Download, Smartphone, Trash2 } from 'lucide-vue-next'
 import BaseCard from '@/components/common/BaseCard.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -471,6 +482,7 @@ import type { SyncConflict } from '@/services/sync'
 type BadgeVariant = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 
 const store = useAppStore()
+const router = useRouter()
 const confirming = ref(false)
 const exportError = ref('')
 const authMode = ref<'login' | 'register'>('login')
@@ -647,6 +659,23 @@ const sizeKb = computed(() => Math.max(1, Math.round(new Blob([JSON.stringify(pa
 function setPrivacy<K extends keyof PrivacySettings>(key: K, value: PrivacySettings[K]) {
   store.updatePrivacy({ [key]: value } as Partial<PrivacySettings>)
   store.showToast({ type: 'success', title: '设置已保存', message: '只写在本机 localStorage', duration: 2000 })
+}
+
+/**
+ * 重看新手指引：只清完成标记，不动档案与其它数据。
+ * 档案已存在时引导页顶部会给「返回应用」，中途退出也不会留在引导里。
+ */
+function replayOnboarding() {
+  if (!store.hasProfile) {
+    store.showToast({
+      type: 'info',
+      title: '先保存档案',
+      message: '档案保存后才能随时重看新手指引；现在进去是一趟全新的首次设置。',
+      duration: 4000
+    })
+  }
+  store.resetOnboarding()
+  void router.push('/')
 }
 
 // ——— 饮食反馈 ———
