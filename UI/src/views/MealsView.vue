@@ -21,6 +21,8 @@
       <button type="button" class="nav-btn" aria-label="后一天" :disabled="isToday" @click="shiftDay(1)"><ChevronRight :size="16" /></button>
       <button v-if="!isToday" type="button" class="today-btn" @click="goToday">回到今天</button>
       <span class="day-hint">{{ isToday ? '正在查看今天' : '正在查看历史记录；新增会记录到这一天' }}</span>
+      <!-- 双极互指：这一天计划里有训练，就在饮食页轻点一句，不催也不评判 -->
+      <span v-if="trainingHint" class="day-cross"><i aria-hidden="true"></i>{{ trainingHint }}</span>
     </div>
 
     <BaseCard class="capture-hero">
@@ -276,6 +278,12 @@ const today = toISODate(now)
 const refDate = ref(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
 const date = computed(() => toISODate(refDate.value))
 const isToday = computed(() => date.value === today)
+/** 这一天计划里有没有训练：有就在日期栏点一句，让两极在子页面里互相认得 */
+const trainingHint = computed(() => {
+  const items = store.weekPlan(refDate.value)?.items.filter(item => item.date === date.value) ?? []
+  if (!items.length) return ''
+  return isToday.value ? '今日有训练，前后可各留一餐' : '当天有训练，前后可各留一餐'
+})
 const summary = computed(() => summarizeDay(store.meals, date.value))
 const showEstimate = computed(() => store.privacy.showEnergyEstimate)
 
@@ -600,6 +608,8 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
 .today-btn{font-family:inherit;font-size:11.5px;font-weight:600;color:var(--color-accent);padding:6px 10px;border-radius:var(--radius-sm);background:var(--color-accent-soft);box-shadow:inset 0 0 0 1px var(--color-accent-line);transition:background var(--motion-fast),color var(--motion-fast)}
 .today-btn:hover{background:var(--color-accent);color:var(--color-on-accent)}
 .day-hint{font-size:11px;color:var(--color-text-muted);line-height:1.6}
+.day-cross{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:11.5px;color:var(--color-text-secondary);line-height:1.6}
+.day-cross i{width:5px;height:5px;border-radius:50%;background:var(--pole-movement);flex:none}
 
 /* ——— 拍照主入口 ——— */
 .capture-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;border-color:var(--color-accent-line);background:linear-gradient(120deg,var(--color-accent-soft),var(--color-card) 62%)}
@@ -724,6 +734,7 @@ function onEditSave(meal: Meal, value: { time: string; items: MealDraft[] }) {
   .day-nav{gap:6px;padding:8px 10px}
   .date-input{flex:1;min-width:0}
   .day-hint{flex-basis:100%;font-size:10.5px}
+  .day-cross{margin-left:0;flex-basis:100%;font-size:11px}
   .capture-hero{flex-direction:column;align-items:stretch;gap:16px;padding:18px}
   .hero-act{min-width:0}
   .card-head{padding:14px 14px 0;flex-direction:column;align-items:stretch;gap:8px}
