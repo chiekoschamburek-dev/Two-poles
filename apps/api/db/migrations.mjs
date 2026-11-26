@@ -1,304 +1,5 @@
-import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync } from 'node:fs'
-import { dirname } from 'node:path'
-
-/**
- * profiles 表的列定义。建新库（SCHEMA）与迁移时重建旧表都用这一份，
- * 免得出现"新库有列、迁移完没有"这类漂移。
- * disciplines_json：专项改为可多选后存数组；旧的单选 discipline 列保留为镜像（取第一项）。
- * age 上限 100：90 岁以上仍在规律活动的用户不该被档案拒绝（前端 AGE_RANGE 同口径）。
- */
-const PROFILES_COLUMNS = `
-  user_id TEXT PRIMARY KEY REFERENCES users(id),
-  nickname TEXT,
-  avatar_data_url TEXT,
-  age INTEGER NOT NULL CHECK(age >= 12 AND age <= 100),
-  goal TEXT,
-  experience TEXT,
-  available_times_json TEXT NOT NULL DEFAULT '[]',
-  equipment_json TEXT NOT NULL DEFAULT '[]',
-  available_venues_json TEXT NOT NULL DEFAULT '[]',
-  restrictions_json TEXT NOT NULL DEFAULT '[]',
-  height REAL,
-  weight REAL,
-  discipline TEXT,
-  disciplines_json TEXT NOT NULL DEFAULT '[]',
-  cycle_phase TEXT,
-  cycle_start TEXT,
-  cycle_end TEXT,
-  goal_type TEXT,
-  target_event TEXT,
-  target_event_date TEXT,
-  target_result TEXT,
-  cycle_focus TEXT,
-  personal_bests_json TEXT NOT NULL DEFAULT '[]',
-  gym_records_json TEXT NOT NULL DEFAULT '[]',
-  updated_at TEXT NOT NULL
-`
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL CHECK(type IN ('anonymous','registered')),
-  identifier_hash TEXT NOT NULL UNIQUE,
-  password_hash TEXT,
-  created_at TEXT NOT NULL,
-  deleted_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS profiles (
-${PROFILES_COLUMNS}
-);
-
-CREATE TABLE IF NOT EXISTS plans (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  client_id TEXT NOT NULL,
-  version INTEGER NOT NULL,
-  week_start TEXT NOT NULL,
-  week_end TEXT,
-  reason TEXT NOT NULL,
-  rules_version TEXT NOT NULL,
-  source TEXT,
-  locked INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  deleted_at TEXT,
-  UNIQUE (user_id, client_id),
-  UNIQUE (user_id, week_start, version)
-);
-
-CREATE TABLE IF NOT EXISTS plan_items (
-  id TEXT PRIMARY KEY,
-  client_item_id TEXT,
-  plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
-  date TEXT NOT NULL,
-  exercise_id TEXT,
-  exercise_name TEXT NOT NULL,
-  type TEXT,
-  note TEXT,
-  planned_duration INTEGER,
-  planned_distance INTEGER,
-  planned_sets INTEGER,
-  planned_reps INTEGER,
-  planned_hold_seconds INTEGER,
-  planned_target_minutes INTEGER,
-  locked INTEGER NOT NULL DEFAULT 0,
-  completed INTEGER NOT NULL DEFAULT 0,
-  alternatives_json TEXT NOT NULL DEFAULT '[]',
-  order_index INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS plan_adjustments (
-  id TEXT PRIMARY KEY,
-  plan_id TEXT NOT NULL REFERENCES plans(id),
-  user_id TEXT NOT NULL REFERENCES users(id),
-  base_version INTEGER NOT NULL,
-  created_at TEXT NOT NULL,
-  reason TEXT,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','accepted','rejected')),
-  changes_json TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS training_sessions (
-  id TEXT PRIMARY KEY,
-  client_id TEXT NOT NULL,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  plan_item_id TEXT,
-  date TEXT NOT NULL,
-  exercise_name TEXT NOT NULL,
-  type TEXT,
-  actual_duration INTEGER,
-  actual_distance INTEGER,
-  actual_sets INTEGER,
-  actual_reps INTEGER,
-  completion_status TEXT CHECK(completion_status IN ('completed','partial','skipped')),
-  completion_reason TEXT,
-  rpe INTEGER CHECK(rpe BETWEEN 0 AND 10 OR rpe IS NULL),
-  discomfort INTEGER NOT NULL DEFAULT 0 CHECK(discomfort IN (0,1)),
-  notes TEXT,
-  camera_used INTEGER NOT NULL DEFAULT 0 CHECK(camera_used IN (0,1)),
-  manual_corrections INTEGER NOT NULL DEFAULT 0,
-  counted_reps INTEGER,
-  avg_confidence REAL,
-  calibrated_neutral INTEGER,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  deleted_at TEXT,
-  UNIQUE (user_id, client_id)
-);
-
-CREATE TABLE IF NOT EXISTS meal_records (
-  id TEXT PRIMARY KEY,
-  client_id TEXT NOT NULL,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  date TEXT NOT NULL,
-  meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast','lunch','dinner','snack')),
-  time TEXT,
-  completeness TEXT CHECK(completeness IN ('complete','partial','unknown')),
-  analyzed INTEGER NOT NULL DEFAULT 0 CHECK(analyzed IN (0,1)),
-  photo_thumb TEXT,
-  photo_id TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  deleted_at TEXT,
-  UNIQUE (user_id, client_id)
-);
-
-CREATE TABLE IF NOT EXISTS meal_items (
-  id TEXT PRIMARY KEY,
-  client_item_id TEXT,
-  meal_record_id TEXT NOT NULL REFERENCES meal_records(id) ON DELETE CASCADE,
-  food_id TEXT,
-  food_name TEXT NOT NULL,
-  category TEXT NOT NULL,
-  portion_size REAL,
-  portion_unit TEXT,
-  confirmed INTEGER NOT NULL DEFAULT 0 CHECK(confirmed IN (0,1)),
-  source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','photo')),
-  photo_confidence REAL,
-  uncertain INTEGER,
-  user_confirmed INTEGER,
-  model_energy_json TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS privacy_settings (
-  user_id TEXT PRIMARY KEY REFERENCES users(id),
-  json TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS sync_state (
-  user_id TEXT PRIMARY KEY REFERENCES users(id),
-  last_sync_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS idempotency_keys (
-  user_id TEXT NOT NULL,
-  key TEXT NOT NULL,
-  method TEXT NOT NULL,
-  path TEXT NOT NULL,
-  status INTEGER NOT NULL,
-  response_json TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  PRIMARY KEY (user_id, key)
-);
-
-CREATE TABLE IF NOT EXISTS export_jobs (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  format TEXT NOT NULL CHECK(format IN ('json','csv')),
-  status TEXT NOT NULL CHECK(status IN ('pending','completed','failed')),
-  content TEXT,
-  error TEXT,
-  created_at TEXT NOT NULL,
-  completed_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS refresh_tokens (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  token_hash TEXT NOT NULL UNIQUE,
-  expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  revoked_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS confirm_tokens (
-  token TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  action TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS audit_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT,
-  actor_role TEXT CHECK(actor_role IN ('user','admin','system')),
-  action TEXT NOT NULL,
-  target_type TEXT,
-  target_id TEXT,
-  event_code TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS motion_analyses (
-  id TEXT PRIMARY KEY,
-  client_id TEXT NOT NULL,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  date TEXT NOT NULL,
-  action TEXT NOT NULL,
-  exercise_name TEXT NOT NULL,
-  view TEXT NOT NULL CHECK(view IN ('side','front','oblique')),
-  status TEXT NOT NULL CHECK(status IN ('completed','low-confidence')),
-  low_confidence_reasons TEXT NOT NULL DEFAULT '[]',
-  findings TEXT NOT NULL DEFAULT '[]',
-  metrics TEXT NOT NULL DEFAULT '[]',
-  rep_count INTEGER,
-  gait_cycles INTEGER,
-  usable_ratio REAL,
-  evidence TEXT,
-  session_id TEXT,
-  rule_version TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  deleted_at TEXT,
-  UNIQUE (user_id, client_id)
-);
-
--- 已处理的计划调整建议：跨设备共享，避免同一条建议在另一台设备上又弹一次。
--- status 只有 accepted / dismissed；按 updated_at 做 last-write-wins。
-CREATE TABLE IF NOT EXISTS adjustment_resolutions (
-  user_id TEXT NOT NULL REFERENCES users(id),
-  resolution_key TEXT NOT NULL,
-  status TEXT NOT NULL CHECK(status IN ('accepted','dismissed')),
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (user_id, resolution_key)
-);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON training_sessions(user_id, date);
-CREATE INDEX IF NOT EXISTS idx_meals_user_date ON meal_records(user_id, date);
-CREATE INDEX IF NOT EXISTS idx_plans_user_week ON plans(user_id, week_start);
-CREATE INDEX IF NOT EXISTS idx_adjustments_plan ON plan_adjustments(plan_id);
-CREATE INDEX IF NOT EXISTS idx_motion_analyses_user_date ON motion_analyses(user_id, date);
-CREATE INDEX IF NOT EXISTS idx_adjustment_resolutions_user ON adjustment_resolutions(user_id, updated_at);
-`
-
-export function openDatabase(path = ':memory:') {
-  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
-  const db = new DatabaseSync(path)
-  db.exec('PRAGMA journal_mode = WAL;')
-  db.exec('PRAGMA foreign_keys = ON;')
-  db.exec(SCHEMA)
-  const hasAvatarColumn = () => db.prepare('PRAGMA table_info(profiles)').all().some(column => column.name === 'avatar_data_url')
-  if (!hasAvatarColumn()) {
-    transaction(db, () => {
-      if (!hasAvatarColumn()) db.exec('ALTER TABLE profiles ADD COLUMN avatar_data_url TEXT')
-    })
-  }
-  // 幂等 probe-and-ALTER：老库补 usable_ratio（可用帧占比），新库由 SCHEMA 直接建出
-  const hasUsableRatio = () => db.prepare('PRAGMA table_info(motion_analyses)').all().some(column => column.name === 'usable_ratio')
-  if (!hasUsableRatio()) {
-    transaction(db, () => {
-      if (!hasUsableRatio()) db.exec('ALTER TABLE motion_analyses ADD COLUMN usable_ratio REAL')
-    })
-  }
-  // 六层证据 JSON（V2）：老库补列，新库由 SCHEMA 直接建出
-  const hasEvidence = () => db.prepare('PRAGMA table_info(motion_analyses)').all().some(column => column.name === 'evidence')
-  if (!hasEvidence()) {
-    transaction(db, () => {
-      if (!hasEvidence()) db.exec('ALTER TABLE motion_analyses ADD COLUMN evidence TEXT')
-    })
-  }
-  migrateRemoveMode(db)
-  migrateProfileDisciplines(db)
-  backfillDisciplines(db)
-  migrateMotionActionCheck(db)
-  migrateMotionViewCheck(db)
-  dropUnusedTablesOnce(db)
-  return db
-}
+import { PROFILES_COLUMNS } from './schema.mjs'
+import { transaction, jsonParse } from './tx.mjs'
 
 /**
  * 重建 motion_analyses 表：SQLite 不能 DROP CHECK，动作/视角的 CHECK 要放宽只能重建。
@@ -357,7 +58,7 @@ function rebuildMotionAnalysesTable(db) {
  * 新增分析模板会被数据库直接拒绝。SQLite 不能 DROP CHECK，只能重建表；
  * 新库由 SCHEMA 直接建出无 CHECK 版本，这里用 sqlite_master 的 SQL 做幂等探针。
  */
-function migrateMotionActionCheck(db) {
+export function migrateMotionActionCheck(db) {
   const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get()?.sql ?? ''
   if (!/CHECK\s*\(\s*action\s+IN/i.test(tableSql)) return
   rebuildMotionAnalysesTable(db)
@@ -367,7 +68,7 @@ function migrateMotionActionCheck(db) {
  * 旧库的 motion_analyses.view 只允许 side/front，V2 的斜侧（oblique）记录会被 CHECK 拒绝。
  * 幂等：view CHECK 已含 oblique（新库直接建出）时跳过。
  */
-function migrateMotionViewCheck(db) {
+export function migrateMotionViewCheck(db) {
   const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get()?.sql ?? ''
   const match = /CHECK\s*\(\s*view\s+IN\s*\(([^)]*)\)/i.exec(tableSql)
   if (!match || /oblique/i.test(match[1])) return
@@ -382,7 +83,7 @@ function migrateMotionViewCheck(db) {
 const UNUSED_TABLES = ['template_items', 'templates', 'exercises', 'foods', 'mixed_foods', 'rule_versions', 'analysis_records', 'meal_analyses']
 const DROP_UNUSED_TABLES_VERSION = 1
 
-function dropUnusedTablesOnce(db) {
+export function dropUnusedTablesOnce(db) {
   const current = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
   if (current >= DROP_UNUSED_TABLES_VERSION) return
   db.exec('PRAGMA foreign_keys = OFF')
@@ -404,7 +105,7 @@ function dropUnusedTablesOnce(db) {
  */
 const LEGACY_AGE_CHECK = /age\s*<=\s*90/
 
-function migrateProfileDisciplines(db) {
+export function migrateProfileDisciplines(db) {
   const columns = db.prepare('PRAGMA table_info(profiles)').all().map(column => column.name)
   const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'profiles'").get()?.sql ?? ''
   if (columns.includes('disciplines_json') && !LEGACY_AGE_CHECK.test(tableSql)) return
@@ -458,7 +159,7 @@ function migrateProfileDisciplines(db) {
 }
 
 /** 迁移可能先于写入发生：只要还只有单选 discipline、数组为空，就补进去（幂等） */
-function backfillDisciplines(db) {
+export function backfillDisciplines(db) {
   const rows = db.prepare(`
     SELECT user_id, discipline, disciplines_json FROM profiles
     WHERE discipline IS NOT NULL AND trim(discipline) <> ''
@@ -481,7 +182,7 @@ function legacyDisciplines(value) {
 // 旧库去掉大众/运动员分类：档案与计划重建掉 mode 列，mode_changes 整表删除。
 // 计划按 (user, week) 保留档案当前模式那一组的全部版本，另一模式的计划连同条目/调整一并删除。
 // 幂等：列已不存在时直接跳过。
-function migrateRemoveMode(db) {
+export function migrateRemoveMode(db) {
   const columnsOf = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name)
   db.exec('DROP TABLE IF EXISTS mode_changes')
   const plansHaveMode = columnsOf('plans').includes('mode')
@@ -588,27 +289,3 @@ function migrateRemoveMode(db) {
   }
 }
 
-export function transaction(db, fn) {
-  db.exec('BEGIN IMMEDIATE')
-  try {
-    const result = fn()
-    db.exec('COMMIT')
-    return result
-  } catch (error) {
-    db.exec('ROLLBACK')
-    throw error
-  }
-}
-
-export function nowIso() {
-  return new Date().toISOString()
-}
-
-export function jsonParse(value, fallback) {
-  if (value === null || value === undefined || value === '') return fallback
-  try {
-    return JSON.parse(value)
-  } catch {
-    return fallback
-  }
-}

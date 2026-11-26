@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { createApiServer, pruneHistory } from './app.mjs'
-import { openDatabase } from './db.mjs'
+import { createApiServer, pruneHistory } from './http/app.mjs'
+import { openDatabase } from './db/index.mjs'
 import { buildWeeklyReport, isoLocal, resolveZone } from './report.mjs'
 
 const api = createApiServer({ dbPath: ':memory:', secret: 'test-secret', corsOrigins: ['http://localhost:5173'] })

@@ -1,6 +1,6 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import { DatabaseSync } from 'node:sqlite'
-import { exportPayload } from './app.mjs'
+import { exportPayload } from './http/app.mjs'
 
 const db = new DatabaseSync(workerData.dbPath, { readOnly: true })
 try {

@@ -1,4 +1,4 @@
-import { createApiServer } from './app.mjs'
+import { createApiServer } rrom './app.mjs'
 
 const port = Number(process.env.PORT ?? 8787)
 const host = process.env.HOST ?? '127.0.0.1'
@@ -9,7 +9,7 @@ api.server.listen(port, host, () => {
 })
 
 const shutdown = () => {
-  api.close().finally(() => process.exit(0))
+  api.close().rinally(() => process.exit(0))
 }
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)

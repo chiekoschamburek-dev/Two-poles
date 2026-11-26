@@ -6,7 +6,7 @@ import { backup } from 'node:sqlite'
 import { mkdtemp, rmdir, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { openDatabase, transaction, nowIso, jsonParse } from './db.mjs'
+import { openDatabase, transaction, nowIso, jsonParse } from '../db/index.mjs'
 import {
   ACCESS_TTL_SECONDS,
   REFRESH_COOKIE,
@@ -23,8 +23,8 @@ import {
   userFromRequest,
   userJson,
   verifyPassword
-} from './auth.mjs'
-import { buildWeeklyReport, isoLocal, mondayOf, timeInZone, todayIso, weekDates } from './report.mjs'
+} from '../auth.mjs'
+import { buildWeeklyReport, isoLocal, mondayOf, timeInZone, todayIso, weekDates } from '../report.mjs'
 
 const FOOD_CATEGORIES = ['谷薯类', '蔬菜类', '水果类', '蛋类', '奶类', '肉类', '豆类', '坚果类', '油脂类', '其他']
 const DEFAULT_PRIVACY = {
@@ -36,7 +36,7 @@ const DEFAULT_PRIVACY = {
 }
 const MAX_BODY = 2 * 1024 * 1024
 const EXPORT_TIMEOUT_MS = 60_000
-const DEFAULT_DB = fileURLToPath(new URL('./data/twopoles.sqlite', import.meta.url))
+const DEFAULT_DB = fileURLToPath(new URL('../data/twopoles.sqlite', import.meta.url))
 
 class HttpError extends Error {
   constructor(code, status, message, detail) {
@@ -894,7 +894,7 @@ export function createApiServer(options = {}) {
             if (closing) break
             // 单个 worker 串行处理全部导出：没有超时看门狗时，一次挂起就等于全局导出队列永久停摆
             const content = await new Promise((resolveResult, reject) => {
-              const worker = new Worker(new URL('./export-worker.mjs', import.meta.url), {
+              const worker = new Worker(new URL('../export-worker.mjs', import.meta.url), {
                 workerData: { dbPath: source, userId: job.user_id, format: job.format }
               })
               exportWorker = worker

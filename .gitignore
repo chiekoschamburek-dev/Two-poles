@@ -18,6 +18,9 @@ apps/web/.journal_tmp/
 .env.*.local
 *.local.json
 
+# 服务端本地数据库与测试残留
+apps/api/data/
+
 # 本机私有资料与可再生产物（保留在本机，不进仓库）
 .scratch/
 artifacts/
