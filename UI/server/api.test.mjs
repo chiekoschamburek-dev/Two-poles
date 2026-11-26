@@ -294,6 +294,26 @@ test('motion analyses are idempotent, linkable and soft-deleted', async () => {
   assert.equal(second.body.analysis.sessionId, sessionId)
   assert.deepEqual(second.body.analysis.lowConfidenceReasons, ['关键点可见度偏低'])
 
+  // V2 斜侧视角：DB CHECK、服务端校验、同步回显三处都要放行
+  const oblique = await request('/analyses', {
+    method: 'POST',
+    body: {
+      ...analysis, id: 'local-analysis-oblique', clientId: 'local-analysis-oblique',
+      view: 'oblique', action: 'deadlift', exerciseName: '硬拉'
+    },
+    idempotencyKey: 'idem-analysis-oblique'
+  })
+  assert.equal(oblique.status, 201)
+  assert.equal(oblique.body.analysis.view, 'oblique')
+  const obliqueList = await request('/analyses')
+  assert.equal(obliqueList.status, 200)
+  const obliqueRow = obliqueList.body.analyses.find(row => row.clientId === 'local-analysis-oblique')
+  assert.equal(obliqueRow?.view, 'oblique')
+  const invalidView = await request('/analyses', {
+    method: 'POST', body: { ...analysis, id: 'bad-view-analysis', clientId: 'bad-view-analysis', view: 'diagonal' }
+  })
+  assert.equal(invalidView.status, 400)
+
   const older = await request('/analyses', {
     method: 'POST',
     body: { ...analysis, id: 'local-analysis-older', clientId: 'local-analysis-older', date: '2026-10-01' }
@@ -372,6 +392,7 @@ test('old motion analyses action CHECK is migrated without data loss', () => {
     const migrated = openDatabase(path)
     const tableSql = migrated.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get().sql
     assert.equal(tableSql.includes('CHECK(action IN'), false)
+    assert.equal(/oblique/.test(tableSql), true, '迁移后的 view CHECK 必须允许 oblique')
     const kept = migrated.prepare('SELECT action, exercise_name, usable_ratio FROM motion_analyses WHERE id = ?').get('old-analysis')
     assert.equal(kept.action, 'squat')
     assert.equal(kept.exercise_name, '深蹲')
@@ -383,10 +404,11 @@ test('old motion analyses action CHECK is migrated without data loss', () => {
         session_id, rule_version, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', NULL, NULL, NULL, NULL, ?, ?, ?)
     `).run(
-      'new-analysis', 'new-client', 'u1', '2026-11-02', 'bench', '卧推', 'side', 'completed',
+      'new-analysis', 'new-client', 'u1', '2026-11-02', 'bench', '卧推', 'oblique', 'completed',
       'motion-analysis-rules-v3', '2026-11-02T08:00:00.000Z', '2026-11-02T08:00:00.000Z'
     )
     assert.equal(migrated.prepare('SELECT action FROM motion_analyses WHERE id = ?').get('new-analysis').action, 'bench')
+    assert.equal(migrated.prepare('SELECT view FROM motion_analyses WHERE id = ?').get('new-analysis').view, 'oblique')
     migrated.close()
   } finally {
     try { unlinkSync(path) } catch { /* 文件可能未创建 */ }

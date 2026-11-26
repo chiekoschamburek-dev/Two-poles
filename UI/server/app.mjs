@@ -682,7 +682,7 @@ export function exportPayload(db, userId, format) {
       '分析', analysis.date, '', analysis.exerciseName, analysis.action,
       '', '', '', '', '', '', '', '',
       analysis.status === 'low-confidence' ? '低置信度' : '完成',
-      `视角 ${analysis.view === 'side' ? '侧面' : '正面'}｜${analysis.findings.length} 项关注｜${analysis.ruleVersion}`
+      `视角 ${analysis.view === 'side' ? '侧面' : analysis.view === 'oblique' ? '斜侧' : '正面'}｜${analysis.findings.length} 项关注｜${analysis.ruleVersion}`
     ])
   ]
   return '\ufeff' + [head, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')
@@ -1289,7 +1289,7 @@ export function createApiServer(options = {}) {
         && raw.action.trim().length <= 80
         ? raw.action.trim()
         : null
-      const view = ['side', 'front'].includes(raw.view) ? raw.view : null
+      const view = ['side', 'front', 'oblique'].includes(raw.view) ? raw.view : null
       const status = ['completed', 'low-confidence'].includes(raw.status) ? raw.status : null
       const exerciseName = stringOrNull(raw.exerciseName, 120)
       assert(date && action && view && status && exerciseName, '分析记录缺少有效的日期、动作、视角或状态')

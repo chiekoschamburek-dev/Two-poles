@@ -6,20 +6,36 @@
   "reviewedBy": null,
   "source": ".scratch/peso-muerto-sumo.webm",
   "fps": 15,
+  "aspect": 1.7778,
   "durationSec": 22.07,
   "action": "deadlift",
   "movementFamily": "strength",
   "view": "side",
   "viewNote": "混合机位：0–10.4s 正面，10.4s 后切到侧面；相扑站距沿镜头轴展开，本片不可评估站距",
   "viewSegments": [
-    { "startMs": 0, "endMs": 10400, "view": "front" },
-    { "startMs": 10400, "endMs": 22000, "view": "side" }
+    {
+      "startMs": 0,
+      "endMs": 10400,
+      "view": "front"
+    },
+    {
+      "startMs": 10400,
+      "endMs": 22000,
+      "view": "side"
+    }
   ],
   "activeIntervals": [
-    { "startMs": 0, "endMs": 22100 }
+    {
+      "startMs": 0,
+      "endMs": 22100
+    }
   ],
   "reps": [
-    { "startMs": 12900, "bottomMs": 15400, "endMs": 19000 }
+    {
+      "startMs": 12900,
+      "bottomMs": 15400,
+      "endMs": 19000
+    }
   ],
   "partialRepetitions": [
     {

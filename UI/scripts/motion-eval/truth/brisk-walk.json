@@ -6,13 +6,17 @@
   "reviewedBy": null,
   "source": "UI/public/demo-videos/brisk-walk.mp4",
   "fps": 30,
+  "aspect": 0.5625,
   "durationSec": 9.97,
   "action": "walk",
   "movementFamily": "locomotion",
   "view": "front",
   "viewNote": "正面双人步行；可评估左右交替与步频，不适用跑姿结论",
   "activeIntervals": [
-    { "startMs": 0, "endMs": 9970 }
+    {
+      "startMs": 0,
+      "endMs": 9970
+    }
   ],
   "reps": [],
   "partialRepetitions": [],

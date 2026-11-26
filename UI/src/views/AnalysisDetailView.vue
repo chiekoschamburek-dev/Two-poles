@@ -153,7 +153,7 @@ const linkedSession = computed(() => {
 const disclaimer = '规则参考各关注项所列文献，阈值由本项目自行翻译，未经运动医学或体能专业人士审核；结果仅供复盘参考，不构成诊断或训练处方。'
 
 function viewLabel(view: AnalysisView): string {
-  return view === 'side' ? '侧面' : '正面'
+  return view === 'side' ? '侧面' : view === 'oblique' ? '斜侧' : '正面'
 }
 
 function formatTime(ms: number | null): string {

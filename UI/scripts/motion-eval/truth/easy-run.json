@@ -6,13 +6,17 @@
   "reviewedBy": null,
   "source": "UI/public/demo-videos/easy-run.mp4",
   "fps": 30,
+  "aspect": 0.5625,
   "durationSec": 9.97,
   "action": "running",
   "movementFamily": "locomotion",
   "view": "front",
   "viewNote": "背向跑（冠状面）；可评估左右交替/步频，矢状面躯干前倾与触地膝角不可评估",
   "activeIntervals": [
-    { "startMs": 0, "endMs": 9970 }
+    {
+      "startMs": 0,
+      "endMs": 9970
+    }
   ],
   "reps": [],
   "partialRepetitions": [],

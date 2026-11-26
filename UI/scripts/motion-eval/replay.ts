@@ -17,6 +17,7 @@ import {
   type MotionFrame
 } from '@/services/motionAnalysis'
 import { buildMotionFeatureSeries, detectActiveWindows, planAnalysisWindow } from '@/services/motion-engine'
+import { estimateView, viewToAnalysisView } from '@/services/motion-engine/view/estimate'
 import { coarseGridTimes } from '@/services/motion-engine/pipeline/precheck'
 import type { AnalysisAction, AnalysisView } from '@/types/domain'
 
@@ -59,6 +60,8 @@ interface Truth {
   annotationStatus?: 'pending' | 'provisional' | 'reviewed'
   annotator?: string | null
   reviewedBy?: string | null
+  /** 画面宽高比：V2 视角估计要把归一化坐标还原成像素比例 */
+  aspect?: number
   action?: string | null
   movementFamily?: 'strength' | 'locomotion' | 'isometric' | 'other' | null
   view?: TruthView | null
@@ -83,16 +86,18 @@ interface ModeResult {
 }
 
 /** series.json 里只存了角度、可见度与 33 个 landmarks；重建 MotionFrame 需要坐标。 */
-function framesFromSeries(series: { frames: Record<string, unknown>[] }): MotionFrame[] {
+function framesFromSeries(series: { frames: Record<string, unknown>[]; aspect?: number | null }, aspectOverride?: number): MotionFrame[] {
   const point = (landmarks: { x: number; y: number; v: number }[], index: number) => {
     const raw = landmarks[index]
     return raw ? { x: raw.x, y: raw.y, visibility: raw.v } : null
   }
+  const aspect = typeof aspectOverride === 'number' ? aspectOverride : (typeof series.aspect === 'number' ? series.aspect : undefined)
   return series.frames.map(row => {
     const landmarks = row.landmarks as { x: number; y: number; v: number }[]
     const pair = (left: number, right: number) => ({ left: point(landmarks, left), right: point(landmarks, right) })
     return {
       timeMs: row.timeMs as number,
+      ...(typeof aspect === 'number' && Number.isFinite(aspect) && aspect > 0 ? { aspect } : {}),
       visibility: row.visibility as number,
       points: {
         shoulder: pair(11, 12),
@@ -177,16 +182,19 @@ if (!existsSync(BASELINE)) {
     const series = JSON.parse(readFileSync(resolve(BASELINE, file), 'utf8')) as {
       clip: string
       fps: number
+      aspect?: number | null
       view?: TruthView | null
       action?: string
       frames: Record<string, unknown>[]
     }
     const clipTruth = truth.get(series.clip) ?? null
-    const frames = framesFromSeries(series)
+    const aspect = (typeof series.aspect === 'number' ? series.aspect : clipTruth?.aspect) ?? undefined
+    const frames = framesFromSeries(series, aspect)
     const fps = series.fps
 
-    const autoViewResult = detectView(frames)
-    const autoView = (autoViewResult.view ?? series.view ?? null) as TruthView | null
+    // M3：多证据视角估计（宽高比校正 + 直立帧 + 远侧可见度差）
+    const viewEstimate = estimateView(frames, fps, { aspect })
+    const autoView = (viewToAnalysisView(viewEstimate.category) ?? series.view ?? null) as TruthView | null
     const autoClass = classifyTemplate(frames, fps)
     const autoAction = actionOverride || autoClass.action
     const chosenView = (viewOverride || autoView) as TruthView | null
@@ -281,7 +289,15 @@ if (!existsSync(BASELINE)) {
         action: autoAction,
         actionConfident: autoClass.confident,
         view: autoView,
-        viewConfidence: autoViewResult.confidence,
+        viewConfidence: viewEstimate.reliability,
+        viewEstimate: {
+          category: viewEstimate.category,
+          yawDeg: viewEstimate.yawDeg,
+          reliability: viewEstimate.reliability,
+          temporalStability: viewEstimate.temporalStability,
+          evidence: viewEstimate.evidence,
+          observability: viewEstimate.observability
+        },
         mode: auto
       },
       match: { action: actionMatch, view: viewMatch, count: countMatch, range: rangeCoversTruth },

@@ -6,16 +6,24 @@
   "reviewedBy": null,
   "source": ".scratch/peso-muerto.webm",
   "fps": 15,
+  "aspect": 1.5,
   "durationSec": 30.33,
   "action": "deadlift",
   "movementFamily": "strength",
   "view": "side",
   "viewNote": "侧面单色布景；可评估髋锁定与躯干",
   "activeIntervals": [
-    { "startMs": 0, "endMs": 30400 }
+    {
+      "startMs": 0,
+      "endMs": 30400
+    }
   ],
   "reps": [
-    { "startMs": 1500, "bottomMs": 10500, "endMs": 13600 }
+    {
+      "startMs": 1500,
+      "bottomMs": 10500,
+      "endMs": 13600
+    }
   ],
   "partialRepetitions": [
     {

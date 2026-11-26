@@ -31,7 +31,7 @@ import { rulesFor } from '@/services/motionRules'
 import { MOTION_TEMPLATES, findingsTemplates, motionTemplateProblems, repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
-import { buildMotionFeatureSeries, assessPoseQuality, findPeaks, pearson, laggedAlternation, detectActiveWindows, sliceFeatureSeries, planAnalysisWindow, coarseGridTimes, fineGridTimes } from '@/services/motion-engine'
+import { buildMotionFeatureSeries, assessPoseQuality, findPeaks, pearson, laggedAlternation, detectActiveWindows, sliceFeatureSeries, planAnalysisWindow, coarseGridTimes, fineGridTimes, estimateView } from '@/services/motion-engine'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { ageError, bodyErrors, customTimeError, cycleRangeError, disciplinesOf, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, isValidAge, normalizeProfile, parseResult, parseTimeMinutes, sortTimeLabels, timeLabel } from '@/services/profileRules'
@@ -1671,7 +1671,12 @@ ok('没有完整重复时降级并说明', noRepPrecheck.verdict === 'degraded' 
   && noRepPrecheck.reasons.some(reason => reason.includes('完整重复')))
 const emptyPrecheck = precheckMotion({ fps: 15, frames: [] })
 ok('没有人体时拒绝', emptyPrecheck.verdict === 'rejected' && emptyPrecheck.view === null && emptyPrecheck.action === null)
-const unknownViewPrecheck = precheckMotion({ fps: 15, frames: ambiguous })
+// V2 视角证据不足（肩/髋点大量缺失）时仍要交给用户选，而不是硬判或拒诊
+const sparseViewEvidence = ambiguous.map((frame, index) => index < 4 ? frame : {
+  ...frame,
+  points: { ...frame.points, shoulder: { left: null, right: null }, hip: { left: null, right: null } }
+})
+const unknownViewPrecheck = precheckMotion({ fps: 15, frames: sparseViewEvidence })
 ok('视角无法自动判定时不拒绝，交给用户选视角', unknownViewPrecheck.verdict === 'view-unclear'
   && unknownViewPrecheck.view === null
   && unknownViewPrecheck.suggestedView !== null
@@ -3057,6 +3062,88 @@ const rangedSquat = analyzeMotion({
 ok('正式结果记录分析区间并出度量', !!rangedSquat.analyzedRange
   && rangedSquat.metrics.some(metric => metric.id === 'metric-analyzed-range'),
   JSON.stringify(rangedSquat.metrics.find(metric => metric.id === 'metric-analyzed-range')))
+
+console.log('\n59. Motion Engine V2 · M3 多证据视角与斜侧准入')
+/** 把合成帧的左右侧拉开不同宽度，用来模拟不同偏航角；宽高比按 16:9 显式带上 */
+function spreadView(frames: MotionFrame[], offset: number): MotionFrame[] {
+  return frames.map(frame => {
+    const left = withOffset(frame, -offset)
+    const right = withOffset(frame, offset)
+    return {
+      ...frame,
+      aspect: 16 / 9,
+      points: {
+        ...frame.points,
+        shoulder: { left: left.points.shoulder.left, right: right.points.shoulder.right },
+        hip: { left: left.points.hip.left, right: right.points.hip.right },
+        knee: { left: left.points.knee.left, right: right.points.knee.right },
+        ankle: { left: left.points.ankle.left, right: right.points.ankle.right },
+        heel: { left: null, right: null },
+        toe: { left: null, right: null }
+      }
+    }
+  })
+}
+const sideViewFrames = spreadView(goodSquat.frames, 0)
+const frontViewFrames = spreadView(goodSquat.frames, 0.15)
+const obliqueViewFrames = spreadView(goodSquat.frames, 0.05)
+const sideEstimate = estimateView(sideViewFrames, 15)
+const frontEstimate = estimateView(frontViewFrames, 15)
+const obliqueEstimate = estimateView(obliqueViewFrames, 15)
+ok('侧面：宽高比校正后投影比接近 0', sideEstimate.category === 'side' && sideEstimate.evidence.uprightFrames >= 6,
+  JSON.stringify(sideEstimate.evidence))
+ok('正面：宽高比校正后投影比大', frontEstimate.category === 'front' && (frontEstimate.evidence.medianSeparationRatio ?? 0) > 0.9,
+  JSON.stringify(frontEstimate.evidence))
+ok('斜侧：中间投影比归为 oblique', obliqueEstimate.category === 'oblique',
+  JSON.stringify({ evidence: obliqueEstimate.evidence, yaw: obliqueEstimate.yawDeg }))
+ok('视角可靠性/稳定性都输出 0–1 分数', sideEstimate.reliability >= 0 && sideEstimate.reliability <= 1
+  && frontEstimate.temporalStability >= 0 && frontEstimate.temporalStability <= 1)
+ok('可观测性矩阵：侧面能看矢状面、正面能看冠状面', sideEstimate.observability.sagittalAngles > 0.6
+  && frontEstimate.observability.frontalAngles > 0.6
+  && sideEstimate.observability.frontalAngles < 0.3)
+const sparseUpright = goodSquat.frames.slice(0, 12).map(frame => ({
+  ...frame,
+  points: { ...frame.points, shoulder: { left: null, right: null }, hip: { left: null, right: null } }
+}))
+ok('证据不足返回 unknown，不硬判视角', estimateView(sparseUpright, 15).category === 'unknown')
+
+// 远侧遮挡辅助证据：投影比落在正面下沿但远侧可见度差很大时，降为斜侧
+const gappedFront = spreadView(goodSquat.frames, 0.085).map(frame => {
+  const dim = (point: { x: number; y: number; visibility: number } | null) =>
+    point ? { ...point, visibility: Math.min(point.visibility, 0.45) } : null
+  return {
+    ...frame,
+    points: {
+      ...frame.points,
+      shoulder: { left: frame.points.shoulder.left, right: dim(frame.points.shoulder.right) },
+      hip: { left: frame.points.hip.left, right: dim(frame.points.hip.right) },
+      knee: { left: frame.points.knee.left, right: dim(frame.points.knee.right) }
+    }
+  }
+})
+const gappedFrontEstimate = estimateView(gappedFront, 15)
+ok('远侧遮挡会把正面下沿降级为斜侧', gappedFrontEstimate.category === 'oblique',
+  JSON.stringify(gappedFrontEstimate.evidence))
+
+// 逐区间视角：前 3 秒侧面、后 3 秒正面
+const mixedSegmentFrames = [
+  ...sideViewFrames.slice(0, 45).map(frame => ({ ...frame, timeMs: frame.timeMs })),
+  ...frontViewFrames.slice(0, 45).map(frame => ({ ...frame, timeMs: frame.timeMs + 3000 }))
+]
+const mixedEstimate = estimateView(mixedSegmentFrames, 15)
+ok('逐区间视角能识别中途换机位', mixedEstimate.segments.some(segment => segment.category === 'side')
+  && mixedEstimate.segments.some(segment => segment.category === 'front'),
+  JSON.stringify(mixedEstimate.segments))
+
+const obliquePrecheck = precheckMotion({ fps: 15, frames: obliqueViewFrames })
+ok('斜侧是合法视角，不再被预检拒绝', obliquePrecheck.verdict !== 'rejected'
+  && obliquePrecheck.view === 'oblique', JSON.stringify({ verdict: obliquePrecheck.verdict, view: obliquePrecheck.view }))
+const obliqueSeries = buildSquatSeries({ reps: 1, bottomKnee: 60 })
+ok('斜侧规则只出测量不出关注项',
+  rulesFor('squat', 'oblique').every(rule => rule.output === 'metric')
+  && analyzeMotion({ ...obliqueSeries, view: 'oblique' }).findings.length === 0)
+ok('斜侧不跑组内一致性（矢状面证据不成立）', consistencyRulesFor('squat').length > 0
+  && analyzeMotion({ ...obliqueSeries, view: 'oblique' }).metrics.some(metric => metric.id === 'metric-rep-count'))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

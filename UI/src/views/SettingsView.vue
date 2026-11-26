@@ -733,7 +733,7 @@ function toCsv(): string {
       '分析', a.date, '', a.exerciseName, a.action,
       '', '', '', '', '', '', '', '',
       a.status === 'low-confidence' ? '低置信度' : '完成',
-      `视角 ${a.view === 'side' ? '侧面' : '正面'}｜${a.findings.length} 项关注`
+      `视角 ${a.view === 'side' ? '侧面' : a.view === 'oblique' ? '斜侧' : '正面'}｜${a.findings.length} 项关注`
     ])
   ]
   return '\ufeff' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n')

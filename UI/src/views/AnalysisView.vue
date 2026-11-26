@@ -166,6 +166,7 @@
       <div class="actions">
         <BaseButton v-if="actionTemplate.views.includes('side')" variant="secondary" @click="chooseView('side')">按侧面分析</BaseButton>
         <BaseButton v-if="actionTemplate.views.includes('front')" variant="secondary" @click="chooseView('front')">按正面分析</BaseButton>
+        <BaseButton v-if="actionTemplate.views.includes('oblique')" variant="secondary" @click="chooseView('oblique')">按斜侧分析</BaseButton>
       </div>
       <div class="actions">
         <BaseButton variant="ghost" @click="resetAll">换一个视频</BaseButton>
@@ -441,7 +442,7 @@ const countValue = computed(() => {
   if (precheckResult.value.repCount !== null) return `${precheckResult.value.repCount} 次`
   return '—'
 })
-const viewLabel = (view: AnalysisView | null) => view === 'side' ? '侧面' : view === 'front' ? '正面' : '未知'
+const viewLabel = (view: AnalysisView | null) => view === 'side' ? '侧面' : view === 'front' ? '正面' : view === 'oblique' ? '斜侧' : '未知'
 /** 换动作重跑时，只保留与具体动作无关的原因（可见度、手动视角等） */
 function carryOverReasons(reasons: string[]): string[] {
   const actionMarkers = ['未识别到完整重复', '深蹲与硬拉', '步态周期不足', '跑步步态特征',
@@ -449,7 +450,7 @@ function carryOverReasons(reasons: string[]): string[] {
   return reasons.filter(reason => !actionMarkers.some(marker => reason.includes(marker)))
 }
 const kindLabel = (kind: string) => kind === 'gait' ? '步态' : kind === 'hold' ? '静态保持' : '计次'
-const viewsLabel = (views: AnalysisView[]) => views.map(view => view === 'side' ? '侧面' : '正面').join(' / ')
+const viewsLabel = (views: AnalysisView[]) => views.map(view => viewLabel(view)).join(' / ')
 const resultSummary = computed(() => {
   if (!result.value) return '已完成分析'
   if (result.value.repCount !== null) return `识别到 ${result.value.repCount} 次完整重复`
@@ -484,7 +485,7 @@ function chooseView(view: AnalysisView) {
     verdict: 'degraded',
     reasons: [
       ...precheckResult.value.reasons.filter(reason => !reason.includes('无法自动判定拍摄视角')),
-      `视角由你手动指定为${view === 'side' ? '侧面' : '正面'}，结果按低置信度标注`
+      `视角由你手动指定为${viewLabel(view)}，结果按低置信度标注`
     ]
   }
   step.value = 'prechecked'

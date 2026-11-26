@@ -6,16 +6,24 @@
   "reviewedBy": null,
   "source": ".scratch/deadlift-demo.webm",
   "fps": 15,
+  "aspect": 1.7778,
   "durationSec": 7.33,
   "action": "deadlift",
   "movementFamily": "strength",
   "view": "oblique",
   "viewNote": "背向 3/4 机位；既不是纯侧面也不是正面，只能做通用计数/节律，矢状面锁定角与冠状面膝内扣都不可靠",
   "activeIntervals": [
-    { "startMs": 0, "endMs": 7400 }
+    {
+      "startMs": 0,
+      "endMs": 7400
+    }
   ],
   "reps": [
-    { "startMs": 3000, "bottomMs": 5400, "endMs": 6900 }
+    {
+      "startMs": 3000,
+      "bottomMs": 5400,
+      "endMs": 6900
+    }
   ],
   "partialRepetitions": [
     {

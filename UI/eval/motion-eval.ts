@@ -14,6 +14,7 @@ import {
   detectView,
   type MotionFrame
 } from '@/services/motionAnalysis'
+import { estimateView } from '@/services/motion-engine/view/estimate'
 import type { AnalysisAction, AnalysisView } from '@/types/domain'
 
 const MODEL_PATHS = { wasmPath: '/mediapipe/wasm', modelPath: '/mediapipe/models/pose_landmarker_lite.task' }
@@ -109,7 +110,8 @@ async function detectAt(sec: number): Promise<MotionFrame> {
   const result = await pose.detect(bitmap, engineClock)
   inferenceMs.push(performance.now() - start)
   lastLandmarks = result.landmarks
-  return extractMotionFrame(result.landmarks, timeMs)
+  const aspect = video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : undefined
+  return extractMotionFrame(result.landmarks, timeMs, aspect)
 }
 
 function angleFromClicks(): number | null {
@@ -198,7 +200,9 @@ const pctl = (values: number[], p: number) => {
     const classification = classifyTemplate(frames, fps)
     return {
       fps, frames: rows, frameCount: frames.length,
+      aspect: video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : null,
       view: view.view, viewConfidence: view.confidence,
+      viewEstimate: estimateView(frames, fps, { aspect: video.videoWidth / video.videoHeight }),
       action: classification.action, actionConfident: classification.confident,
       signals: classification.signals,
       precheck: precheckMotion({ fps, frames }),

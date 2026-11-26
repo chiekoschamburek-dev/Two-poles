@@ -40,3 +40,10 @@ export {
   fineGridTimes
 } from './pipeline/precheck'
 export type { AnalysisWindowPlan } from './pipeline/precheck'
+export {
+  estimateView,
+  viewToAnalysisView,
+  suggestedViewFromEstimate,
+  VIEW_THRESHOLDS
+} from './view/estimate'
+export type { ViewEstimateOptions } from './view/estimate'

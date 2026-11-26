@@ -15,6 +15,7 @@ import { templateFor, repRuleForTemplate, type MotionActionTemplate } from '@/se
 import { rulesFor } from '@/services/motionRules'
 import { consistencyRulesFor } from '@/services/motionConsistency'
 import { computeKinematics, kinematicsMetrics } from '@/services/motionKinematics'
+import { estimateView, suggestedViewFromEstimate, viewToAnalysisView } from '@/services/motion-engine/view/estimate'
 
 export interface MotionPoint {
   x: number
@@ -24,6 +25,8 @@ export interface MotionPoint {
 
 export interface MotionFrame {
   timeMs: number
+  /** 画面宽高比（width / height）；V2 视角估计需要它把归一化坐标还原成像素比例。旧序列没有该字段 */
+  aspect?: number
   /** 八点核心关节的平均可见度，用于预检与低置信度判定 */
   visibility: number
   points: {
@@ -217,11 +220,12 @@ function sideAngleAt(frame: MotionFrame, joint: 'knee' | 'hip' | 'elbow', side: 
   return shoulder && elbow && wrist ? angleAt(shoulder, elbow, wrist) : null
 }
 
-export function extractMotionFrame(landmarks: NormalizedLandmark[], timeMs: number): MotionFrame {
+export function extractMotionFrame(landmarks: NormalizedLandmark[], timeMs: number, aspect?: number): MotionFrame {
   const point = (joint: keyof typeof LANDMARK_INDEX, side: 'left' | 'right') => readPoint(landmarks, LANDMARK_INDEX[joint][side])
   const visibility = frameVisibility(landmarks)
   return {
     timeMs,
+    ...(typeof aspect === 'number' && Number.isFinite(aspect) && aspect > 0 ? { aspect } : {}),
     visibility,
     points: {
       shoulder: { left: point('shoulder', 'left'), right: point('shoulder', 'right') },
@@ -640,11 +644,14 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     : undefined
   const gait = template.kind === 'gait' ? analyzeGait(series.frames, series.fps) : undefined
   const hold = template.kind === 'hold' ? analyzeHold(series.frames, series.fps) : undefined
-  const viewConfidence = detectView(series.frames).confidence
+  const viewEstimate = estimateView(series.frames, series.fps, { aspect: series.frames.find(frame => frame.aspect)?.aspect })
+  const viewConfidence = viewEstimate.reliability
   const context = { action: series.action, view: series.view, reps, fps: series.fps, gait, hold, viewConfidence }
   const findings: MotionAnalysisFinding[] = []
   const metrics: MotionAnalysisMetric[] = []
-  for (const rule of [...rulesFor(series.action, series.view), ...consistencyRulesFor(series.action)]) {
+  // 斜侧：只保留通用/相对测量。组内一致性依赖矢状面角度，斜侧下不成立，直接不跑
+  const consistencyRules = series.view === 'oblique' ? [] : consistencyRulesFor(series.action)
+  for (const rule of [...rulesFor(series.action, series.view), ...consistencyRules]) {
     const output = rule.evaluate(context)
     if (rule.output === 'finding') findings.push(...(output as MotionAnalysisFinding[]))
     else metrics.push(...(output as MotionAnalysisMetric[]))
@@ -704,6 +711,13 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     reps,
     angles,
     ...(series.range ? { analyzedRange: series.range } : {}),
+    viewEstimate: {
+      category: viewEstimate.category,
+      yawDeg: viewEstimate.yawDeg,
+      reliability: viewEstimate.reliability,
+      temporalStability: viewEstimate.temporalStability,
+      observability: viewEstimate.observability
+    },
     ...(kinematics ? { kinematics } : {})
   }
 }
@@ -968,11 +982,25 @@ export function precheckMotion(input: {
   templateId?: string
   /** 预检覆盖区间；不传时按传入帧的首尾时间推断 */
   range?: { startMs: number; endMs: number; source: string }
+  /** 画面宽高比；不传时用帧上携带的 aspect */
+  aspect?: number
 }): MotionPrecheckResult {
   const analyzedRange = input.range ?? {
     startMs: input.frames[0]?.timeMs ?? 0,
     endMs: input.frames[input.frames.length - 1]?.timeMs ?? 0,
     source: 'whole-clip'
+  }
+  const viewEstimate = estimateView(input.frames, input.fps, {
+    aspect: input.aspect ?? input.frames.find(frame => frame.aspect)?.aspect
+  })
+  const estimatedView = viewToAnalysisView(viewEstimate.category)
+  const viewLabelText = (view: AnalysisView) => view === 'side' ? '侧面' : view === 'front' ? '正面' : '斜侧'
+  const viewEstimateSummary = {
+    category: viewEstimate.category,
+    yawDeg: viewEstimate.yawDeg,
+    reliability: viewEstimate.reliability,
+    temporalStability: viewEstimate.temporalStability,
+    observability: viewEstimate.observability
   }
   /**
    * 视角判不准或模板不支持该视角时的统一返回形状：不直接拒绝，把视角交给用户选。
@@ -994,7 +1022,8 @@ export function precheckMotion(input: {
     holdSeconds: null,
     action: args.action,
     actionConfident: args.actionConfident,
-    analyzedRange
+    analyzedRange,
+    viewEstimate: viewEstimateSummary
   })
   const selected = input.templateId ? templateFor(input.templateId) : undefined
   const usable = input.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
@@ -1012,32 +1041,38 @@ export function precheckMotion(input: {
     degraded = true
     reasons.push(`关键点可见度偏低（可用帧 ${Math.round(usableRatio * 100)}%），结果置信度低`)
   }
-  const viewResult = detectView(input.frames)
-  if (!viewResult.view) {
+  if (!estimatedView) {
     // 人体和动作都在，只是机位判不准：不再一刀切拒绝，把视角交给用户点一下。
     // 选完按降级结果走，规则仍按所选视角执行，结果页会明确标注低置信度。
     const classification = selected
       ? { action: selected.id, confident: true }
       : classifyTemplate(input.frames, input.fps)
+    const suggested = suggestedViewFromEstimate(viewEstimate)
+      ?? (selected && selected.views.length ? selected.views[0] : null)
     return viewUnclear({
-      reasons: [...reasons, '无法自动判定拍摄视角：请确认这段视频是侧面还是正面，选完按低置信度分析'],
-      suggestedView: viewResult.suggested,
+      reasons: [...reasons, '无法自动判定拍摄视角：请确认这段视频的拍摄方向（侧面/正面/斜侧），选完按低置信度分析'],
+      suggestedView: suggested as AnalysisView | null,
       action: classification.action,
       actionConfident: classification.confident
     })
+  }
+  const viewResult = { view: estimatedView, confidence: viewEstimate.reliability, suggested: estimatedView }
+  if (viewEstimate.reliability < 0.6) {
+    degraded = true
+    reasons.push(`视角判定可靠性偏低（${Math.round(viewEstimate.reliability * 100)}%），角度类结论会只作参考`)
   }
   const classification = selected
     ? { action: selected.id, confident: true }
     : classifyTemplate(input.frames, input.fps)
   const template = templateFor(classification.action)
   if (!template.views.includes(viewResult.view)) {
-    const supported = template.views.map(view => view === 'side' ? '侧面' : '正面').join(' / ')
+    const supported = template.views.map(view => viewLabelText(view)).join(' / ')
     const source = selected ? `「${template.label}」` : `自动识别为「${template.label}」`
     // 平板/静态保持的身体接近水平，detectView 用竖直躯干高度做分母会把侧拍误判成正面；
     // 这类动作不直接拒绝，交给用户确认实际机位（只提供模板支持的视角）。
     if (template.kind === 'hold') {
       return viewUnclear({
-        reasons: [...reasons, `${source} 需要${supported}视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
+        reasons: [...reasons, `${source} 需要${supported}视角；自动判断为${viewLabelText(viewResult.view)}，请确认实际机位`],
         suggestedView: template.views[0] ?? 'side',
         action: template.id,
         actionConfident: classification.confident
@@ -1059,7 +1094,7 @@ export function precheckMotion(input: {
     // 自动识别猜到了只支持单一视角的模板时，不按不支持的机位直接分析，
     // 也不直接拒绝：交给用户确认支持的视角。
     return viewUnclear({
-      reasons: [...reasons, `${source} 只支持${supported}视角；自动判断为${viewResult.view === 'side' ? '侧面' : '正面'}，请确认实际机位`],
+      reasons: [...reasons, `${source} 只支持${supported}视角；自动判断为${viewLabelText(viewResult.view)}，请确认实际机位`],
       suggestedView: template.views[0] ?? 'side',
       action: template.id,
       actionConfident: classification.confident
@@ -1111,6 +1146,7 @@ export function precheckMotion(input: {
     holdSeconds,
     action: template.id,
     actionConfident: classification.confident,
-    analyzedRange
+    analyzedRange,
+    viewEstimate: viewEstimateSummary
   }
 }

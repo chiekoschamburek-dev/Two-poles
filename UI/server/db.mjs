@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS motion_analyses (
   date TEXT NOT NULL,
   action TEXT NOT NULL,
   exercise_name TEXT NOT NULL,
-  view TEXT NOT NULL CHECK(view IN ('side','front')),
+  view TEXT NOT NULL CHECK(view IN ('side','front','oblique')),
   status TEXT NOT NULL CHECK(status IN ('completed','low-confidence')),
   low_confidence_reasons TEXT NOT NULL DEFAULT '[]',
   findings TEXT NOT NULL DEFAULT '[]',
@@ -287,25 +287,24 @@ export function openDatabase(path = ':memory:') {
   migrateProfileDisciplines(db)
   backfillDisciplines(db)
   migrateMotionActionCheck(db)
+  migrateMotionViewCheck(db)
   dropUnusedTablesOnce(db)
   return db
 }
 
 /**
- * 旧库的 motion_analyses.action 带 CHECK(action IN ('squat','deadlift','running'))，
- * 新增分析模板会被数据库直接拒绝。SQLite 不能 DROP CHECK，只能重建表；
- * 新库由 SCHEMA 直接建出无 CHECK 版本，这里用 sqlite_master 的 SQL 做幂等探针。
+ * 重建 motion_analyses 表：SQLite 不能 DROP CHECK，动作/视角的 CHECK 要放宽只能重建。
+ * 新库由 SCHEMA 直接建出最新结构；旧库在这里一次性搬数据，列缺失的用 NULL 补。
  */
-function migrateMotionActionCheck(db) {
-  const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get()?.sql ?? ''
-  if (!/CHECK\s*\(\s*action\s+IN/i.test(tableSql)) return
+const MOTION_ANALYSIS_COPY_COLUMNS = [
+  'id', 'client_id', 'user_id', 'date', 'action', 'exercise_name', 'view', 'status',
+  'low_confidence_reasons', 'findings', 'metrics', 'rep_count', 'gait_cycles', 'usable_ratio',
+  'session_id', 'rule_version', 'created_at', 'updated_at', 'deleted_at'
+]
+
+function rebuildMotionAnalysesTable(db) {
   const columns = new Set(db.prepare('PRAGMA table_info(motion_analyses)').all().map(column => column.name))
   const copyColumn = (name) => columns.has(name) ? name : 'NULL'
-  const columnsToCopy = [
-    'id', 'client_id', 'user_id', 'date', 'action', 'exercise_name', 'view', 'status',
-    'low_confidence_reasons', 'findings', 'metrics', 'rep_count', 'gait_cycles', 'usable_ratio',
-    'session_id', 'rule_version', 'created_at', 'updated_at', 'deleted_at'
-  ]
   db.exec('PRAGMA foreign_keys = OFF')
   try {
     transaction(db, () => {
@@ -317,7 +316,7 @@ function migrateMotionActionCheck(db) {
           date TEXT NOT NULL,
           action TEXT NOT NULL,
           exercise_name TEXT NOT NULL,
-          view TEXT NOT NULL CHECK(view IN ('side','front')),
+          view TEXT NOT NULL CHECK(view IN ('side','front','oblique')),
           status TEXT NOT NULL CHECK(status IN ('completed','low-confidence')),
           low_confidence_reasons TEXT NOT NULL DEFAULT '[]',
           findings TEXT NOT NULL DEFAULT '[]',
@@ -333,8 +332,8 @@ function migrateMotionActionCheck(db) {
           UNIQUE (user_id, client_id)
         )
       `)
-      db.exec(`INSERT INTO motion_analyses_new (${columnsToCopy.join(', ')})
-        SELECT ${columnsToCopy.map(copyColumn).join(', ')} FROM motion_analyses`)
+      db.exec(`INSERT INTO motion_analyses_new (${MOTION_ANALYSIS_COPY_COLUMNS.join(', ')})
+        SELECT ${MOTION_ANALYSIS_COPY_COLUMNS.map(copyColumn).join(', ')} FROM motion_analyses`)
       db.exec('DROP TABLE motion_analyses')
       db.exec('ALTER TABLE motion_analyses_new RENAME TO motion_analyses')
       db.exec('CREATE INDEX IF NOT EXISTS idx_motion_analyses_user_date ON motion_analyses(user_id, date)')
@@ -342,6 +341,28 @@ function migrateMotionActionCheck(db) {
   } finally {
     db.exec('PRAGMA foreign_keys = ON')
   }
+}
+
+/**
+ * 旧库的 motion_analyses.action 带 CHECK(action IN ('squat','deadlift','running'))，
+ * 新增分析模板会被数据库直接拒绝。SQLite 不能 DROP CHECK，只能重建表；
+ * 新库由 SCHEMA 直接建出无 CHECK 版本，这里用 sqlite_master 的 SQL 做幂等探针。
+ */
+function migrateMotionActionCheck(db) {
+  const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get()?.sql ?? ''
+  if (!/CHECK\s*\(\s*action\s+IN/i.test(tableSql)) return
+  rebuildMotionAnalysesTable(db)
+}
+
+/**
+ * 旧库的 motion_analyses.view 只允许 side/front，V2 的斜侧（oblique）记录会被 CHECK 拒绝。
+ * 幂等：view CHECK 已含 oblique（新库直接建出）时跳过。
+ */
+function migrateMotionViewCheck(db) {
+  const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get()?.sql ?? ''
+  const match = /CHECK\s*\(\s*view\s+IN\s*\(([^)]*)\)/i.exec(tableSql)
+  if (!match || /oblique/i.test(match[1])) return
+  rebuildMotionAnalysesTable(db)
 }
 
 /**

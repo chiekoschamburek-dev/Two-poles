@@ -34,7 +34,11 @@ export type ExercisePhase = 'idle' | 'ready' | 'down' | 'up' | 'occluded' | 'com
  * 界面展示一律走 templateFor()，对未登记 id 有明确兜底。
  */
 export type AnalysisAction = string
-export type AnalysisView = 'side' | 'front'
+/**
+ * 拍摄视角。oblique = 斜侧（约 30°–60°）：可以计数/看节律/做相对一致性，
+ * 但不能套用矢状面或冠状面的绝对角度结论（V2 视角-规则能力矩阵会拦住）。
+ */
+export type AnalysisView = 'side' | 'front' | 'oblique'
 export type AnalysisStatus = 'completed' | 'low-confidence'
 
 export interface MotionAnalysisFinding {
@@ -79,6 +83,14 @@ export interface MotionAnalysisResult {
   kinematics?: MotionKinematics
   /** 本次结论覆盖的视频时间区间；旧记录没有该字段，按全片处理 */
   analyzedRange?: { startMs: number; endMs: number; source: string }
+  /** V2 多证据视角估计；旧记录没有该字段 */
+  viewEstimate?: {
+    category: string
+    yawDeg: number | null
+    reliability: number
+    temporalStability: number
+    observability: Record<string, number>
+  }
 }
 
 /** 与 motionAnalysis.RepAnalysis 同形，放这里避免 types 反向依赖 services */
@@ -203,6 +215,14 @@ export interface MotionPrecheckResult {
   actionConfident: boolean
   /** 本次预检实际覆盖的视频时间区间（V2：活跃区间精扫，不再是固定的前 10 秒） */
   analyzedRange?: { startMs: number; endMs: number; source: string }
+  /** V2 多证据视角估计摘要；旧调用/旧记录没有该字段 */
+  viewEstimate?: {
+    category: string
+    yawDeg: number | null
+    reliability: number
+    temporalStability: number
+    observability: Record<string, number>
+  }
 }
 
 export interface MotionAnalysis {

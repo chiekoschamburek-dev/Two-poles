@@ -355,11 +355,17 @@ const curlFrontRules: MotionRule[] = [
   }
 ]
 
+/**
+ * 视角-规则能力矩阵：规则只在能观测到它的机位下执行。
+ * 斜侧（oblique）刻意只留"测量型"规则：计数、时长、节律、相对幅度可以给，
+ * 矢状面（深度/锁定/前倾）与冠状面（膝内扣/对称）的绝对角度结论一律不出。
+ * 这不是"降级标注"，是根本不生成结论（ADR-0003 的证据闸门）。
+ */
 const RULES_BY_ACTION: Record<string, Record<AnalysisView, MotionRule[]>> = {
-  squat: { side: squatSideRules, front: squatFrontRules },
-  deadlift: { side: deadliftSideRules, front: deadliftFrontRules },
-  running: { side: runningSideRules, front: runningFrontRules },
-  curl: { side: curlSideRules, front: curlFrontRules }
+  squat: { side: squatSideRules, front: squatFrontRules, oblique: [squatSideRules[3]] },
+  deadlift: { side: deadliftSideRules, front: deadliftFrontRules, oblique: [deadliftSideRules[2]] },
+  running: { side: runningSideRules, front: runningFrontRules, oblique: [runningSideRules[2]] },
+  curl: { side: curlSideRules, front: curlFrontRules, oblique: [curlSideRules[0]] }
 }
 
 export function rulesFor(action: AnalysisAction, view: AnalysisView): MotionRule[] {

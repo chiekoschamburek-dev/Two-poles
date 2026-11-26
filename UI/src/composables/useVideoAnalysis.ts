@@ -319,6 +319,8 @@ export function useVideoAnalysis() {
     await seekTo(timeSec)
     throwIfCancelled(seq)
     const timeMs = Math.round(timeSec * 1000)
+    const aspect = video.videoWidth > 0 && video.videoHeight > 0
+      ? video.videoWidth / video.videoHeight : undefined
     const pose = await ensureEngine()
     // 两个时钟刻意分开：engineClock 只喂 MediaPipe（趟内按真实帧间隔递增），
     // 帧记录用真实视频时间——状态机拿它判 minStageMs/minRepMs，绝不能是伪造时间。
@@ -326,7 +328,7 @@ export function useVideoAnalysis() {
     let bitmap = await createAnalysisBitmap()
     try {
       const result = await pose.detect(bitmap, engineClock)
-      return extractMotionFrame(result.landmarks, timeMs)
+      return extractMotionFrame(result.landmarks, timeMs, aspect)
     } catch (err) {
       bitmap.close()
       if (!isPoseTimeoutError(err)) {
@@ -337,7 +339,7 @@ export function useVideoAnalysis() {
       bitmap = await createAnalysisBitmap()
       try {
         const result = await cpuEngine.detect(bitmap, engineClock)
-        return extractMotionFrame(result.landmarks, timeMs)
+        return extractMotionFrame(result.landmarks, timeMs, aspect)
       } catch (retryErr) {
         bitmap.close()
         throw new VideoAnalysisError('model', `端侧推理失败：${(retryErr as Error)?.message || '请重试'}`)
