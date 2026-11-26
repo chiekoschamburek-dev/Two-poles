@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install web deps
+        working-directory: apps/web
+        run: npm ci --include=dev
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Selfcheck（907 项领域断言）
+        run: npm run selfcheck
+      - name: API tests（41 项，内存 SQLite）
+        run: npm run test:api
+      - name: Motion replay gate（7 条真值 + 夹具 sha256）
+        run: npm run eval:replay -- --gate
+      - name: Build
+        run: npm run build
+
+  api-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Start API and probe health
+        working-directory: apps/api
+        run: |
+          node index.mjs &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/api/v1/health; then exit 0; fi
+            sleep 1
+          done
+          echo "API 未在 30 秒内就绪" >&2
+          exit 1

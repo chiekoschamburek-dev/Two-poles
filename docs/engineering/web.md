@@ -12,13 +12,13 @@
 | 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好按类别存在 `twopoles.v1.*`；登录后可同步到 `apps/api` 的 SQLite。开启照片保存时，餐食记录带一张 256px JPEG 缩略图，原图另存本机 IndexedDB。可从设置页导出 JSON/CSV（JSON 含缩略图、不含原图，CSV 不含图片）或一键清除 |
 | 训练反馈 | ✅ 跟练结束可填 RPE（**0–10**，或留空=未记录）、不适、部分完成原因与备注，写回该条 session 并持久化 |
 | 建档 | ✅ 三步表单写入 `store.updateProfile()`，含场地多选；12–17 岁与勾选孕期/伤病限制者只保留记录与手工录入，不生成自动推荐 |
-| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **790 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘，**第 12 节双极同期对照**，**第 22 节同步 outbox 合并**，**第 51 节运动学 SG 求导/固定侧别/指标**，**第 52 节补剂通知文案**，**第 53 节已处理调整建议的跨设备 key**，以及**第 55 节动作库视频清单**）。构建要起 esbuild 子进程，受限沙箱下会 `spawn EPERM`，只在本机正常环境跑 | |
+| `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **907 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘，**第 12 节双极同期对照**，**第 22 节同步 outbox 合并**，**第 51 节运动学 SG 求导/固定侧别/指标**，**第 52 节补剂通知文案**，**第 53 节已处理调整建议的跨设备 key**，以及**第 55 节动作库视频清单**）。构建要起 esbuild 子进程，受限沙箱下会 `spawn EPERM`，只在本机正常环境跑 | |
 | 动作分析 · 运动学 | ✅ 端侧分析在关注项/测量值之外新增膝/髋/躯干的角速度（°/s）与角加速度（°/s²）、髋部归一化竖直速度/加速度（躯干长/秒），以及组内起身峰值角速度对比。Savitzky–Golay 局部二次拟合求导，缺失/遮挡帧断线不补 0；力量动作的峰值只统计识别到的完整重复区间。聚合指标进分析记录并同步；逐帧曲线只在开启「保存动作数据」时存本机 IndexedDB。线速度不是 m/s，不声称对地速度 |
 | 摄像头 | **真联动 + 未实测**：实时摄像头分支由 MediaPipe 关键点角度驱动 `useRepCounter` 状态机计数（迟滞区间、最短阶段时长、3 帧平滑、遮挡冻结、停滞重置、抖动不计入），支持机位校准与手工修正，模型计数与修正值分别保留。**未在任何真机上验证过计数准确率**，90% 误差指标待隔离测试集实测；权限被拒、无设备或非安全上下文时自动退回"演示回放"，界面明确标注计数来源。取帧用 `requestVideoFrameCallback` 的真实帧时间戳，推理默认在经典 worker 内跑 **GPU delegate**（构建后实测生效），两者任一不可用则自动回落主线程 / CPU，状态文案如实显示实际后端 |
 | 记录入口（调研 P1-6） | ✅ 饮食页只有一个主入口「记录饮食」：拍照/选图 → 项目已有模型（设置页或服务端默认，需支持图片输入；无模型时走端侧 EfficientDet 9 类）→ 按拍摄时间自动判餐次 → 默认直接保存。结果页不展示完整表单，低置信度/待确认项明确标出，想改再展开；保存后的记录仍保留查看、编辑、删除与常吃/搜索/单位↔克数换算。模型识别要求在拍照前勾选发送同意，原图不保存；失败不生成记录。 |
 | 内容库 | 动作库 `services/exercises.ts` 29 条（含 1 条停用）带器材/场地/时长/强度/限制门槛与来源标注；食物目录 `services/foodComposition.ts` 56 条 + 22 种混合菜，全部 `verified: false` |
 | 动作库页 | ✅ 页面在 `/library`，**入口挂在跟练开始页下方的空白处**（不占导航位）：显示 28 个动作的覆盖率、今天待练动作各自第一条教学视频，以及「打开动作库」。清单在 `services/exerciseVideos.ts`，key 必须是动作 id，BV 号/YouTube id 格式、重复挂载、停用动作挂视频都由 `videoCatalogProblems()` 与 selfcheck 兜住；没挑过视频的动作给平台搜索出口并标「未筛选」。**不站内播放**（引用策略与商店审核），**不给姿势结论**，清单里没填 `reviewedAt` 的条目界面标「未核对」 |
-| 摄像头资产 | 需先执行 `cd UI && npm run camera:assets`（拉取 5.5 MB 模型 + 27 MB wasm，已被 .gitignore 排除）；且页面必须走 **https 或 localhost**（`vite --host` 的局域网 http 地址无法调用摄像头） |
+| 摄像头资产 | 需先执行 `cd apps/web && npm run camera:assets`（拉取 5.5 MB 模型 + 27 MB wasm，已被 .gitignore 排除）；且页面必须走 **https 或 localhost**（`vite --host` 的局域网 http 地址无法调用摄像头） |
 | 模式切换 | ✅ **页头右侧的模式芯片**（UI 3.0 从侧栏迁来）与设置页切换都**先展示差异与未完成计划、确认后才生效**，取消则不改动任何数据；切换历史与当时未完成计划数落本机，旧模式计划仍可见（需明确复制才形成新模式计划） |
 | 后端 | `apps/api` 提供可选账号与同步（Node 24 + 内置 SQLite，`/api/v1`，见 [api.md](api.md)）；未配置 `VITE_API_BASE_URL` 时仍是纯本机。模型继续走同源 `/api/llm/*`：本地 Vite 中间件，线上阿里云 ESA 单入口 `apps/api/llm.js`；默认模型密钥只在函数变量里，浏览器只拿到 `{available, model}`，自定义密钥只存本机。部署见 [deploy.md](deploy.md) |
 
@@ -40,7 +40,7 @@
 ### 安装依赖
 
 ```bash
-cd UI
+cd apps/web
 npm install
 ```
 
@@ -97,6 +97,9 @@ npm run typecheck
 
 ## 📁 项目结构
 
+本仓库是 `apps/web`（前端 + 安卓壳）+ `apps/api`（Node 服务）的双包结构，部署与脚本入口见根 `README.md`。下面只展开 `apps/web/`。
+
+
 ```
 apps/web/
 ├── public/
@@ -129,13 +132,15 @@ apps/web/
 │   ├── router/              # index.ts（首屏 + 6 个下钻页，旧 /dashboard 重定向）
 │   ├── App.vue
 │   └── main.ts
+├── android/               # Capacitor 原生工程（cap sync 依赖与 web 同根）
+├── eval/                  # 真值标注工具页（人工点关节取参考角）
 ├── index.html
 ├── package.json
 ├── vite.config.ts
 └── tsconfig.json
 ```
 
-> 仓库根另有 `brand/`（品牌标记的浅底/深底 SVG）与 `redesign-shots/`（改版前后的真机截图）。`components/journey|training|meals|reports/` 仍不存在——那是早期交付文档设想的规划结构，未落地。
+> 品牌标记在仓库根 `assets/brand/`（浅底/深底 SVG）；改版截图在 `testdata/redesign-shots/`（不入库）。`components/journey|training|meals|reports/` 仍不存在——那是早期交付文档设想的规划结构，未落地。
 
 ## 🎯 核心功能
 
@@ -324,7 +329,7 @@ apps/web/
 
 准备资产（一次性，产物不入库）：
 ```bash
-cd UI
+cd apps/web
 npm run camera:assets
 ```
 
@@ -405,7 +410,7 @@ npm run camera:assets
 ---
 
 **注意**: 这是一个本机优先的前端；账号与同步是可选的，未配置后端时不需要任何服务器。首屏是双极工作台（左运动、右饮食，手机端叠卡切换），另有 6 个下钻页都有实际界面；档案、模式、训练与反馈、餐食记录、隐私偏好都存在 localStorage。
-视觉为 UI 3.0（纸面 + 单一强调色 + 双极仪表 + 左右两极身份色），静态外观以 `../redesign-shots/` 的真机截图为唯一事实来源。
+视觉为 UI 3.0（纸面 + 单一强调色 + 双极仪表 + 左右两极身份色），静态外观以 `testdata/redesign-shots/` 的真机截图为唯一事实来源。
 主要缺口：
 
 1. **真机摄像头未验证**——姿态识别与计数**已经联动**（`useRepCounter` 由关节角驱动），但没有在任何真机上量过计数准确率。
