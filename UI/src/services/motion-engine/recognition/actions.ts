@@ -89,14 +89,14 @@ function scoreStrength(features: RecognitionFeatures): ActionCandidate[] {
 
   // 硬拉：髋铰链为主（髋 ROM 明显大于膝）、手在膝附近/下方、底部膝相对直
   let deadlift = 0
-  const hingeLike = (features.hipKneeRomRatio ?? 0) >= 1.2
+  const hingeLike = (features.hipKneeRomRatio ?? 0) >= 1.1
     || (features.kneeBottom ?? 0) >= 125
     || (features.trunkBottom ?? 0) >= 50
   // 手到膝下方只有在髋铰链/直腿/大前倾同时成立时才是强证据；
   // 否则可能是弯举/走路时手腕投影落到膝下，不能单独把动作判成硬拉
   if ((features.wristBelowKneeMax ?? -1) >= 0.12) deadlift += hingeLike ? 0.5 : 0.15
   else if ((features.wristBelowKneeMax ?? -1) >= 0.05) deadlift += 0.2
-  deadlift += (features.hipKneeRomRatio ?? 0) >= 1.6 ? 0.3 : (features.hipKneeRomRatio ?? 0) >= 1.2 ? 0.2 : 0
+  deadlift += (features.hipKneeRomRatio ?? 0) >= 1.6 ? 0.3 : (features.hipKneeRomRatio ?? 0) >= 1.1 ? 0.2 : 0
   deadlift += (features.kneeBottom ?? 0) >= 130 ? 0.15 : 0
   deadlift += (features.trunkBottom ?? 0) >= 35 ? 0.2 : 0
   deadlift += (features.hipDrop ?? 0) >= 0.8 ? 0.1 : 0

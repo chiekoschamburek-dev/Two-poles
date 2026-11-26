@@ -1123,6 +1123,25 @@ export interface TemplateClassification extends ActionClassification {
     /** 识别原因（不含用户可读文案包装） */
     reasons?: string[]
   }
+  /** 类内候选分数（调试/评测用；界面不直接展示） */
+  candidates?: { action: string; family: string; score: number; margin: number | null }[]
+  /** 关键识别特征快照：排查边界误判（例如 sit-to-stand vs deadlift）时看这些值 */
+  recognitionFeatures?: {
+    kneeRange: number | null
+    hipRange: number | null
+    kneeBottom: number | null
+    hipKneeRomRatio: number | null
+    wristBelowKneeMax: number | null
+    startKnee: number | null
+    endKnee: number | null
+    startHipHeight: number | null
+    endHipHeight: number | null
+    seatedEnd: boolean
+    oneWayTrip: boolean
+    bottomPlateauMs: number
+    hipDrop: number | null
+    cycleCount: number
+  }
 }
 
 /**
@@ -1147,6 +1166,28 @@ export function classifyTemplate(frames: MotionFrame[], fps: number): TemplateCl
       family: recognition.family,
       margin: recognition.signals.margin,
       reasons: recognition.reasons
+    },
+    candidates: recognition.candidates.map(candidate => ({
+      action: candidate.action,
+      family: candidate.family,
+      score: candidate.score,
+      margin: candidate.margin
+    })),
+    recognitionFeatures: {
+      kneeRange: recognition.features.kneeRange,
+      hipRange: recognition.features.hipRange,
+      kneeBottom: recognition.features.kneeBottom,
+      hipKneeRomRatio: recognition.features.hipKneeRomRatio,
+      wristBelowKneeMax: recognition.features.wristBelowKneeMax,
+      startKnee: recognition.features.startKnee,
+      endKnee: recognition.features.endKnee,
+      startHipHeight: recognition.features.startHipHeight,
+      endHipHeight: recognition.features.endHipHeight,
+      seatedEnd: recognition.features.seatedEnd,
+      oneWayTrip: recognition.features.oneWayTrip,
+      bottomPlateauMs: recognition.features.bottomPlateauMs,
+      hipDrop: recognition.features.hipDrop,
+      cycleCount: recognition.features.cycleCount
     }
   }
 }
@@ -1322,6 +1363,12 @@ export function precheckMotion(input: {
     action: template.id,
     actionConfident: classification.confident,
     analyzedRange,
-    viewEstimate: viewEstimateSummary
+    viewEstimate: viewEstimateSummary,
+    classificationDebug: {
+      action: classification.action,
+      confident: classification.confident,
+      candidates: (classification as TemplateClassification).candidates ?? [],
+      recognitionFeatures: (classification as TemplateClassification).recognitionFeatures
+    }
   }
 }

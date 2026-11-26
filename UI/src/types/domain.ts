@@ -276,6 +276,34 @@ export interface MotionPrecheckResult {
   actionConfident: boolean
   /** 本次预检实际覆盖的视频时间区间（V2：活跃区间精扫，不再是固定的前 10 秒） */
   analyzedRange?: { startMs: number; endMs: number; source: string }
+  /** 采样与粗扫判别信息：解释为什么走 15fps 或 30fps 分支（旧调用/旧记录没有） */
+  sampling?: {
+    coarseFps: number
+    fineFps: number
+    gaitCandidate: boolean
+    rangeSource: string
+    coarseGait: {
+      cycles: number
+      cadence: number | null
+      periodSec: number | null
+      method: string
+      periodicityR: number | null
+    }
+    coarseRecognition: {
+      family: string
+      action: string
+      confident: boolean
+      kneeSync: number | null
+      ankleLiftAmp: number | null
+    }
+  }
+  /** 动作识别明细（候选分数 + 关键特征）：排查边界误判用，界面不展示 */
+  classificationDebug?: {
+    action: string
+    confident: boolean
+    candidates: { action: string; family?: string; score: number; margin: number | null }[]
+    recognitionFeatures?: Record<string, number | boolean | null>
+  }
   /** V2 多证据视角估计摘要；旧调用/旧记录没有该字段 */
   viewEstimate?: {
     category: string

@@ -252,8 +252,14 @@ export function extractRecognitionFeatures(frames: MotionFrame[], fps: number): 
   const seatedEnd = endKnee !== null && endKnee < 140
     && startHipHeight !== null && endHipHeight !== null
     && endHipHeight <= startHipHeight - 0.25
-  // 单向行程：首尾姿态差很多（只下放未起身 / 只起身未下放），不计峰谷噪声
-  const oneWayTrip = startKnee !== null && endKnee !== null && Math.abs(startKnee - endKnee) > 25
+  // 单向行程：首尾必须出现"姿势层级"的变化（不只是首尾几帧的噪声差），
+  // 例如从站直坐到低位、或从底部开始没有再下放。要求髋高也随方向一起变。
+  const oneWayTrip = startKnee !== null && endKnee !== null
+    && Math.abs(startKnee - endKnee) > 25
+    && startHipHeight !== null && endHipHeight !== null
+    && (endKnee < startKnee
+      ? endHipHeight <= startHipHeight - 0.25
+      : endHipHeight >= startHipHeight + 0.25)
 
   // 步态证据：左右踝各自相对髋的抬升周期；交替性好才可能判步态
   const ankleLiftLeft: (number | null)[] = []

@@ -172,6 +172,8 @@ function scoreClip(clip, series, pipeline, truth) {
           action: pipeline.precheck.action,
           reasons: pipeline.precheck.reasons,
           analyzedRange: pipeline.precheck.analyzedRange ?? null,
+          sampling: pipeline.precheck.sampling ?? null,
+          classificationDebug: pipeline.precheck.classificationDebug ?? null,
           viewEstimate: pipeline.precheck.viewEstimate ?? null
         }
       : null,

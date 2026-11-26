@@ -4,12 +4,13 @@ import type { PoseEngine } from './poseEngine'
 import { POSE_MODEL_PATHS, POSE_ASSETS_HINT } from './poseLandmarkerFactory'
 import { isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import {
-  analyzeGait,
   analyzeMotion,
   extractMotionFrame,
   precheckMotion,
   type MotionFrame
 } from '@/services/motionAnalysis'
+import { estimateGaitEvents } from '@/services/motion-engine/temporal/gait'
+import { recognizeAction } from '@/services/motion-engine/recognition/actions'
 import { templateFor } from '@/services/motionTemplates'
 import {
   coarseGridTimes,
@@ -376,12 +377,20 @@ export function useVideoAnalysis() {
   }
 
   /** 粗扫判定"这是不是步态候选"：命中则精扫用 30fps，否则 15fps */
-  function isGaitCandidate(coarseFrames: MotionFrame[], fps: number, templateId?: string): boolean {
-    if (templateId && templateFor(templateId).kind === 'gait') return true
-    const gait = analyzeGait(coarseFrames, fps)
-    // 步频只作连续特征/候选条件，不再是一票否决的硬门槛
-    return (gait.alternating && gait.footStrikes >= 4 && (gait.cadence ?? 0) >= 100)
-      || (gait.alternating && gait.footStrikes >= 6)
+  function gaitCandidateFor(coarseFrames: MotionFrame[], fps: number, templateId?: string) {
+    const events = estimateGaitEvents(coarseFrames, fps)
+    const recognition = recognizeAction(coarseFrames, fps)
+    const features = recognition.features
+    if (templateId && templateFor(templateId).kind === 'gait') {
+      return { candidate: true, events, recognition }
+    }
+    // V2：步幅周期（归一化踝抬升 + 自相关）优先；5fps 下周期估不出时，
+    // 再用"左右膝角同步性"兜底：交替步态的左右膝角相关天然很低。
+    const candidate = (events.method === 'periodicity'
+        && (events.periodicityR ?? 0) >= 0.3 && events.cycles >= 2)
+      || (features.kneeSync !== null && features.kneeSync <= 0.2
+        && (features.ankleLiftAmp ?? 0) >= 0.08)
+    return { candidate, events, recognition }
   }
 
   /**
@@ -406,7 +415,8 @@ export function useVideoAnalysis() {
       })
       const plan: AnalysisWindowPlan = planAnalysisWindow(coarseFrames, COARSE_FPS, durationMs)
       let range = plan.range
-      const gaitCandidate = isGaitCandidate(coarseFrames, COARSE_FPS, templateId)
+      const gaitInfo = gaitCandidateFor(coarseFrames, COARSE_FPS, templateId)
+      const gaitCandidate = gaitInfo.candidate
       if (gaitCandidate) {
         // 跑姿只分析"最活跃的一段"（最多 20 秒），不再默认截取视频开头
         const span = mostActiveSpan(plan.energy, { startMs: 0, endMs: durationMs }, Math.min(durationMs, RUNNING_MAX_SECONDS * 1000))
@@ -423,12 +433,36 @@ export function useVideoAnalysis() {
       lastFps = fineFps
       progress.value = 1
       statusText.value = '正在判定动作与视角'
-      return precheckMotion({
+      const precheckResult = precheckMotion({
         fps: fineFps,
         frames,
         range,
         ...(templateId ? { templateId } : {})
       })
+      // 采样与粗扫判别信息：界面不必展示，但评测/证据要能解释"为什么走了 15fps 或 30fps 分支"
+      return {
+        ...precheckResult,
+        sampling: {
+          coarseFps: COARSE_FPS,
+          fineFps,
+          gaitCandidate,
+          rangeSource: range.source,
+          coarseGait: {
+            cycles: gaitInfo.events.cycles,
+            cadence: gaitInfo.events.cadence,
+            periodSec: gaitInfo.events.periodSec,
+            method: gaitInfo.events.method,
+            periodicityR: gaitInfo.events.periodicityR
+          },
+          coarseRecognition: {
+            family: gaitInfo.recognition.family,
+            action: gaitInfo.recognition.action,
+            confident: gaitInfo.recognition.confident,
+            kneeSync: gaitInfo.recognition.features.kneeSync,
+            ankleLiftAmp: gaitInfo.recognition.features.ankleLiftAmp
+          }
+        }
+      }
     } finally {
       if (seq === runSeq) {
         phase.value = 'idle'
