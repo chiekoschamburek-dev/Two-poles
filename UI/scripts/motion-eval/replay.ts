@@ -83,6 +83,10 @@ interface ModeResult {
   repCount: number | null
   gaitCycles: number | null
   findings: number
+  /** 计数明细：自适应分段出来的每次重复起止与主信号参数 */
+  intervals?: { startMs: number; endMs: number }[]
+  partials?: { startMs: number; endMs: number; kind: string }[]
+  segmentation?: { signal: string; neutral: number; bottom: number; amplitude: number; noise: number }
 }
 
 /** series.json 里只存了角度、可见度与 33 个 landmarks；重建 MotionFrame 需要坐标。 */
@@ -153,7 +157,17 @@ function runMode(frames: MotionFrame[], fps: number, action: string, view: Truth
     // 必须读管道实际产出的步态周期：如果自动分类成 curl，这里就是 null，
     // 不能另外调 analyzeGait 把「管道根本没跑步态」掩盖成通过。
     gaitCycles: result.gaitCycles,
-    findings: result.findings.length
+    findings: result.findings.length,
+    intervals: (result.reps ?? []).map(rep => ({
+      startMs: Math.round(rep.startMs),
+      endMs: Math.round(rep.endMs)
+    })),
+    partials: (result.partialRepetitions ?? []).map(partial => ({
+      startMs: Math.round(partial.startMs),
+      endMs: Math.round(partial.endMs),
+      kind: partial.kind
+    })),
+    ...(result.segmentation ? { segmentation: result.segmentation } : {})
   }
 }
 
@@ -268,6 +282,14 @@ if (!existsSync(BASELINE)) {
         + ` knee=${round(Math.min(...knee))}~${round(Math.max(...knee))}`
         + ` hipHeight=${hipHeight.length ? `${Math.min(...hipHeight).toFixed(2)}~${Math.max(...hipHeight).toFixed(2)}` : '—'}`
         + ` wristBelowKnee=${wrist.length ? `${Math.min(...wrist).toFixed(2)}~${Math.max(...wrist).toFixed(2)}` : '—'}`)
+      if (auto.segmentation || auto.intervals?.length || auto.partials?.length) {
+        console.log('  segmentation ' + series.clip
+          + ` signal=${auto.segmentation?.signal ?? '—'}`
+          + ` neutral=${auto.segmentation?.neutral ?? '—'} bottom=${auto.segmentation?.bottom ?? '—'}`
+          + ` amplitude=${auto.segmentation?.amplitude ?? '—'} noise=${auto.segmentation?.noise ?? '—'}`
+          + ` intervals=${JSON.stringify(auto.intervals ?? [])}`
+          + ` partials=${JSON.stringify(auto.partials ?? [])}`)
+      }
     }
 
     rows.push({

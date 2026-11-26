@@ -81,6 +81,16 @@ export interface MotionAnalysisResult {
   angles?: MotionAngleSample[]
   /** 由逐帧角度/髋部位置派生的运动学序列；只在本机会话与可选留存里使用 */
   kinematics?: MotionKinematics
+  /** V2 自适应分段的自证参数：主信号、上下基线、幅度与噪声；旧记录没有该字段 */
+  segmentation?: {
+    signal: string
+    neutral: number
+    bottom: number
+    amplitude: number
+    noise: number
+  }
+  /** 首尾不完整的单程动作：只有起身/只有下放/遮挡中断，不混入完整次数 */
+  partialRepetitions?: { startMs: number; endMs: number; kind: string; signal: string }[]
   /** 本次结论覆盖的视频时间区间；旧记录没有该字段，按全片处理 */
   analyzedRange?: { startMs: number; endMs: number; source: string }
   /** V2 多证据视角估计；旧记录没有该字段 */

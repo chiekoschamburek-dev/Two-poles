@@ -17,6 +17,7 @@ import { consistencyRulesFor } from '@/services/motionConsistency'
 import { computeKinematics, kinematicsMetrics } from '@/services/motionKinematics'
 import { estimateView, suggestedViewFromEstimate, viewToAnalysisView } from '@/services/motion-engine/view/estimate'
 import { recognizeAction } from '@/services/motion-engine/recognition/actions'
+import { segmentRepsAdaptive, type PartialRepetition } from '@/services/motion-engine/segmentation/reps'
 
 export interface MotionPoint {
   x: number
@@ -267,9 +268,29 @@ export function detectView(frames: MotionFrame[]): {
   return { view: null, confidence: 0, suggested: median >= boundary ? 'front' : 'side' }
 }
 
-function segmentReps(frames: MotionFrame[], template: MotionActionTemplate): { intervals: RepInterval[]; count: number } {
+function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps: number): {
+  intervals: RepInterval[]
+  count: number
+  partials: PartialRepetition[]
+  segmentation: { signal: string; neutral: number; bottom: number; amplitude: number; noise: number } | null
+} {
   const rule = repRuleForTemplate(template)
-  if (!rule || !template.segmentation) return { intervals: [], count: 0 }
+  if (!rule || !template.segmentation) return { intervals: [], count: 0, partials: [], segmentation: null }
+  // V2：先尝试自适应分段（主信号 + 稳健分位数），失败才回退模板固定阈值。
+  // 浅蹲/个体幅度差异靠这次自适应吃下；文献质量阈值仍由规则层单独判断。
+  const adaptive = segmentRepsAdaptive(frames, fps, {
+    joint: template.segmentation.joint,
+    pattern: template.pattern,
+    minStageMs: template.segmentation.minStageMs,
+    maxStageMs: template.segmentation.maxStageMs
+  })
+  const segmentation = adaptive.usable
+    ? { signal: adaptive.signal, neutral: adaptive.neutral, bottom: adaptive.bottom, amplitude: adaptive.amplitude, noise: adaptive.noise }
+    : null
+  if (adaptive.usable) {
+    return { intervals: adaptive.intervals, count: adaptive.count, partials: adaptive.partials, segmentation }
+  }
+  // 回退：固定阈值状态机（旧行为，保证合成/边界素材不因自适应失败而丢计数）
   const machine = createRepMachine(rule)
   const joint = template.segmentation.joint
   const intervals: RepInterval[] = []
@@ -278,7 +299,7 @@ function segmentReps(frames: MotionFrame[], template: MotionActionTemplate): { i
     const snapshot = machine.feed(sample.angle, sample.visibility, frame.timeMs)
     if (snapshot.counted && snapshot.lastRep) intervals.push(snapshot.lastRep)
   }
-  return { intervals, count: machine.snapshot().count }
+  return { intervals, count: machine.snapshot().count, partials: [], segmentation }
 }
 
 /** 供实时模式复用：rep 结束时该次所有帧都是过去/当前，摘要与离线逐位相同 */
@@ -635,8 +656,8 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   const usable = series.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
   const usableRatio = series.frames.length ? usable.length / series.frames.length : 0
   const segmented = template.kind === 'reps'
-    ? segmentReps(series.frames, template)
-    : { intervals: [], count: 0 }
+    ? segmentReps(series.frames, template, series.fps)
+    : { intervals: [], count: 0, partials: [], segmentation: null }
   const reps = segmented.intervals.map((interval, index) =>
     analyzeRep(series.frames, interval, index + 1, series.fps, series.action)
   )
@@ -711,6 +732,8 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     fps: series.fps,
     reps,
     angles,
+    ...(segmented.partials.length ? { partialRepetitions: segmented.partials } : {}),
+    ...(segmented.segmentation ? { segmentation: segmented.segmentation } : {}),
     ...(series.range ? { analyzedRange: series.range } : {}),
     viewEstimate: {
       category: viewEstimate.category,
@@ -1064,7 +1087,7 @@ export function precheckMotion(input: {
       reasons.push('静态保持区间不足 3 秒：请拍摄完整的支撑过程后重试')
     }
   } else {
-    repCount = segmentReps(input.frames, template).count
+    repCount = segmentReps(input.frames, template, input.fps).count
     if (repCount === 0) {
       degraded = true
       reasons.push('未识别到完整重复动作：请完整拍摄至少 1 次动作后重试')

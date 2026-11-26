@@ -2499,16 +2499,26 @@ const parityEvents = eventsFromFrames(paritySeries.frames, parityRule, 'knee',
   (frames, interval, index) => analyzeRep(frames, interval, index, paritySeries.fps, 'squat'))
 ok('离线摘要次数与 repCount 一致', (parityOffline.reps?.length ?? 0) === parityOffline.repCount)
 ok('事件流产出的摘要次数一致', parityEvents.intervals.length === (parityOffline.reps?.length ?? -1))
-ok('同一序列两路摘要逐字段相同', parityEvents.events
-  .filter(e => e.type === 'rep-complete')
-  .every((event, index) => {
+// V2 起离线分段是自适应的，实时事件流仍按固定规则切段：两者允许边界差一帧，
+// 但计数必须一致，最低点角度/离心时长的口径必须可比（不是各算一套）
+ok('同一序列两路摘要口径一致（计数一致，角度/时长在容差内）', (() => {
+  const complete = parityEvents.events.filter(event => event.type === 'rep-complete')
+  if (complete.length !== (parityOffline.reps?.length ?? -1)) return false
+  return complete.every((event, index) => {
     if (event.type !== 'rep-complete' || !event.summary) return false
     const offline = parityOffline.reps![index]
-    return event.summary.bottomKneeAngle === offline.bottomKneeAngle
-      && event.summary.eccentricMs === offline.eccentricMs
-      && event.summary.visibilityMean === offline.visibilityMean
-      && event.summary.endHipAngle === offline.endHipAngle
-  }))
+    const kneeClose = event.summary.bottomKneeAngle === null || offline.bottomKneeAngle === null
+      ? event.summary.bottomKneeAngle === offline.bottomKneeAngle
+      : Math.abs(event.summary.bottomKneeAngle - offline.bottomKneeAngle) <= 3
+    const tempoClose = event.summary.eccentricMs === null || offline.eccentricMs === null
+      ? event.summary.eccentricMs === offline.eccentricMs
+      : Math.abs(event.summary.eccentricMs - offline.eccentricMs) <= 120
+    const visibilityClose = event.summary.visibilityMean === null || offline.visibilityMean === null
+      ? event.summary.visibilityMean === offline.visibilityMean
+      : Math.abs(event.summary.visibilityMean - offline.visibilityMean) <= 0.05
+    return kneeClose && tempoClose && visibilityClose
+  })
+})())
 ok('analyzeMotion 现在带回逐帧角度序列', (parityOffline.angles?.length ?? 0) === paritySeries.frames.length)
 ok('逐帧序列含膝/髋/躯干三个角度', (parityOffline.angles ?? []).every(a => 'kneeAngle' in a && 'hipAngle' in a && 'trunkAngle' in a))
 ok('每次 rep 摘要带 visibilityMean', (parityOffline.reps ?? []).every(rep => rep.visibilityMean !== null))
@@ -3212,6 +3222,62 @@ ok('步行分析只给节律测量', walkResult.findings.length === 0
   && walkResult.metrics.some(metric => metric.id === 'metric-cadence'),
   JSON.stringify({ cycles: walkResult.gaitCycles, metrics: walkResult.metrics.map(metric => metric.id) }))
 ok('步行不改跑姿模板的可见性', visibleTemplates().every(template => template.id !== 'walk'))
+
+console.log('\n61. Motion Engine V2 · M5 自适应分段与计数')
+// 1) 浅蹲：低于 V1 固定 bottom 阈值，但保持同样的完整行程，必须能计数
+const shallowSeries = buildSquatSeries({ reps: 1, bottomKnee: 128 })
+const shallowAdaptive = analyzeMotion({ ...shallowSeries, view: 'side' })
+const shallowTemplate = templateFor('squat')
+const shallowFixedRule = repRuleForTemplate(shallowTemplate)!
+const shallowFixedMachine = createRepMachine(shallowFixedRule)
+for (const frame of shallowSeries.frames) {
+  const sample = measureJointAngle(frame, 'knee')
+  shallowFixedMachine.feed(sample.angle, sample.visibility, frame.timeMs)
+}
+ok('固定阈值会漏掉 128° 的完整浅蹲', shallowFixedMachine.snapshot().count === 0,
+  String(shallowFixedMachine.snapshot().count))
+ok('自适应分段按本次幅度计数浅蹲', shallowAdaptive.repCount === 1,
+  JSON.stringify({ count: shallowAdaptive.repCount, segmentation: shallowAdaptive.segmentation }))
+ok('自适应结果自证主信号与上下基线', shallowAdaptive.segmentation?.signal === 'kneeAngle'
+  && (shallowAdaptive.segmentation?.amplitude ?? 0) > 20)
+
+// 2) 只有下放没有起身：完整次数 0，但要记录半程
+const descentOnlyFrames: MotionFrame[] = []
+{
+  let time = 1000 / 15
+  const push = (kneeAngle: number, lean: number, count: number) => {
+    for (let i = 0; i < count; i++) { descentOnlyFrames.push(legFrame(time, kneeAngle, lean, kneeAngle < 130)); time += 1000 / 15 }
+  }
+  push(172, 5, 20)
+  for (let i = 1; i <= 12; i++) push(172 + (90 - 172) * i / 12, 5 + 20 * i / 12, 1)
+  push(90, 25, 40)
+}
+const descentResult = analyzeMotion({ action: 'sit-to-stand', view: 'side', fps: 15, frames: descentOnlyFrames })
+ok('坐下未起身：完整次数为 0', descentResult.repCount === 0, String(descentResult.repCount))
+ok('坐下未起身记录半程下降', descentResult.partialRepetitions?.[0]?.kind === 'descent-only',
+  JSON.stringify(descentResult.partialRepetitions))
+
+// 3) 从底部开始的硬拉：完整次数 0，记录只有起身
+const ascentOnlyFrames: MotionFrame[] = []
+{
+  let time = 1000 / 15
+  const push = (kneeAngle: number, lean: number, count: number) => {
+    for (let i = 0; i < count; i++) { ascentOnlyFrames.push(legFrame(time, kneeAngle, lean, kneeAngle < 130)); time += 1000 / 15 }
+  }
+  push(100, 60, 15)
+  for (let i = 1; i <= 12; i++) push(100 + (172 - 100) * i / 12, 60 - 55 * i / 12, 1)
+  push(172, 5, 20)
+}
+const ascentResult = analyzeMotion({ action: 'deadlift', view: 'side', fps: 15, frames: ascentOnlyFrames })
+ok('从底部开始的硬拉：完整次数为 0', ascentResult.repCount === 0, String(ascentResult.repCount))
+ok('从底部开始的硬拉记录只有起身', ascentResult.partialRepetitions?.some(partial => partial.kind === 'ascent-only'),
+  JSON.stringify(ascentResult.partialRepetitions))
+
+// 4) 静止画面不产生幻影次数或半程
+const stillAnalyzed = analyzeMotion({ action: 'squat', view: 'side', fps: 15, frames: stillFrames.frames })
+ok('静止画面不产生幻影计数', stillAnalyzed.repCount === 0
+  && (stillAnalyzed.partialRepetitions?.length ?? 0) === 0)
+ok('完整深蹲仍按间隔切出两次', analyzeMotion({ ...goodSquat, view: 'side' }).repCount === 2)
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

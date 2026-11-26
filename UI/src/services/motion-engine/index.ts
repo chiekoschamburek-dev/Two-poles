@@ -60,3 +60,5 @@ export {
 export type { MotionFamily, FamilyDecision } from './recognition/family'
 export { recognizeAction, ACTION_CONFIDENCE } from './recognition/actions'
 export type { RecognitionResult, ActionCandidate } from './recognition/actions'
+export { segmentRepsAdaptive, signalFor } from './segmentation/reps'
+export type { AdaptiveRepSegmentation, AdaptiveRepOptions, PartialRepetition, RepSignal } from './segmentation/reps'
