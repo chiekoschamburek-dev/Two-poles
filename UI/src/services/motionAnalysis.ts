@@ -18,6 +18,7 @@ import { computeKinematics, kinematicsMetrics } from '@/services/motionKinematic
 import { estimateView, suggestedViewFromEstimate, viewToAnalysisView } from '@/services/motion-engine/view/estimate'
 import { recognizeAction } from '@/services/motion-engine/recognition/actions'
 import { segmentRepsAdaptive, type PartialRepetition } from '@/services/motion-engine/segmentation/reps'
+import { buildMotionEvidence } from '@/services/motion-engine/evidence/evidence'
 
 export interface MotionPoint {
   x: number
@@ -268,7 +269,7 @@ export function detectView(frames: MotionFrame[]): {
   return { view: null, confidence: 0, suggested: median >= boundary ? 'front' : 'side' }
 }
 
-function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps: number): {
+function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps: number, identityRisk = false): {
   intervals: RepInterval[]
   count: number
   partials: PartialRepetition[]
@@ -282,24 +283,39 @@ function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps:
     joint: template.segmentation.joint,
     pattern: template.pattern,
     minStageMs: template.segmentation.minStageMs,
-    maxStageMs: template.segmentation.maxStageMs
+    maxStageMs: template.segmentation.maxStageMs,
+    identityRisk
   })
   const segmentation = adaptive.usable
     ? { signal: adaptive.signal, neutral: adaptive.neutral, bottom: adaptive.bottom, amplitude: adaptive.amplitude, noise: adaptive.noise }
     : null
-  if (adaptive.usable) {
+  // 固定阈值状态机是保守基线：它计数正确时优先采信（真实素材上更稳）。
+  const runFixed = () => {
+    const machine = createRepMachine(rule)
+    const joint = template.segmentation!.joint
+    const intervals: RepInterval[] = []
+    for (const frame of frames) {
+      const sample = jointAngle(frame, joint)
+      const snapshot = machine.feed(sample.angle, sample.visibility, frame.timeMs)
+      if (snapshot.counted && snapshot.lastRep) intervals.push(snapshot.lastRep)
+    }
+    return { intervals, count: machine.snapshot().count }
+  }
+  const fixed = runFixed()
+  if (!adaptive.usable) {
+    return { intervals: fixed.intervals, count: fixed.count, partials: [], segmentation }
+  }
+  if (fixed.count > 0) {
+    return { intervals: fixed.intervals, count: fixed.count, partials: adaptive.partials, segmentation }
+  }
+  // 固定阈值一次都没数到：仅在"幅度足够大 + 视角稳定（没有换人风险）"时才改用自适应，
+  // 否则宁可保守报 0，也不把多人画面里的跟踪抖动算成动作。
+  const expectedRange = Math.abs(rule.neutral - rule.bottom)
+  const strongAmplitude = adaptive.amplitude >= Math.max(expectedRange * 0.35, adaptive.noise * 2)
+  if (!identityRisk && strongAmplitude && adaptive.count > 0) {
     return { intervals: adaptive.intervals, count: adaptive.count, partials: adaptive.partials, segmentation }
   }
-  // 回退：固定阈值状态机（旧行为，保证合成/边界素材不因自适应失败而丢计数）
-  const machine = createRepMachine(rule)
-  const joint = template.segmentation.joint
-  const intervals: RepInterval[] = []
-  for (const frame of frames) {
-    const sample = jointAngle(frame, joint)
-    const snapshot = machine.feed(sample.angle, sample.visibility, frame.timeMs)
-    if (snapshot.counted && snapshot.lastRep) intervals.push(snapshot.lastRep)
-  }
-  return { intervals, count: machine.snapshot().count, partials: [], segmentation }
+  return { intervals: fixed.intervals, count: fixed.count, partials: adaptive.partials, segmentation }
 }
 
 /** 供实时模式复用：rep 结束时该次所有帧都是过去/当前，摘要与离线逐位相同 */
@@ -733,8 +749,9 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   const template = templateFor(series.action)
   const usable = series.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
   const usableRatio = series.frames.length ? usable.length / series.frames.length : 0
+  const viewEstimate = estimateView(series.frames, series.fps, { aspect: series.frames.find(frame => frame.aspect)?.aspect })
   const segmented = template.kind === 'reps'
-    ? segmentReps(series.frames, template, series.fps)
+    ? segmentReps(series.frames, template, series.fps, viewEstimate.temporalStability < 0.35)
     : { intervals: [], count: 0, partials: [], segmentation: null }
   const reps = segmented.intervals.map((interval, index) =>
     analyzeRep(series.frames, interval, index + 1, series.fps, series.action)
@@ -744,7 +761,6 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     : undefined
   const gait = template.kind === 'gait' ? analyzeGait(series.frames, series.fps) : undefined
   const hold = template.kind === 'hold' ? analyzeHold(series.frames, series.fps) : undefined
-  const viewEstimate = estimateView(series.frames, series.fps, { aspect: series.frames.find(frame => frame.aspect)?.aspect })
   const viewConfidence = viewEstimate.reliability
   const context = {
     action: series.action,
@@ -826,10 +842,26 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
       })
     }
   }
+  const finalFindings = dedupeFindings(admittedFindings)
+  const finalMetrics = capMetrics(metrics)
+  const evidence = buildMotionEvidence({
+    action: series.action,
+    view: series.view,
+    usableRatio,
+    viewEstimate,
+    count: template.kind === 'reps' ? segmented.count : (gait?.cycles ?? hold ? 1 : 0),
+    partialCount: segmented.partials.length,
+    segmentation: segmented.segmentation,
+    holdSeconds: hold?.durationSec ?? null,
+    findings: finalFindings,
+    metrics: finalMetrics,
+    skippedRules,
+    analyzedRange: series.range ?? null
+  })
   return {
-    findings: dedupeFindings(admittedFindings),
+    findings: finalFindings,
     ...(skippedRules.length ? { skippedRules } : {}),
-    metrics: capMetrics(metrics),
+    metrics: finalMetrics,
     repCount: template.kind === 'reps' ? segmented.count : null,
     gaitCycles: gait?.cycles ?? null,
     ...(hold ? { holdSeconds: hold.durationSec } : {}),
@@ -837,6 +869,7 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     fps: series.fps,
     reps,
     angles,
+    evidence,
     ...(segmented.partials.length ? { partialRepetitions: segmented.partials } : {}),
     ...(segmented.segmentation ? { segmentation: segmented.segmentation } : {}),
     ...(series.range ? { analyzedRange: series.range } : {}),
@@ -1192,7 +1225,7 @@ export function precheckMotion(input: {
       reasons.push('静态保持区间不足 3 秒：请拍摄完整的支撑过程后重试')
     }
   } else {
-    repCount = segmentReps(input.frames, template, input.fps).count
+    repCount = segmentReps(input.frames, template, input.fps, viewEstimate.temporalStability < 0.35).count
     if (repCount === 0) {
       degraded = true
       reasons.push('未识别到完整重复动作：请完整拍摄至少 1 次动作后重试')

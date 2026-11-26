@@ -103,6 +103,8 @@ export interface MotionAnalysisResult {
   skippedRules?: { ruleId: string; reason: string }[]
   /** 本次分析所属引擎/规则版本口径；趋势按版本断线，不混合比较 */
   engineVersion?: string
+  /** 六层证据 JSON：动作/视角/事件/指标/关注项/分析区间 */
+  evidence?: MotionEvidenceJson
   /** V2 多证据视角估计；旧记录没有该字段 */
   viewEstimate?: {
     category: string
@@ -111,6 +113,45 @@ export interface MotionAnalysisResult {
     temporalStability: number
     observability: Record<string, number>
   }
+}
+
+/** 六层证据 JSON：服务端 evidence TEXT 列原样透传，字段可缺省（旧记录没有） */
+export interface MotionEvidenceJson {
+  versions?: Record<string, string>
+  pose?: { usableRatio?: number; meanReliability?: number | null; gaps?: number }
+  action?: {
+    action?: string
+    family?: string | null
+    score?: number | null
+    margin?: number | null
+    confident?: boolean | null
+    source?: string
+  }
+  view?: {
+    category?: string
+    yawDeg?: number | null
+    reliability?: number
+    stability?: number
+    observability?: Record<string, number>
+  } | null
+  event?: {
+    count?: number
+    partialCount?: number
+    signal?: string | null
+    neutral?: number | null
+    bottom?: number | null
+    amplitude?: number | null
+    holdSeconds?: number | null
+  }
+  finding?: {
+    produced?: number
+    official?: number
+    reference?: number
+    skippedRules?: { ruleId: string; reason: string }[]
+  }
+  metrics?: { count?: number }
+  analyzedRange?: { startMs: number; endMs: number; source: string } | null
+  [key: string]: unknown
 }
 
 /** 与 motionAnalysis.RepAnalysis 同形，放这里避免 types 反向依赖 services */
@@ -268,6 +309,8 @@ export interface MotionAnalysis {
   analyzedRange?: { startMs: number; endMs: number; source: string }
   /** V2：引擎版本口径；趋势按版本断线，不混合比较 */
   engineVersion?: string
+  /** V2：六层证据 JSON 文本（服务端 evidence TEXT 列同口径） */
+  evidence?: string
   createdAt: string
   clientId?: string
   serverId?: string

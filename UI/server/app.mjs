@@ -245,6 +245,7 @@ function analysisJson(row) {
     repCount: row.rep_count ?? null,
     gaitCycles: row.gait_cycles ?? null,
     ...(row.usable_ratio === null || row.usable_ratio === undefined ? {} : { usableRatio: row.usable_ratio }),
+    ...(row.evidence ? { evidence: row.evidence } : {}),
     sessionId: row.session_id ?? undefined,
     ruleVersion: row.rule_version,
     createdAt: row.created_at,
@@ -1304,18 +1305,20 @@ export function createApiServer(options = {}) {
       }
       const findings = boundedJsonArray(raw.findings, 20)
       const metrics = boundedJsonArray(raw.metrics, 30)
+      // 六层证据是本机 JSON 文本：只做长度与类型约束，不解析成结构（服务端不解释证据）
+      const evidence = stringOrNull(raw.evidence, 8000)
       const now = nowIso()
       const id = randomUUID()
       db.prepare(`
         INSERT INTO motion_analyses (
           id, client_id, user_id, date, action, exercise_name, view, status,
-          low_confidence_reasons, findings, metrics, rep_count, gait_cycles, usable_ratio,
+          low_confidence_reasons, findings, metrics, rep_count, gait_cycles, usable_ratio, evidence,
           session_id, rule_version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, clientId, user.id, date, action, exerciseName, view, status,
         JSON.stringify(reasons), JSON.stringify(findings), JSON.stringify(metrics),
-        integerOrNull(raw.repCount), integerOrNull(raw.gaitCycles), numberOrNull(raw.usableRatio), sessionId,
+        integerOrNull(raw.repCount), integerOrNull(raw.gaitCycles), numberOrNull(raw.usableRatio), evidence, sessionId,
         stringOrNull(raw.ruleVersion, 80) ?? 'motion-analysis-rules-v1',
         stringOrNull(raw.createdAt, 40) ?? now, now
       )

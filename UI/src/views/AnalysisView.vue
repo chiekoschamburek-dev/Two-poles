@@ -371,6 +371,8 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useAppStore } from '@/stores/app'
 import { useVideoAnalysis, VideoAnalysisError } from '@/composables/useVideoAnalysis'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
+import { MOTION_ENGINE_VERSION } from '@/services/motion-engine/core/versions'
+import { compactEvidence } from '@/services/motion-engine/evidence/evidence'
 import { saveAnalysisKeyframe } from '@/services/analysisKeyframes'
 import KinematicsPanel from '@/components/analysis/KinematicsPanel.vue'
 import MotionTrendCard from '@/components/reports/MotionTrendCard.vue'
@@ -705,8 +707,12 @@ async function persistResult(analysisResult: MotionAnalysisResult, view: Analysi
     gaitCycles: analysisResult.gaitCycles,
     usableRatio: Math.round(analysisResult.usableRatio * 100) / 100,
     ruleVersion: MOTION_RULES_VERSION,
+    engineVersion: MOTION_ENGINE_VERSION,
     ...(analysisResult.skippedRules?.length ? { skippedRules: analysisResult.skippedRules } : {}),
     ...(analysisResult.analyzedRange ? { analyzedRange: analysisResult.analyzedRange } : {}),
+    ...(analysisResult.evidence
+      ? { evidence: compactEvidence(analysisResult.evidence as never) }
+      : {}),
     createdAt: new Date().toISOString(),
     _sync: 'pending'
   }

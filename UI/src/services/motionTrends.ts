@@ -10,9 +10,11 @@ export interface TrendPoint {
   id: string
   date: string
   ruleVersion: string
+  /** V2：引擎版本也参与断线，避免新旧判别层趋势混算 */
+  engineVersion: string
   repCount: number | null
   gaitCycles: number | null
-  /** 关注项条数：口径随 ruleVersion 变化，跨版本不可直接比 */
+  /** 正式关注项条数（参考观察不计入问题数）：口径随版本变化，跨版本不可直接比 */
   findingCount: number
   lowConfidence: boolean
   /** 可用帧占比；影响该点可信度 */
@@ -27,6 +29,7 @@ export interface TrendPoint {
 
 export interface TrendSegment {
   ruleVersion: string
+  engineVersion: string
   points: TrendPoint[]
 }
 
@@ -53,9 +56,10 @@ export function trendPoints(analyses: MotionAnalysis[], sessions: TrainingSessio
       id: analysis.id,
       date: analysis.date,
       ruleVersion: analysis.ruleVersion,
+      engineVersion: analysis.engineVersion ?? analysis.ruleVersion,
       repCount: analysis.repCount,
       gaitCycles: analysis.gaitCycles,
-      findingCount: analysis.findings.length,
+      findingCount: analysis.findings.filter(finding => finding.level !== 'reference').length,
       lowConfidence: analysis.status === 'low-confidence',
       usableRatio: analysis.usableRatio ?? null,
       rpe: session?.rpe ?? null,
@@ -66,13 +70,13 @@ export function trendPoints(analyses: MotionAnalysis[], sessions: TrainingSessio
   }).sort(byDateAsc)
 }
 
-/** 相邻记录 ruleVersion 不同就开新段，图上表现为断线 */
+/** 相邻记录 ruleVersion 或 engineVersion 不同就开新段，图上表现为断线 */
 export function segmentByVersion(points: TrendPoint[]): TrendSegment[] {
   const segments: TrendSegment[] = []
   for (const point of points) {
     const last = segments[segments.length - 1]
-    if (last && last.ruleVersion === point.ruleVersion) last.points.push(point)
-    else segments.push({ ruleVersion: point.ruleVersion, points: [point] })
+    if (last && last.ruleVersion === point.ruleVersion && last.engineVersion === point.engineVersion) last.points.push(point)
+    else segments.push({ ruleVersion: point.ruleVersion, engineVersion: point.engineVersion, points: [point] })
   }
   return segments
 }

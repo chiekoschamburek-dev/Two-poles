@@ -249,12 +249,15 @@ test('motion analyses are idempotent, linkable and soft-deleted', async () => {
     repCount: 1,
     gaitCycles: null,
     ruleVersion: 'motion-analysis-rules-v1',
+    evidence: JSON.stringify({ versions: { engine: 'motion-engine-v2' }, pose: { usableRatio: 0.9 }, event: { count: 1 } }),
     createdAt: '2026-11-02T08:00:00.000Z'
   }
   const first = await request('/analyses', { method: 'POST', body: analysis, idempotencyKey: 'idem-analysis-1' })
   assert.equal(first.status, 201)
   assert.equal(first.body.analysis.clientId, 'local-analysis-1')
   assert.equal(first.body.analysis.findings.length, 1)
+  assert.equal(typeof first.body.analysis.evidence, 'string')
+  assert.equal(JSON.parse(first.body.analysis.evidence).versions.engine, 'motion-engine-v2')
   const replay = await request('/analyses', { method: 'POST', body: analysis, idempotencyKey: 'idem-analysis-1' })
   assert.equal(replay.status, 201)
   assert.equal(replay.body.analysis.id, first.body.analysis.id)
@@ -393,6 +396,8 @@ test('old motion analyses action CHECK is migrated without data loss', () => {
     const tableSql = migrated.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'motion_analyses'").get().sql
     assert.equal(tableSql.includes('CHECK(action IN'), false)
     assert.equal(/oblique/.test(tableSql), true, '迁移后的 view CHECK 必须允许 oblique')
+    const columns = migrated.prepare('PRAGMA table_info(motion_analyses)').all().map(column => column.name)
+    assert.equal(columns.includes('evidence'), true, '老库要补 evidence 列')
     const kept = migrated.prepare('SELECT action, exercise_name, usable_ratio FROM motion_analyses WHERE id = ?').get('old-analysis')
     assert.equal(kept.action, 'squat')
     assert.equal(kept.exercise_name, '深蹲')
@@ -400,11 +405,12 @@ test('old motion analyses action CHECK is migrated without data loss', () => {
     migrated.prepare(`
       INSERT INTO motion_analyses (
         id, client_id, user_id, date, action, exercise_name, view, status,
-        low_confidence_reasons, findings, metrics, rep_count, gait_cycles, usable_ratio,
+        low_confidence_reasons, findings, metrics, rep_count, gait_cycles, usable_ratio, evidence,
         session_id, rule_version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', NULL, NULL, NULL, NULL, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', NULL, NULL, NULL, ?, NULL, ?, ?, ?)
     `).run(
       'new-analysis', 'new-client', 'u1', '2026-11-02', 'bench', '卧推', 'oblique', 'completed',
+      JSON.stringify({ versions: { engine: 'motion-engine-v2' } }),
       'motion-analysis-rules-v3', '2026-11-02T08:00:00.000Z', '2026-11-02T08:00:00.000Z'
     )
     assert.equal(migrated.prepare('SELECT action FROM motion_analyses WHERE id = ?').get('new-analysis').action, 'bench')

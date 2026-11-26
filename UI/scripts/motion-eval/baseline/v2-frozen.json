@@ -1,0 +1,752 @@
+{
+  "generatedAt": "2026-11-26T12:22:02.361Z",
+  "engine": "v2",
+  "caveats": [
+    "truth 为 provisional：关键帧初标，尚未由用户逐条复核",
+    "fixtures 是本机重新采样的逐帧序列（baseline/*.series.json），不是不可变数据集；同一视频换一次姿态后端就可能采到不同 landmarks",
+    "库存素材机位/人物任意，只能逐片报告，不能聚合成单一准确率",
+    "reps 只含完整重复；partialRepetitions 单独记录，不参与计数",
+    "动作/视角/计数与冻结真值逐片对比；fail 的片子必须逐条修，不能只用放宽阈值换通过"
+  ],
+  "rows": [
+    {
+      "clip": "brisk-walk",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "walk",
+        "movementFamily": "locomotion",
+        "view": "front",
+        "viewNote": "正面双人步行；可评估左右交替与步频，不适用跑姿结论",
+        "repCount": 0,
+        "gaitCycles": 8,
+        "gaitSubtype": "walk",
+        "partialRepetitions": [],
+        "notes": "约 16 次触地、8 个步态周期；步频约 97 步/分。应识别为步行并提示暂不支持步行分析，而不是套用深蹲模板。"
+      },
+      "auto": {
+        "action": "walk",
+        "actionConfident": true,
+        "view": "front",
+        "viewConfidence": 0.98,
+        "viewEstimate": {
+          "category": "front",
+          "yawDeg": 26,
+          "reliability": 0.98,
+          "temporalStability": 0.97,
+          "evidence": {
+            "uprightFrames": 55,
+            "medianSeparationRatio": 0.736,
+            "medianFarSideVisibilityGap": 0.012,
+            "shoulderCrossings": 0,
+            "worldYawDeg": null,
+            "problems": []
+          },
+          "observability": {
+            "sagittalAngles": 0.12,
+            "frontalAngles": 0.94,
+            "rhythm": 0.94,
+            "gaitEvents": 0.89,
+            "holdDuration": 0.84
+          }
+        },
+        "mode": {
+          "action": "walk",
+          "analysisAction": "walk",
+          "view": "front",
+          "analysisView": "front",
+          "repCount": null,
+          "gaitCycles": 8,
+          "findings": 0,
+          "intervals": [],
+          "partials": []
+        }
+      },
+      "match": {
+        "action": true,
+        "view": true,
+        "count": true,
+        "range": null
+      },
+      "plan": {
+        "range": {
+          "startMs": 0,
+          "endMs": 9967,
+          "source": "active-window"
+        },
+        "windows": [
+          {
+            "startMs": 0,
+            "endMs": 3133,
+            "source": "active-window"
+          },
+          {
+            "startMs": 4133,
+            "endMs": 9833,
+            "source": "active-window"
+          }
+        ],
+        "coverage": 0.886,
+        "fallback": null,
+        "threshold": 20.93,
+        "coversTruthReps": null
+      },
+      "features": null,
+      "oracle": null,
+      "seriesFps": 30
+    },
+    {
+      "clip": "deadlift-demo",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "deadlift",
+        "movementFamily": "strength",
+        "view": "oblique",
+        "viewNote": "背向 3/4 机位；既不是纯侧面也不是正面，只能做通用计数/节律，矢状面锁定角与冠状面膝内扣都不可靠",
+        "repCount": 1,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [
+          {
+            "startMs": 0,
+            "endMs": 2200,
+            "kind": "ascent-only",
+            "note": "视频从底部开始，约 2.2s 站直。"
+          }
+        ],
+        "notes": "完整 1 次：约 3.0s 站直 → 3.8s 下放 → 5.4s 最低点 → 6.9s 站直；片头 0–2.2s 只有起身。原始视频逐帧核对（2026-11-26）：结尾 7.3s 仍为站直、杠铃在大腿高度，不存在片尾下放半程（初标多记了一次 descent-only，已删）。V1 engine 计 1 次正确；视角应归为斜侧/背向 3/4，而不是直接拒绝。"
+      },
+      "auto": {
+        "action": "deadlift",
+        "actionConfident": true,
+        "view": "oblique",
+        "viewConfidence": 0.96,
+        "viewEstimate": {
+          "category": "oblique",
+          "yawDeg": 52,
+          "reliability": 0.96,
+          "temporalStability": 0.96,
+          "evidence": {
+            "uprightFrames": 22,
+            "medianSeparationRatio": 0.501,
+            "medianFarSideVisibilityGap": 0.113,
+            "shoulderCrossings": 0,
+            "worldYawDeg": null,
+            "problems": []
+          },
+          "observability": {
+            "sagittalAngles": 0.44,
+            "frontalAngles": 0.44,
+            "rhythm": 0.93,
+            "gaitEvents": 0.88,
+            "holdDuration": 0.83
+          }
+        },
+        "mode": {
+          "action": "deadlift",
+          "analysisAction": "deadlift",
+          "view": "oblique",
+          "analysisView": "side",
+          "repCount": 1,
+          "gaitCycles": null,
+          "findings": 0,
+          "intervals": [
+            {
+              "startMs": 4000,
+              "endMs": 5733
+            }
+          ],
+          "partials": [
+            {
+              "startMs": 67,
+              "endMs": 1733,
+              "kind": "ascent-only"
+            }
+          ],
+          "segmentation": {
+            "signal": "hipAngle",
+            "neutral": 177.87,
+            "bottom": 94.32,
+            "amplitude": 83.55,
+            "noise": 28.25
+          }
+        }
+      },
+      "match": {
+        "action": true,
+        "view": true,
+        "count": true,
+        "range": true
+      },
+      "plan": {
+        "range": {
+          "startMs": 0,
+          "endMs": 7333,
+          "source": "active-window"
+        },
+        "windows": [
+          {
+            "startMs": 0,
+            "endMs": 2567,
+            "source": "active-window"
+          },
+          {
+            "startMs": 3167,
+            "endMs": 6567,
+            "source": "active-window"
+          }
+        ],
+        "coverage": 0.814,
+        "fallback": null,
+        "threshold": 7.15,
+        "coversTruthReps": true
+      },
+      "features": null,
+      "oracle": null,
+      "seriesFps": 15
+    },
+    {
+      "clip": "easy-run",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "running",
+        "movementFamily": "locomotion",
+        "view": "front",
+        "viewNote": "背向跑（冠状面）；可评估左右交替/步频，矢状面躯干前倾与触地膝角不可评估",
+        "repCount": 0,
+        "gaitCycles": 10,
+        "gaitSubtype": "run",
+        "partialRepetitions": [],
+        "notes": "约 20 次触地、10 个步态周期；步频约 121 步/分，低于旧硬门槛 140，但明显是跑步。"
+      },
+      "auto": {
+        "action": "walk",
+        "actionConfident": true,
+        "view": "front",
+        "viewConfidence": 0.96,
+        "viewEstimate": {
+          "category": "front",
+          "yawDeg": 36,
+          "reliability": 0.96,
+          "temporalStability": 0.95,
+          "evidence": {
+            "uprightFrames": 36,
+            "medianSeparationRatio": 0.665,
+            "medianFarSideVisibilityGap": 0.087,
+            "shoulderCrossings": 0,
+            "worldYawDeg": null,
+            "problems": []
+          },
+          "observability": {
+            "sagittalAngles": 0.12,
+            "frontalAngles": 0.93,
+            "rhythm": 0.93,
+            "gaitEvents": 0.88,
+            "holdDuration": 0.83
+          }
+        },
+        "mode": {
+          "action": "walk",
+          "analysisAction": "walk",
+          "view": "front",
+          "analysisView": "front",
+          "repCount": null,
+          "gaitCycles": 5,
+          "findings": 0,
+          "intervals": [],
+          "partials": []
+        }
+      },
+      "match": {
+        "action": false,
+        "view": true,
+        "count": false,
+        "range": null
+      },
+      "plan": {
+        "range": {
+          "startMs": 0,
+          "endMs": 9133,
+          "source": "active-window"
+        },
+        "windows": [
+          {
+            "startMs": 733,
+            "endMs": 4133,
+            "source": "active-window"
+          },
+          {
+            "startMs": 4933,
+            "endMs": 8133,
+            "source": "active-window"
+          }
+        ],
+        "coverage": 0.662,
+        "fallback": null,
+        "threshold": 35.26,
+        "coversTruthReps": null
+      },
+      "features": null,
+      "oracle": null,
+      "seriesFps": 30
+    },
+    {
+      "clip": "peso-muerto-sumo",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "deadlift",
+        "movementFamily": "strength",
+        "view": "side",
+        "viewNote": "混合机位：0–10.4s 正面，10.4s 后切到侧面；相扑站距沿镜头轴展开，本片不可评估站距",
+        "repCount": 2,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [],
+        "notes": "原始视频逐帧核对（2026-11-26）：前 10.4s 是正面机位、之后切到侧面机位（杠铃片正对镜头）。完整次数是 2 次：正面段 0.3–8.3s（站直→下放抓杠→站起）、侧面段 11.2–20.2s；19s 附近约 1s 跟踪丢失，但不构成半程。初标把第一段记成 ascent-only 是错的（视频从站直开始，不是从底部开始）。V1 用整片投影比例判 front 是视角误判，计数 1 也少了一次。"
+      },
+      "auto": {
+        "action": "deadlift",
+        "actionConfident": true,
+        "view": "side",
+        "viewConfidence": 0.84,
+        "viewEstimate": {
+          "category": "side",
+          "yawDeg": 85,
+          "reliability": 0.84,
+          "temporalStability": 0.7,
+          "evidence": {
+            "uprightFrames": 44,
+            "medianSeparationRatio": 0.076,
+            "medianFarSideVisibilityGap": 0.132,
+            "shoulderCrossings": 0,
+            "worldYawDeg": null,
+            "problems": []
+          },
+          "observability": {
+            "sagittalAngles": 0.87,
+            "frontalAngles": 0.11,
+            "rhythm": 0.87,
+            "gaitEvents": 0.83,
+            "holdDuration": 0.78
+          }
+        },
+        "mode": {
+          "action": "deadlift",
+          "analysisAction": "deadlift",
+          "view": "side",
+          "analysisView": "side",
+          "repCount": 0,
+          "gaitCycles": null,
+          "findings": 0,
+          "intervals": [],
+          "partials": [
+            {
+              "startMs": 2067,
+              "endMs": 7467,
+              "kind": "descent-only"
+            }
+          ],
+          "segmentation": {
+            "signal": "hipAngle",
+            "neutral": 156.55,
+            "bottom": 14.92,
+            "amplitude": 141.63,
+            "noise": 60.77
+          }
+        }
+      },
+      "match": {
+        "action": true,
+        "view": true,
+        "count": false,
+        "range": true
+      },
+      "plan": {
+        "range": {
+          "startMs": 567,
+          "endMs": 20167,
+          "source": "active-window"
+        },
+        "windows": [
+          {
+            "startMs": 1567,
+            "endMs": 4967,
+            "source": "active-window"
+          },
+          {
+            "startMs": 5767,
+            "endMs": 8167,
+            "source": "active-window"
+          },
+          {
+            "startMs": 11167,
+            "endMs": 12767,
+            "source": "active-window"
+          },
+          {
+            "startMs": 16167,
+            "endMs": 19167,
+            "source": "active-window"
+          }
+        ],
+        "coverage": 0.471,
+        "fallback": null,
+        "threshold": 12.48,
+        "coversTruthReps": true
+      },
+      "features": null,
+      "oracle": null,
+      "seriesFps": 15
+    },
+    {
+      "clip": "peso-muerto",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "deadlift",
+        "movementFamily": "strength",
+        "view": "side",
+        "viewNote": "侧面单色布景；可评估髋锁定与躯干",
+        "repCount": 1,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [
+          {
+            "startMs": 16000,
+            "endMs": 29600,
+            "kind": "occluded-cycle",
+            "note": "第二次硬拉：16s 开始下放、20.5s 到底、22–28s 画面黑屏/人体丢失、28.5s 起身、29.6s 站直。起止可见但中段不可观测，按未完成/遮挡处理，不计入完整次数。"
+          }
+        ],
+        "notes": "原始视频逐帧核对（2026-11-26）：0–1s 站直，2–4s 开始俯身，约 10.5s 到最低点，13.6s 站直；第二次 16s 起下放，22–28s 黑屏/人体丢失，30.3s 站直。完整 1 次；第二次被 6 秒黑屏截断。V1 计 1 次是合理的保守口径，真正要补的是「遮挡未完成」提示，不是把次数改成 2。"
+      },
+      "auto": {
+        "action": "deadlift",
+        "actionConfident": false,
+        "view": "side",
+        "viewConfidence": 0.88,
+        "viewEstimate": {
+          "category": "side",
+          "yawDeg": 88,
+          "reliability": 0.88,
+          "temporalStability": 0.8,
+          "evidence": {
+            "uprightFrames": 73,
+            "medianSeparationRatio": 0.035,
+            "medianFarSideVisibilityGap": 0.171,
+            "shoulderCrossings": 7,
+            "worldYawDeg": null,
+            "problems": []
+          },
+          "observability": {
+            "sagittalAngles": 0.89,
+            "frontalAngles": 0.11,
+            "rhythm": 0.89,
+            "gaitEvents": 0.85,
+            "holdDuration": 0.8
+          }
+        },
+        "mode": {
+          "action": "deadlift",
+          "analysisAction": "deadlift",
+          "view": "side",
+          "analysisView": "side",
+          "repCount": 1,
+          "gaitCycles": null,
+          "findings": 0,
+          "intervals": [
+            {
+              "startMs": 4733,
+              "endMs": 13733
+            }
+          ],
+          "partials": [
+            {
+              "startMs": 18067,
+              "endMs": 25133,
+              "kind": "occluded-cycle"
+            },
+            {
+              "startMs": 25200,
+              "endMs": 28400,
+              "kind": "occluded-cycle"
+            }
+          ],
+          "segmentation": {
+            "signal": "hipAngle",
+            "neutral": 172.54,
+            "bottom": 69.56,
+            "amplitude": 102.98,
+            "noise": 31.81
+          }
+        }
+      },
+      "match": {
+        "action": true,
+        "view": true,
+        "count": true,
+        "range": true
+      },
+      "plan": {
+        "range": {
+          "startMs": 0,
+          "endMs": 30333,
+          "source": "active-window"
+        },
+        "windows": [
+          {
+            "startMs": 5967,
+            "endMs": 7367,
+            "source": "active-window"
+          },
+          {
+            "startMs": 8167,
+            "endMs": 14567,
+            "source": "active-window"
+          },
+          {
+            "startMs": 20367,
+            "endMs": 21567,
+            "source": "active-window"
+          },
+          {
+            "startMs": 24367,
+            "endMs": 26167,
+            "source": "active-window"
+          },
+          {
+            "startMs": 28367,
+            "endMs": 30267,
+            "source": "active-window"
+          }
+        ],
+        "coverage": 0.419,
+        "fallback": null,
+        "threshold": 12.7,
+        "coversTruthReps": true
+      },
+      "features": null,
+      "oracle": null,
+      "seriesFps": 15
+    },
+    {
+      "clip": "sit-to-stand",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "sit-to-stand",
+        "movementFamily": "strength",
+        "view": "oblique",
+        "viewNote": "团体课正面机位，但流水线跟踪到的是画面左侧橙衣学员（约 60° 背向/斜侧，肩宽/躯干比 0.56，正面应约 0.8+）。按被跟踪主体的实际朝向记为斜侧。",
+        "repCount": 0,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [
+          {
+            "startMs": 8800,
+            "endMs": 15200,
+            "kind": "descent-only",
+            "note": "前 7 秒是站姿举臂准备；约 9.6s 开始坐下，视频结束时仍为坐姿，没有起身动作。完整 sit-to-stand 次数为 0。"
+          }
+        ],
+        "notes": "原始视频逐帧核对（2026-11-26）：前 7 秒站姿举臂，约 9.3s 开始坐下，视频结束时仍坐着，完整起坐 0 次；MediaPipe 跟踪的是画面左侧橙衣学员，她背向镜头约 3/4，视角应为 oblique，而不是整堂课的正面机位。"
+      },
+      "auto": {
+        "action": "sit-to-stand",
+        "actionConfident": true,
+        "view": "oblique",
+        "viewConfidence": 0.64,
+        "viewEstimate": {
+          "category": "oblique",
+          "yawDeg": 65,
+          "reliability": 0.64,
+          "temporalStability": 0.03,
+          "evidence": {
+            "uprightFrames": 46,
+            "medianSeparationRatio": 0.353,
+            "medianFarSideVisibilityGap": 0.058,
+            "shoulderCrossings": 5,
+            "worldYawDeg": null,
+            "problems": []
+          },
+          "observability": {
+            "sagittalAngles": 0.37,
+            "frontalAngles": 0.37,
+            "rhythm": 0.78,
+            "gaitEvents": 0.74,
+            "holdDuration": 0.7
+          }
+        },
+        "mode": {
+          "action": "sit-to-stand",
+          "analysisAction": "sit-to-stand",
+          "view": "oblique",
+          "analysisView": "side",
+          "repCount": 1,
+          "gaitCycles": null,
+          "findings": 0,
+          "intervals": [
+            {
+              "startMs": 9400,
+              "endMs": 10400
+            }
+          ],
+          "partials": [
+            {
+              "startMs": 12467,
+              "endMs": 15133,
+              "kind": "descent-only"
+            }
+          ],
+          "segmentation": {
+            "signal": "kneeAngle",
+            "neutral": 177.16,
+            "bottom": 104.1,
+            "amplitude": 73.06,
+            "noise": 8.03
+          }
+        }
+      },
+      "match": {
+        "action": true,
+        "view": true,
+        "count": false,
+        "range": null
+      },
+      "plan": {
+        "range": {
+          "startMs": 0,
+          "endMs": 15200,
+          "source": "active-window"
+        },
+        "windows": [
+          {
+            "startMs": 4567,
+            "endMs": 7567,
+            "source": "active-window"
+          },
+          {
+            "startMs": 12367,
+            "endMs": 15067,
+            "source": "active-window"
+          }
+        ],
+        "coverage": 0.375,
+        "fallback": null,
+        "threshold": 28.3,
+        "coversTruthReps": null
+      },
+      "features": null,
+      "oracle": null,
+      "seriesFps": 15
+    },
+    {
+      "clip": "test_squat",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "squat",
+        "movementFamily": "strength",
+        "view": "front",
+        "viewNote": "正面拍摄；可评估膝内扣/对称性，矢状面深度类规则不适用",
+        "repCount": 4,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [],
+        "notes": "4 次浅蹲（最低膝角约 114°）；V1 已能计 4 次，计数不是本片的问题。"
+      },
+      "auto": {
+        "action": "squat",
+        "actionConfident": true,
+        "view": "front",
+        "viewConfidence": 0.99,
+        "viewEstimate": {
+          "category": "front",
+          "yawDeg": 32,
+          "reliability": 0.99,
+          "temporalStability": 0.99,
+          "evidence": {
+            "uprightFrames": 30,
+            "medianSeparationRatio": 0.699,
+            "medianFarSideVisibilityGap": 0,
+            "shoulderCrossings": 0,
+            "worldYawDeg": null,
+            "problems": []
+          },
+          "observability": {
+            "sagittalAngles": 0.12,
+            "frontalAngles": 0.95,
+            "rhythm": 0.95,
+            "gaitEvents": 0.9,
+            "holdDuration": 0.85
+          }
+        },
+        "mode": {
+          "action": "squat",
+          "analysisAction": "squat",
+          "view": "front",
+          "analysisView": "front",
+          "repCount": 4,
+          "gaitCycles": null,
+          "findings": 0,
+          "intervals": [
+            {
+              "startMs": 867,
+              "endMs": 1667
+            },
+            {
+              "startMs": 3400,
+              "endMs": 4133
+            },
+            {
+              "startMs": 5933,
+              "endMs": 6733
+            },
+            {
+              "startMs": 8400,
+              "endMs": 9200
+            }
+          ],
+          "partials": [],
+          "segmentation": {
+            "signal": "kneeAngle",
+            "neutral": 172.86,
+            "bottom": 119.26,
+            "amplitude": 53.59,
+            "noise": 7.77
+          }
+        }
+      },
+      "match": {
+        "action": true,
+        "view": true,
+        "count": true,
+        "range": true
+      },
+      "plan": {
+        "range": {
+          "startMs": 0,
+          "endMs": 9933,
+          "source": "active-window"
+        },
+        "windows": [
+          {
+            "startMs": 0,
+            "endMs": 9767,
+            "source": "active-window"
+          }
+        ],
+        "coverage": 0.983,
+        "fallback": null,
+        "threshold": 11.17,
+        "coversTruthReps": true
+      },
+      "features": null,
+      "oracle": null,
+      "seriesFps": 15
+    }
+  ]
+}

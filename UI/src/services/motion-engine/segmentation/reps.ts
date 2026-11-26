@@ -50,6 +50,8 @@ export interface AdaptiveRepOptions {
   maxStageMs?: number
   /** 低于该幅度视为没有可识别动作（信号单位随 signal 变化） */
   minAmplitude?: number
+  /** 视角估计不稳定（疑似多人画面换跟踪目标）：收紧目标切换判定 */
+  identityRisk?: boolean
 }
 
 const SMOOTH_WINDOW_SEC = 0.35
@@ -228,6 +230,37 @@ function detectPartials(
 }
 
 /**
+ * 跟踪目标切换检测：多人画面里 MediaPipe 可能在两个人之间跳。
+ * 表现是髋/肩中点在一两帧内整体平移大半个躯干长——这不是动作，是换了人。
+ * 这类区间不能计数：宁可少计一次，也不能把"换人"当成完成一次动作。
+ */
+function intervalHasTargetSwitch(frames: MotionFrame[], interval: RepInterval, threshold = 1.0): boolean {
+  const rows = frames.filter(frame => frame.timeMs >= interval.startMs - 80 && frame.timeMs <= interval.endMs + 80
+    && frame.visibility >= 0.5)
+  let previous: { x: number; y: number; torso: number; timeMs: number } | null = null
+  for (const frame of rows) {
+    const shoulder = frame.points.shoulder.left && frame.points.shoulder.right
+      ? { x: (frame.points.shoulder.left.x + frame.points.shoulder.right.x) / 2, y: (frame.points.shoulder.left.y + frame.points.shoulder.right.y) / 2 }
+      : null
+    const hip = frame.points.hip.left && frame.points.hip.right
+      ? { x: (frame.points.hip.left.x + frame.points.hip.right.x) / 2, y: (frame.points.hip.left.y + frame.points.hip.right.y) / 2 }
+      : null
+    if (!shoulder || !hip) { previous = null; continue }
+    const torso = Math.hypot(shoulder.x - hip.x, shoulder.y - hip.y)
+    if (!(torso > 0.02)) { previous = null; continue }
+    const mid = { x: (shoulder.x + hip.x) / 2, y: (shoulder.y + hip.y) / 2, torso, timeMs: frame.timeMs }
+    if (previous && mid.timeMs - previous.timeMs <= 150) {
+      const shift = Math.hypot(mid.x - previous.x, mid.y - previous.y) / Math.max(previous.torso, 0.02)
+      // 换人/尺度突变：同一个人的躯干长在一两帧内不会变三分之一
+      const scaleShift = Math.abs(mid.torso - previous.torso) / Math.max(previous.torso, 0.02)
+      if (shift > threshold || scaleShift > 0.3) return true
+    }
+    previous = mid
+  }
+  return false
+}
+
+/**
  * 自适应分段主函数。返回 usable=false 时调用方应回退到模板固定阈值，
  * 而不是把"自适应失败"当成"没有动作"。
  */
@@ -298,8 +331,12 @@ export function segmentRepsAdaptive(
     const snapshot = machine.feed(value, visibility[index] ?? 0, frames[index].timeMs)
     if (snapshot.counted && snapshot.lastRep) intervals.push(snapshot.lastRep)
   }
-  const count = machine.snapshot().count
-  const partials = detectPartials(frames, smoothed, reliability, rule, intervals.length ? intervals[intervals.length - 1].endMs : null, signal)
+  // 目标切换（多人画面里换了跟踪对象）不当作完成一次动作；
+// 视角时序越不稳定，越要按更小的位移阈值判定"换人"。
+  const switchThreshold = options.identityRisk ? 0.6 : 1.0
+  const trustedIntervals = intervals.filter(interval => !intervalHasTargetSwitch(frames, interval, switchThreshold))
+  const count = trustedIntervals.length
+  const partials = detectPartials(frames, smoothed, reliability, rule, trustedIntervals.length ? trustedIntervals[trustedIntervals.length - 1].endMs : null, signal)
 
   return {
     signal,
@@ -309,7 +346,7 @@ export function segmentRepsAdaptive(
     amplitude: round2(amplitude),
     noise: round2(mad),
     smoothed: smoothed.map(value => value ?? NaN),
-    intervals,
+    intervals: trustedIntervals,
     count,
     partials,
     usable: true,

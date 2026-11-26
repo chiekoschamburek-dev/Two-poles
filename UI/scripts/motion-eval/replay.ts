@@ -18,6 +18,7 @@ import {
 } from '@/services/motionAnalysis'
 import { buildMotionFeatureSeries, detectActiveWindows, planAnalysisWindow } from '@/services/motion-engine'
 import { estimateView, viewToAnalysisView } from '@/services/motion-engine/view/estimate'
+import { recognizeAction } from '@/services/motion-engine/recognition/actions'
 import { coarseGridTimes } from '@/services/motion-engine/pipeline/precheck'
 import type { AnalysisAction, AnalysisView } from '@/types/domain'
 
@@ -273,6 +274,26 @@ if (!existsSync(BASELINE)) {
       const hipHeight = numbers(featureSeries.frames.map(frame => frame.hipHeightNorm))
       const wrist = numbers(featureSeries.frames.map(frame => frame.wristBelowKnee))
       const round = (value: number) => Math.round(value)
+      console.log('  recognition ' + series.clip
+        + ` family=${autoClass.signals.family ?? '—'} margin=${autoClass.signals.margin ?? '—'}`
+        + ` reasons=${JSON.stringify(autoClass.signals.reasons ?? [])}`)
+      if (process.env.DEBUG_RECOG) {
+        const debug = recognizeAction(frames, fps)
+        console.log('  recognition-debug ' + JSON.stringify({
+          action: debug.action, confident: debug.confident, candidates: debug.candidates,
+          features: {
+            kneeSync: debug.features.kneeSync, kneeRange: debug.features.kneeRange,
+            hipRange: debug.features.hipRange, kneeBottom: debug.features.kneeBottom,
+            trunkBottom: debug.features.trunkBottom, hipDrop: debug.features.hipDrop,
+            wristBelowKneeMax: debug.features.wristBelowKneeMax,
+            startKnee: debug.features.startKnee, endKnee: debug.features.endKnee,
+            startHipHeight: debug.features.startHipHeight, endHipHeight: debug.features.endHipHeight,
+            seatedEnd: debug.features.seatedEnd, oneWayTrip: debug.features.oneWayTrip,
+            bottomPlateauMs: debug.features.bottomPlateauMs, cycleCount: debug.features.cycleCount,
+            hipKneeRomRatio: debug.features.hipKneeRomRatio
+          }
+        }))
+      }
       console.log('  features ' + series.clip
         + ` usable=${Math.round(featureSeries.quality.usableRatio * 100)}%`
         + ` meanRel=${featureSeries.quality.meanReliability}`
@@ -355,13 +376,13 @@ if (!existsSync(BASELINE)) {
 
   const report = {
     generatedAt: new Date().toISOString(),
-    engine: 'v1',
+    engine: 'v2',
     caveats: [
       'truth 为 provisional：关键帧初标，尚未由用户逐条复核',
+      'fixtures 是本机重新采样的逐帧序列（baseline/*.series.json），不是不可变数据集；同一视频换一次姿态后端就可能采到不同 landmarks',
       '库存素材机位/人物任意，只能逐片报告，不能聚合成单一准确率',
       'reps 只含完整重复；partialRepetitions 单独记录，不参与计数',
-      'sit-to-stand / walk 在 V1 没有模板，计数用最接近的 squat / running 模板代跑',
-      'V1 生产入口是 classifyTemplate（含 curl/plank 模板）；历史 after-clock-fix.json 用的是 classifyAction，动作列不可直接对比'
+      '动作/视角/计数与冻结真值逐片对比；fail 的片子必须逐条修，不能只用放宽阈值换通过'
     ],
     rows
   }

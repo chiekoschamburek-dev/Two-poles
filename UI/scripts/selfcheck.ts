@@ -24,6 +24,8 @@ import { buildActionTrend, recoveryObservations } from '@/services/motionTrends'
 import { useMotionExplanation } from '@/composables/useMotionExplanation'
 import { saveMotionSeries, getMotionSeries, listMotionSeriesKeys, deleteMotionSeries, clearMotionSeries, buildSeriesRecord } from '@/services/motionSeries'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
+import { MOTION_ENGINE_VERSION } from '@/services/motion-engine/core/versions'
+import { compactEvidence } from '@/services/motion-engine/evidence/evidence'
 import type { RepMachineSnapshot } from '@/composables/repMachine'
 import { analyzeMotion, analyzeGait, analyzeHold, classifyAction, classifyTemplate, summarizeMotionFeatures, detectView, precheckMotion, extractMotionFrame, analyzeRep, measureJointAngle, ruleRequirementFailure, applyRecurrenceGate, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
 import { POSE_DETECT_TIMEOUT_MS, POSE_FIRST_DETECT_TIMEOUT_MS, POSE_INPUT_MAX_WIDTH, PoseTimeoutError, isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
@@ -2324,7 +2326,7 @@ ok('finding 置信度可随 findings 一起过服务端（无模式 JSON）', ((
   return payload.includes('"confidence"') && payload.length < 4000
 })())
 ok('绝对阈值规则也带置信度', valgusFindings[0].confidence !== undefined)
-ok('规则版本已升到 v3', MOTION_RULES_VERSION === 'motion-analysis-rules-v3')
+ok('规则版本已升到 v4', MOTION_RULES_VERSION === 'motion-analysis-rules-v4')
 
 console.log('\n42. 置信度推导：质量/视角/幅度/基线四环')
 ok('关键点质量差则置信度低', findingConfidence({ repVisibilityMean: 0.3, viewConfidence: 0.9, measured: 112, threshold: 88, scale: 15, priorCount: 4 })
@@ -3335,6 +3337,49 @@ ok('所有关注项都带 confidence 且 ≥0.45', gradedResults.every(result =>
   typeof finding.confidence === 'number' && finding.confidence >= 0.45)))
 ok('证据偏弱的关注项标为参考观察', (leaningSquat.findings[0]?.level) === 'reference',
   JSON.stringify(leaningSquat.findings.map(finding => [finding.ruleId, finding.confidence, finding.level])))
+
+console.log('\n63. Motion Engine V2 · M7 版本、证据与趋势断线')
+const evidenceResult = analyzeMotion({ ...goodSquat, view: 'side' })
+ok('结果带六层证据 JSON', !!evidenceResult.evidence
+  && evidenceResult.evidence.versions?.engine === MOTION_ENGINE_VERSION
+  && evidenceResult.evidence.versions?.rules === MOTION_RULES_VERSION
+  && evidenceResult.evidence.event?.count === 2
+  && evidenceResult.evidence.view?.category === 'side',
+  JSON.stringify(evidenceResult.evidence))
+ok('引擎版本为 V2 口径', MOTION_ENGINE_VERSION === 'motion-engine-v2')
+const holeEvidence = compactEvidence({
+  ...evidenceResult.evidence!,
+  finding: {
+    produced: 4, official: 2, reference: 2,
+    skippedRules: Array.from({ length: 20 }, (_, index) => ({ ruleId: `R-${index}`, reason: '低可靠性' + 'x'.repeat(200) }))
+  }
+} as never, 800)
+ok('证据 JSON 有体积上限，避免撑爆同步包', holeEvidence.length <= 800
+  && JSON.parse(holeEvidence).compacted === true
+  && (JSON.parse(holeEvidence).finding?.skippedRules?.length ?? 0) <= 6,
+  `${holeEvidence.length} 字节`)
+const holdEvidence = analyzeMotion({ action: 'plank', view: 'side', fps: 15, frames: plankFrames })
+ok('静态保持时长进证据而不只在结果页', (holdEvidence.evidence?.event?.holdSeconds ?? 0) > 3,
+  JSON.stringify(holdEvidence.evidence?.event))
+
+// 趋势：引擎/规则版本不同必须断线；参考观察不计入问题数
+const m7TrendAnalysis = (id: string, date: string, engineVersion: string, findings: MotionAnalysisFinding[]): MotionAnalysis => ({
+  id, userId: 'u1', date, action: 'squat', exerciseName: '深蹲', view: 'side', status: 'completed',
+  lowConfidenceReasons: [], findings, metrics: [], repCount: 2, gaitCycles: null,
+  usableRatio: 0.9, ruleVersion: MOTION_RULES_VERSION, engineVersion, createdAt: `${date}T08:00:00.000Z`
+})
+const officialFinding = { ruleId: 'SQ-SE-01', title: '深度不足', detail: '…', timeMs: 1000, measured: -0.2, thresholdLabel: '≥0', sourceLabel: 'NSCA', confidence: 0.8, level: 'official' as const }
+const referenceFinding = { ...officialFinding, ruleId: 'SQ-SE-03', confidence: 0.5, level: 'reference' as const }
+const trendRows = [
+  m7TrendAnalysis('a1', '2026-11-01', 'motion-engine-v1', [officialFinding, referenceFinding]),
+  m7TrendAnalysis('a2', '2026-11-02', 'motion-engine-v2', [officialFinding])
+]
+const engineTrend = buildActionTrend('squat', trendRows, [])
+ok('趋势按引擎版本断线', engineTrend.segments.length === 2
+  && engineTrend.caveat?.includes('口径'), JSON.stringify(engineTrend.segments.map(segment => segment.engineVersion)))
+ok('参考观察不计入趋势问题数', trendRows.length === 2
+  && engineTrend.segments[0].points[0].findingCount === 1,
+  JSON.stringify(engineTrend.segments.map(segment => segment.points.map(point => point.findingCount))))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

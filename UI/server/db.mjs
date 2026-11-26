@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS motion_analyses (
   rep_count INTEGER,
   gait_cycles INTEGER,
   usable_ratio REAL,
+  evidence TEXT,
   session_id TEXT,
   rule_version TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -283,6 +284,13 @@ export function openDatabase(path = ':memory:') {
       if (!hasUsableRatio()) db.exec('ALTER TABLE motion_analyses ADD COLUMN usable_ratio REAL')
     })
   }
+  // 六层证据 JSON（V2）：老库补列，新库由 SCHEMA 直接建出
+  const hasEvidence = () => db.prepare('PRAGMA table_info(motion_analyses)').all().some(column => column.name === 'evidence')
+  if (!hasEvidence()) {
+    transaction(db, () => {
+      if (!hasEvidence()) db.exec('ALTER TABLE motion_analyses ADD COLUMN evidence TEXT')
+    })
+  }
   migrateRemoveMode(db)
   migrateProfileDisciplines(db)
   backfillDisciplines(db)
@@ -298,7 +306,7 @@ export function openDatabase(path = ':memory:') {
  */
 const MOTION_ANALYSIS_COPY_COLUMNS = [
   'id', 'client_id', 'user_id', 'date', 'action', 'exercise_name', 'view', 'status',
-  'low_confidence_reasons', 'findings', 'metrics', 'rep_count', 'gait_cycles', 'usable_ratio',
+  'low_confidence_reasons', 'findings', 'metrics', 'rep_count', 'gait_cycles', 'usable_ratio', 'evidence',
   'session_id', 'rule_version', 'created_at', 'updated_at', 'deleted_at'
 ]
 
@@ -324,6 +332,7 @@ function rebuildMotionAnalysesTable(db) {
           rep_count INTEGER,
           gait_cycles INTEGER,
           usable_ratio REAL,
+          evidence TEXT,
           session_id TEXT,
           rule_version TEXT NOT NULL,
           created_at TEXT NOT NULL,

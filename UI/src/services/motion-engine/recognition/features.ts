@@ -246,7 +246,9 @@ export function extractRecognitionFeatures(frames: MotionFrame[], fps: number): 
   }))
   const startHipHeight = mean(hipHeightsWithTime.slice(0, startCount).map(sample => sample.value))
   const endHipHeight = mean(hipHeightsWithTime.slice(-startCount).map(sample => sample.value))
-  const seatedEnd = endKnee !== null && endKnee < 130
+  // 末段坐着：2D 投影下"坐着"的膝角可能只有 130–140°（斜侧/背向时大腿被压缩），
+// 不能按 90° 的教科书值卡；同时要求髋高明显低于开始，避免把站立收尾当成坐着。
+  const seatedEnd = endKnee !== null && endKnee < 140
     && startHipHeight !== null && endHipHeight !== null
     && endHipHeight <= startHipHeight - 0.25
   // 单向行程：首尾姿态差很多（只下放未起身 / 只起身未下放），不计峰谷噪声

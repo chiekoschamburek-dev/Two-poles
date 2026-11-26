@@ -5,9 +5,9 @@
 // 约定：MOTION_RULES_VERSION 仍由 motionRules.ts 导出（服务端有 ruleVersion 列），
 // 这里只做统一再导出与引擎侧版本，避免两处各写一个字符串。
 
-export const MOTION_ENGINE_VERSION = 'motion-engine-v2-m1'
+export const MOTION_ENGINE_VERSION = 'motion-engine-v2'
 export const MOTION_FEATURE_VERSION = 'motion-feature-v1'
-export const MOTION_CONFIG_VERSION = 'motion-config-v1'
+export const MOTION_CONFIG_VERSION = 'motion-config-v2'
 export const MOTION_MODEL_VERSION = 'rule-baseline-0' // 还没有学习模型；影子模式占位
 
 /** 与 motionRules.ts 的规则版本保持一致；M6 升 v4 时同步改这里 */

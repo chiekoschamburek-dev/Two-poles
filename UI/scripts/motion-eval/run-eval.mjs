@@ -23,6 +23,8 @@ const flag = (name, fallback) => {
 const target = flag('target', 'dev')
 const onlyClip = flag('clip', '')
 const gate = args.includes('--gate')
+/** 显式重采样逐帧夹具；默认不覆盖，避免 replay 门禁的基准静默漂移 */
+const recapture = args.includes('--recapture')
 const baseUrl = flag('url', target === 'preview' ? 'http://127.0.0.1:4173' : target === 'android' ? 'https://two-poles.bupt-empty-classrom.top' : 'http://127.0.0.1:5173')
 
 /** 候选素材：库存片机位/人物任意，只能逐片报告，不得聚合成单一准确率。 */
@@ -116,7 +118,9 @@ function scoreClip(clip, series, pipeline, truth) {
   const truthAction = canonicalAction(truth?.action ?? null)
   const measuredAction = canonicalAction(pipeline?.precheck?.action ?? series.action ?? null)
   const truthView = truth?.view ?? null
-  const measuredView = series.view ?? null
+  // V2：同一段视频走真实 composable 的视角判定才是生产口径；series 里的 view 是旧的纯管道结果
+  const measuredView = pipeline?.precheck?.view ?? series.view ?? null
+  const measuredViewConfidence = pipeline?.precheck?.viewEstimate?.reliability ?? series.viewConfidence
   const countKind = gaitTruth !== null ? 'gait' : 'reps'
   const countTruth = countKind === 'gait' ? gaitTruth : repTruth
   const countMeasured = countKind === 'gait' ? cycles : counted
@@ -152,7 +156,7 @@ function scoreClip(clip, series, pipeline, truth) {
       gaitSubtype: truth?.gaitSubtype ?? null,
       partialRepetitions: truth?.partialRepetitions ?? []
     },
-    view: measuredView, viewConfidence: series.viewConfidence,
+    view: measuredView, viewConfidence: measuredViewConfidence,
     action: measuredAction, actionConfident: pipeline?.precheck?.actionConfident ?? series.actionConfident,
     captureAction: series.action,
     gate: { action: actionHit, view: viewHit, count: countHit },
@@ -162,8 +166,24 @@ function scoreClip(clip, series, pipeline, truth) {
     // 可能拒掉整片可分析的片子。两者都报，不互相掩盖。
     fullClip: { view: series.view, verdict: series.precheck?.verdict, reasons: series.precheck?.reasons ?? [] },
     pipelinePrecheck: pipeline?.precheck
-      ? { view: pipeline.precheck.view, verdict: pipeline.precheck.verdict, action: pipeline.precheck.action, reasons: pipeline.precheck.reasons }
+      ? {
+          view: pipeline.precheck.view,
+          verdict: pipeline.precheck.verdict,
+          action: pipeline.precheck.action,
+          reasons: pipeline.precheck.reasons,
+          analyzedRange: pipeline.precheck.analyzedRange ?? null,
+          viewEstimate: pipeline.precheck.viewEstimate ?? null
+        }
       : null,
+    // V2 端到端调试：分析区间、自适应分段、半程与证据，避免只看到结果数字
+    pipelineDebug: pipeline?.rejected ? null : {
+      analyzedRange: pipeline?.result?.analyzedRange ?? null,
+      segmentation: pipeline?.result?.segmentation ?? null,
+      viewEstimate: pipeline?.result?.viewEstimate ?? null,
+      partialRepetitions: pipeline?.result?.partialRepetitions ?? [],
+      skippedRules: pipeline?.result?.skippedRules ?? [],
+      evidence: pipeline?.result?.evidence ?? null
+    },
     precheckWindowMismatch: Boolean(pipeline?.precheck && series.view && pipeline.precheck.view !== series.view),
     repCount: { truth: repTruth, counted, signedError: repTruth !== null && counted !== null ? counted - repTruth : null },
     gaitCycles: { truth: gaitTruth, detected: cycles },
@@ -253,9 +273,16 @@ async function main() {
       console.log(`  计数 真值 ${scored.count.truth ?? '未标注'} / 实测 ${scored.count.measured ?? '—'} ${mark(scored.gate.count)} · 预检 ${scored.precheckVerdict}`)
       console.log(`  推理 p50 ${scored.timing.inferenceP50}ms p95 ${scored.timing.inferenceP95}ms · ${scored.timing.delegate}/${scored.timing.runsIn}`)
       console.log(`  角度一致性 ${scored.angleAgreement.samples ? `MAE ${scored.angleAgreement.mae?.toFixed(2)}°` : '未标注'}`)
-      // 逐帧序列单独落盘，换阈值后可离线重跑规则而不重推理
+      // 逐帧序列单独落盘，换阈值后可离线重跑规则而不重推理。
+      // 默认不覆盖已冻结的序列：eval:motion 会重跑推理，但重采样会让 replay 门禁的基准
+      // 悄悄漂移（同一素材换一次后端就可能数出不同值）。需要刷新夹具时显式加 --recapture。
       mkdirSync(BASELINE_DIR, { recursive: true })
-      writeFileSync(resolve(BASELINE_DIR, `${name}.series.json`), JSON.stringify({ clip: name, fps, ...series }, null, 2))
+      const seriesPath = resolve(BASELINE_DIR, `${name}.series.json`)
+      if (recapture || !existsSync(seriesPath)) {
+        writeFileSync(seriesPath, JSON.stringify({ clip: name, fps, capturedAt: new Date().toISOString(), ...series }, null, 2))
+      } else {
+        console.log('  （沿用已冻结的逐帧序列；要重采样请显式加 --recapture）')
+      }
     } catch (error) {
       console.error(`  失败：${error.message}`)
       results.push({ clip: name, error: error.message })
