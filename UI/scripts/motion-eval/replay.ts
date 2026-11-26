@@ -1,23 +1,84 @@
 // 用已 dump 的真实视频帧重跑引擎：换阈值/换策略后不必重推理。
-// 用法：npm run eval:replay [-- --grace 1000] [-- --clip sit-to-stand]
-import { readdirSync, readFileSync, existsSync } from 'node:fs'
+// M0 起：读 truth/*.json，逐片报告动作/视角/计数/步态，可选 --gate 做回归门禁。
+//
+// 用法：
+//   npm run eval:replay
+//   npm run eval:replay -- --clip sit-to-stand
+//   npm run eval:replay -- --oracle
+//   npm run eval:replay -- --gate
+//   npm run eval:replay -- --freeze scripts/motion-eval/baseline/v1-frozen.json
+import { readdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { createRepMachine } from '@/composables/repMachine'
-import { configForAction, repRuleFor } from '@/services/motionConfig'
-import { analyzeMotion, type MotionFrame } from '@/services/motionAnalysis'
+import {
+  analyzeMotion,
+  classifyTemplate,
+  detectView,
+  type MotionFrame
+} from '@/services/motionAnalysis'
 import type { AnalysisAction, AnalysisView } from '@/types/domain'
 
 // esbuild 把产物放到 UI 根，import.meta.url 会失真；npm 脚本的 cwd 就是 UI 根
 const BASELINE = resolve(process.cwd(), 'scripts/motion-eval/baseline')
+const TRUTH_DIR = resolve(process.cwd(), 'scripts/motion-eval/truth')
 const args = process.argv.slice(2)
 const flag = (name: string, fallback: string) => {
   const index = args.indexOf(`--${name}`)
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback
 }
-const graceArg = flag('grace', '')
+const has = (name: string) => args.includes(`--${name}`)
 const onlyClip = flag('clip', '')
+const actionOverride = flag('action', '')
+const viewOverride = flag('view', '')
+const oracle = has('oracle')
+const gate = has('gate')
+const jsonOut = has('json')
+const freezePath = flag('freeze', '')
 
-/** series.json 里只存了角度与可见度，重建 MotionFrame 需要坐标；这里用 landmarks 反推。 */
+type TruthView = 'side' | 'front' | 'oblique'
+
+interface TruthRep {
+  startMs: number
+  bottomMs: number
+  endMs: number
+}
+
+interface TruthPartial {
+  startMs: number
+  endMs: number
+  kind: string
+  note?: string
+}
+
+interface Truth {
+  schemaVersion?: number
+  clip: string
+  annotationStatus?: 'pending' | 'provisional' | 'reviewed'
+  annotator?: string | null
+  reviewedBy?: string | null
+  action?: string | null
+  movementFamily?: 'strength' | 'locomotion' | 'isometric' | 'other' | null
+  view?: TruthView | null
+  viewNote?: string
+  reps?: TruthRep[]
+  partialRepetitions?: TruthPartial[]
+  gaitCycles?: number | null
+  gaitSubtype?: 'run' | 'walk' | null
+  issues?: unknown[]
+  angleKeys?: unknown[]
+  notes?: string
+}
+
+interface ModeResult {
+  action: string
+  analysisAction: AnalysisAction
+  view: TruthView | null
+  analysisView: AnalysisView
+  repCount: number | null
+  gaitCycles: number | null
+  findings: number
+}
+
+/** series.json 里只存了角度、可见度与 33 个 landmarks；重建 MotionFrame 需要坐标。 */
 function framesFromSeries(series: { frames: Record<string, unknown>[] }): MotionFrame[] {
   const point = (landmarks: { x: number; y: number; v: number }[], index: number) => {
     const raw = landmarks[index]
@@ -30,63 +91,197 @@ function framesFromSeries(series: { frames: Record<string, unknown>[] }): Motion
       timeMs: row.timeMs as number,
       visibility: row.visibility as number,
       points: {
-        shoulder: pair(11, 12), hip: pair(23, 24), knee: pair(25, 26),
-        ankle: pair(27, 28), heel: pair(29, 30), toe: pair(31, 32)
+        shoulder: pair(11, 12),
+        elbow: pair(13, 14),
+        wrist: pair(15, 16),
+        hip: pair(23, 24),
+        knee: pair(25, 26),
+        ankle: pair(27, 28),
+        heel: pair(29, 30),
+        toe: pair(31, 32)
       }
     }
   })
 }
 
-function countWith(frames: MotionFrame[], action: AnalysisAction, graceMs: number | null): number {
-  const config = configForAction(action)
-  if (!config) return 0
-  const rule = repRuleFor(config, 'offline')
-  const machine = createRepMachine(graceMs === null ? rule : { ...rule, maxOcclusionMs: graceMs })
-  for (const frame of frames) {
-    // 与 segmentReps 同口径：取驱动关节的三点可见度最小值
-    const joint = config.joint === 'hip' ? 'hip' : 'knee'
-    const sides = frame.points[joint]
-    const side = sides.right && sides.left
-      ? (sides.right.visibility > sides.left.visibility ? 'right' : 'left')
-      : (sides.right ? 'right' : 'left')
-    const hip = frame.points.hip[side]
-    const knee = frame.points.knee[side]
-    const ankle = frame.points.ankle[side]
-    const shoulder = frame.points.shoulder[side]
-    const a = joint === 'hip' ? shoulder : hip
-    const v = knee
-    const b = joint === 'hip' ? knee : ankle
-    let angle: number | null = null
-    let visibility = 0
-    if (a && v && b) {
-      const u = { x: a.x - v.x, y: a.y - v.y }
-      const w = { x: b.x - v.x, y: b.y - v.y }
-      const mag = Math.hypot(u.x, u.y) * Math.hypot(w.x, w.y)
-      if (mag) angle = Math.round(Math.acos(Math.min(1, Math.max(-1, (u.x * w.x + u.y * w.y) / mag))) * 180 / Math.PI)
-      visibility = Math.min(a.visibility, v.visibility, b.visibility)
-    }
-    machine.feed(angle, visibility, frame.timeMs)
-  }
-  return machine.snapshot().count
+function loadTruth(): Map<string, Truth> {
+  if (!existsSync(TRUTH_DIR)) return new Map()
+  return new Map(readdirSync(TRUTH_DIR)
+    .filter(file => file.endsWith('.json'))
+    .map(file => [file.replace(/\.json$/, ''), JSON.parse(readFileSync(resolve(TRUTH_DIR, file), 'utf8')) as Truth]))
 }
 
-if (!existsSync(BASELINE)) { console.error('还没有基线序列，先跑 npm run eval:motion'); process.exitCode = 1 }
-else {
-  const files = readdirSync(BASELINE).filter(f => f.endsWith('.series.json') && (!onlyClip || f.startsWith(onlyClip)))
-  console.log('clip'.padEnd(20) + 'action'.padEnd(10) + 'view'.padEnd(8) + 'grace=0'.padEnd(9) + 'grace=1000'.padEnd(12) + 'engine'.padEnd(8) + 'findings')
-  for (const file of files) {
-    const series = JSON.parse(readFileSync(resolve(BASELINE, file), 'utf8'))
-    const frames = framesFromSeries(series)
-    const action = series.action as AnalysisAction
-    const view = (series.view ?? 'side') as AnalysisView
-    const old = countWith(frames, action, 0)
-    const now = countWith(frames, action, graceArg ? Number(graceArg) : 1000)
-    const result = analyzeMotion({ action, view, fps: series.fps, frames })
-    console.log(
-      series.clip.padEnd(20) + action.padEnd(10) + String(view).padEnd(8)
-      + String(old).padEnd(9) + String(now).padEnd(12)
-      + String(result.repCount ?? result.gaitCycles ?? '—').padEnd(8) + String(result.findings.length)
-    )
+/** 旧版模板集合里没有 sit-to-stand / walk；M0 先用最接近的现有模板做下游计数。 */
+function analysisActionFor(action: string | null | undefined, fallback: AnalysisAction): AnalysisAction {
+  if (!action) return fallback
+  if (action === 'sit-to-stand' || action === 'sit_to_stand') return 'squat'
+  if (action === 'walk') return 'running'
+  return action
+}
+
+function safeView(view: TruthView | null | undefined, fallback: AnalysisView = 'side'): AnalysisView {
+  if (view === 'side' || view === 'front') return view
+  return fallback
+}
+
+function canonicalAction(value: string | null | undefined): string | null {
+  if (!value) return null
+  if (value === 'sit_to_stand') return 'sit-to-stand'
+  if (value === 'run') return 'running'
+  return value
+}
+
+function runMode(frames: MotionFrame[], fps: number, action: string, view: TruthView | null): ModeResult {
+  const analysisAction = analysisActionFor(action, action)
+  const analysisView = safeView(view)
+  const result = analyzeMotion({ action: analysisAction, view: analysisView, fps, frames })
+  return {
+    action,
+    analysisAction,
+    view,
+    analysisView,
+    repCount: result.repCount,
+    // 必须读管道实际产出的步态周期：如果自动分类成 curl，这里就是 null，
+    // 不能另外调 analyzeGait 把「管道根本没跑步态」掩盖成通过。
+    gaitCycles: result.gaitCycles,
+    findings: result.findings.length
   }
-  console.log('\n注：grace=0 复现修复前行为；engine 列是统一几何后 analyzeMotion 的实际计数。')
+}
+
+function pct(value: number | null): string {
+  return value === null ? '—' : String(value)
+}
+
+function mark(value: boolean | null): string {
+  return value === null ? '?' : value ? '✓' : '✗'
+}
+
+const truth = loadTruth()
+if (!existsSync(BASELINE)) {
+  console.error('还没有基线序列，先跑 npm run eval:motion')
+  process.exitCode = 1
+} else {
+  const files = readdirSync(BASELINE).filter(file => file.endsWith('.series.json') && (!onlyClip || file.startsWith(onlyClip)))
+  const rows: Record<string, unknown>[] = []
+  let failures = 0
+
+  console.log('clip'.padEnd(18) + 'action T/A'.padEnd(22) + 'view T/A'.padEnd(18)
+    + 'reps T/E'.padEnd(11) + 'gait T/E'.padEnd(11) + 'partial'.padEnd(9) + 'result')
+  console.log('-'.repeat(100))
+
+  for (const file of files) {
+    const series = JSON.parse(readFileSync(resolve(BASELINE, file), 'utf8')) as {
+      clip: string
+      fps: number
+      view?: TruthView | null
+      action?: string
+      frames: Record<string, unknown>[]
+    }
+    const clipTruth = truth.get(series.clip) ?? null
+    const frames = framesFromSeries(series)
+    const fps = series.fps
+
+    const autoViewResult = detectView(frames)
+    const autoView = (autoViewResult.view ?? series.view ?? null) as TruthView | null
+    const autoClass = classifyTemplate(frames, fps)
+    const autoAction = actionOverride || autoClass.action
+    const chosenView = (viewOverride || autoView) as TruthView | null
+
+    const auto = runMode(frames, fps, autoAction, chosenView)
+    const truthActionAnalysis = clipTruth?.action ? runMode(frames, fps, clipTruth.action, chosenView) : null
+    const truthFullAnalysis = clipTruth?.action
+      ? runMode(frames, fps, clipTruth.action, (clipTruth.view ?? chosenView))
+      : null
+
+    const truthAction = canonicalAction(clipTruth?.action)
+    const truthView = clipTruth?.view ?? null
+    const actionMatch = truthAction === null ? null : truthAction === canonicalAction(autoAction)
+    const viewMatch = truthView === null ? null : truthView === autoView
+
+    const truthReps = clipTruth?.reps?.length ?? null
+    const truthGait = clipTruth?.gaitCycles ?? null
+    const countKind = truthGait !== null ? 'gait' : 'reps'
+    const countMeasured = countKind === 'gait' ? auto.gaitCycles : auto.repCount
+    const countTruth = countKind === 'gait' ? truthGait : truthReps
+    const countMatch = countTruth === null ? null : countTruth === countMeasured
+    const partials = clipTruth?.partialRepetitions?.length ?? null
+
+    const resultLabel = [actionMatch === false ? 'action' : '', viewMatch === false ? 'view' : '', countMatch === false ? 'count' : '']
+      .filter(Boolean).join('+') || 'ok'
+    if (actionMatch === false || viewMatch === false || countMatch === false) failures++
+
+    console.log(
+      series.clip.padEnd(18)
+      + `${truthAction ?? '—'}/${autoAction}${autoClass.confident ? '' : '?'}`.padEnd(22)
+      + `${truthView ?? '—'}/${autoView ?? '—'}`.padEnd(18)
+      + `${truthReps ?? '—'}/${countKind === 'reps' ? pct(countMeasured) : '—'}`.padEnd(11)
+      + `${truthGait ?? '—'}/${countKind === 'gait' ? pct(countMeasured) : '—'}`.padEnd(11)
+      + pct(partials).padEnd(9)
+      + `${resultLabel} ${mark(actionMatch)}${mark(viewMatch)}${mark(countMatch)}`
+    )
+
+    if (oracle && clipTruth?.action) {
+      console.log('  oracle: auto=' + JSON.stringify(auto)
+        + ' truthAction=' + JSON.stringify(truthActionAnalysis)
+        + ' truthFull=' + JSON.stringify(truthFullAnalysis))
+    }
+
+    rows.push({
+      clip: series.clip,
+      annotationStatus: clipTruth?.annotationStatus ?? 'pending',
+      hasTruth: Boolean(clipTruth),
+      truth: {
+        action: truthAction,
+        movementFamily: clipTruth?.movementFamily ?? null,
+        view: truthView,
+        viewNote: clipTruth?.viewNote ?? null,
+        repCount: truthReps,
+        gaitCycles: truthGait,
+        gaitSubtype: clipTruth?.gaitSubtype ?? null,
+        partialRepetitions: clipTruth?.partialRepetitions ?? [],
+        notes: clipTruth?.notes ?? null
+      },
+      auto: {
+        action: autoAction,
+        actionConfident: autoClass.confident,
+        view: autoView,
+        viewConfidence: autoViewResult.confidence,
+        mode: auto
+      },
+      match: { action: actionMatch, view: viewMatch, count: countMatch },
+      oracle: oracle && truthActionAnalysis && truthFullAnalysis
+        ? { truthAction: truthActionAnalysis, truthFull: truthFullAnalysis }
+        : null,
+      seriesFps: fps
+    })
+  }
+
+  if (!jsonOut) {
+    console.log('\n注：T=真值（truth/*.json），E=当前引擎实测；reps 只数完整重复，partial 含半程/遮挡。')
+    console.log('     action 列的 ? = 自动识别不自信；count 用管道实际产出，自动分成 curl 时步态周期为 —。')
+    console.log('     action/view/count 任一 ✗ 时，--gate 会以非零退出码结束。')
+  }
+
+  const report = {
+    generatedAt: new Date().toISOString(),
+    engine: 'v1',
+    caveats: [
+      'truth 为 provisional：关键帧初标，尚未由用户逐条复核',
+      '库存素材机位/人物任意，只能逐片报告，不能聚合成单一准确率',
+      'reps 只含完整重复；partialRepetitions 单独记录，不参与计数',
+      'sit-to-stand / walk 在 V1 没有模板，计数用最接近的 squat / running 模板代跑',
+      'V1 生产入口是 classifyTemplate（含 curl/plank 模板）；历史 after-clock-fix.json 用的是 classifyAction，动作列不可直接对比'
+    ],
+    rows
+  }
+
+  if (jsonOut) console.log(JSON.stringify(report, null, 2))
+  if (freezePath) {
+    writeFileSync(resolve(process.cwd(), freezePath), JSON.stringify(report, null, 2))
+    console.log(`\n已冻结报告：${resolve(process.cwd(), freezePath)}`)
+  }
+  if (gate && failures > 0) {
+    console.error(`\n门禁失败：${failures} 条素材存在 action/view/count 不匹配`)
+    process.exitCode = 1
+  }
 }

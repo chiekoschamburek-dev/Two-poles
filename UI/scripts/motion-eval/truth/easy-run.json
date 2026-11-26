@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "clip": "easy-run",
+  "annotationStatus": "provisional",
+  "annotator": "agent (keyframe review 2026-11-26)",
+  "reviewedBy": null,
+  "source": "UI/public/demo-videos/easy-run.mp4",
+  "fps": 30,
+  "durationSec": 9.97,
+  "action": "running",
+  "movementFamily": "locomotion",
+  "view": "front",
+  "viewNote": "背向跑（冠状面）；可评估左右交替/步频，矢状面躯干前倾与触地膝角不可评估",
+  "activeIntervals": [
+    { "startMs": 0, "endMs": 9970 }
+  ],
+  "reps": [],
+  "partialRepetitions": [],
+  "gaitCycles": 10,
+  "gaitSubtype": "run",
+  "issues": [],
+  "angleKeys": [],
+  "notes": "约 20 次触地、10 个步态周期；步频约 121 步/分，低于旧硬门槛 140，但明显是跑步。"
+}

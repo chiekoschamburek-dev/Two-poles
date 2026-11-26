@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 2,
+  "clip": "peso-muerto-sumo",
+  "annotationStatus": "provisional",
+  "annotator": "agent (keyframe review 2026-11-26)",
+  "reviewedBy": null,
+  "source": ".scratch/peso-muerto-sumo.webm",
+  "fps": 15,
+  "durationSec": 22.07,
+  "action": "deadlift",
+  "movementFamily": "strength",
+  "view": "side",
+  "viewNote": "混合机位：0–10.4s 正面，10.4s 后切到侧面；相扑站距沿镜头轴展开，本片不可评估站距",
+  "viewSegments": [
+    { "startMs": 0, "endMs": 10400, "view": "front" },
+    { "startMs": 10400, "endMs": 22000, "view": "side" }
+  ],
+  "activeIntervals": [
+    { "startMs": 0, "endMs": 22100 }
+  ],
+  "reps": [
+    { "startMs": 12900, "bottomMs": 15400, "endMs": 19000 }
+  ],
+  "partialRepetitions": [
+    {
+      "startMs": 0,
+      "endMs": 10400,
+      "kind": "ascent-only",
+      "note": "视频从底部/屈髋位开始，约 10.4s 站直；只有起身，没有起始下放。"
+    }
+  ],
+  "gaitCycles": null,
+  "gaitSubtype": null,
+  "issues": [],
+  "angleKeys": [],
+  "notes": "原始视频逐帧核对（2026-11-26）：前 10.4s 是正面机位，之后切到侧面机位（杠铃片正对镜头）。完整 1 次发生在侧面段（约 12.9–19.0s）。V1 用整片投影比例判 front，是视角误判；正确做法是按区间估视角、只用侧面段做矢状面评估。"
+}

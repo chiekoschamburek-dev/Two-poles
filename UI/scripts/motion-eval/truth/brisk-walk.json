@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "clip": "brisk-walk",
+  "annotationStatus": "provisional",
+  "annotator": "agent (keyframe review 2026-11-26)",
+  "reviewedBy": null,
+  "source": "UI/public/demo-videos/brisk-walk.mp4",
+  "fps": 30,
+  "durationSec": 9.97,
+  "action": "walk",
+  "movementFamily": "locomotion",
+  "view": "front",
+  "viewNote": "正面双人步行；可评估左右交替与步频，不适用跑姿结论",
+  "activeIntervals": [
+    { "startMs": 0, "endMs": 9970 }
+  ],
+  "reps": [],
+  "partialRepetitions": [],
+  "gaitCycles": 8,
+  "gaitSubtype": "walk",
+  "issues": [],
+  "angleKeys": [],
+  "notes": "约 16 次触地、8 个步态周期；步频约 97 步/分。应识别为步行并提示暂不支持步行分析，而不是套用深蹲模板。"
+}

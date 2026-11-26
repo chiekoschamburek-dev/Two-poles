@@ -1,0 +1,307 @@
+{
+  "generatedAt": "2026-11-26T09:24:12.644Z",
+  "engine": "v1",
+  "caveats": [
+    "truth 为 provisional：关键帧初标，尚未由用户逐条复核",
+    "库存素材机位/人物任意，只能逐片报告，不能聚合成单一准确率",
+    "reps 只含完整重复；partialRepetitions 单独记录，不参与计数",
+    "sit-to-stand / walk 在 V1 没有模板，计数用最接近的 squat / running 模板代跑",
+    "V1 生产入口是 classifyTemplate（含 curl/plank 模板）；历史 after-clock-fix.json 用的是 classifyAction，动作列不可直接对比"
+  ],
+  "rows": [
+    {
+      "clip": "brisk-walk",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "walk",
+        "movementFamily": "locomotion",
+        "view": "front",
+        "viewNote": "正面双人步行；可评估左右交替与步频，不适用跑姿结论",
+        "repCount": 0,
+        "gaitCycles": 8,
+        "gaitSubtype": "walk",
+        "partialRepetitions": [],
+        "notes": "约 16 次触地、8 个步态周期；步频约 97 步/分。应识别为步行并提示暂不支持步行分析，而不是套用深蹲模板。"
+      },
+      "auto": {
+        "action": "curl",
+        "actionConfident": true,
+        "view": "front",
+        "viewConfidence": 1,
+        "mode": {
+          "action": "curl",
+          "analysisAction": "curl",
+          "view": "front",
+          "analysisView": "front",
+          "repCount": 0,
+          "gaitCycles": null,
+          "findings": 0
+        }
+      },
+      "match": {
+        "action": false,
+        "view": true,
+        "count": false
+      },
+      "oracle": null,
+      "seriesFps": 30
+    },
+    {
+      "clip": "deadlift-demo",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "deadlift",
+        "movementFamily": "strength",
+        "view": "oblique",
+        "viewNote": "背向 3/4 机位；既不是纯侧面也不是正面，只能做通用计数/节律，矢状面锁定角与冠状面膝内扣都不可靠",
+        "repCount": 1,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [
+          {
+            "startMs": 0,
+            "endMs": 2200,
+            "kind": "ascent-only",
+            "note": "视频从底部开始，约 2.2s 站直。"
+          }
+        ],
+        "notes": "完整 1 次：约 3.0s 站直 → 3.8s 下放 → 5.4s 最低点 → 6.9s 站直；片头 0–2.2s 只有起身。原始视频逐帧核对（2026-11-26）：结尾 7.3s 仍为站直、杠铃在大腿高度，不存在片尾下放半程（初标多记了一次 descent-only，已删）。V1 engine 计 1 次正确；视角应归为斜侧/背向 3/4，而不是直接拒绝。"
+      },
+      "auto": {
+        "action": "deadlift",
+        "actionConfident": true,
+        "view": "side",
+        "viewConfidence": 0.061936752416844154,
+        "mode": {
+          "action": "deadlift",
+          "analysisAction": "deadlift",
+          "view": "side",
+          "analysisView": "side",
+          "repCount": 1,
+          "gaitCycles": null,
+          "findings": 1
+        }
+      },
+      "match": {
+        "action": true,
+        "view": false,
+        "count": true
+      },
+      "oracle": null,
+      "seriesFps": 15
+    },
+    {
+      "clip": "easy-run",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "running",
+        "movementFamily": "locomotion",
+        "view": "front",
+        "viewNote": "背向跑（冠状面）；可评估左右交替/步频，矢状面躯干前倾与触地膝角不可评估",
+        "repCount": 0,
+        "gaitCycles": 10,
+        "gaitSubtype": "run",
+        "partialRepetitions": [],
+        "notes": "约 20 次触地、10 个步态周期；步频约 121 步/分，低于旧硬门槛 140，但明显是跑步。"
+      },
+      "auto": {
+        "action": "curl",
+        "actionConfident": true,
+        "view": "front",
+        "viewConfidence": 1,
+        "mode": {
+          "action": "curl",
+          "analysisAction": "curl",
+          "view": "front",
+          "analysisView": "front",
+          "repCount": 2,
+          "gaitCycles": null,
+          "findings": 0
+        }
+      },
+      "match": {
+        "action": false,
+        "view": true,
+        "count": false
+      },
+      "oracle": null,
+      "seriesFps": 30
+    },
+    {
+      "clip": "peso-muerto-sumo",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "deadlift",
+        "movementFamily": "strength",
+        "view": "side",
+        "viewNote": "混合机位：0–10.4s 正面，10.4s 后切到侧面；相扑站距沿镜头轴展开，本片不可评估站距",
+        "repCount": 1,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [
+          {
+            "startMs": 0,
+            "endMs": 10400,
+            "kind": "ascent-only",
+            "note": "视频从底部/屈髋位开始，约 10.4s 站直；只有起身，没有起始下放。"
+          }
+        ],
+        "notes": "原始视频逐帧核对（2026-11-26）：前 10.4s 是正面机位，之后切到侧面机位（杠铃片正对镜头）。完整 1 次发生在侧面段（约 12.9–19.0s）。V1 用整片投影比例判 front，是视角误判；正确做法是按区间估视角、只用侧面段做矢状面评估。"
+      },
+      "auto": {
+        "action": "curl",
+        "actionConfident": true,
+        "view": "front",
+        "viewConfidence": 0.14147909967845607,
+        "mode": {
+          "action": "curl",
+          "analysisAction": "curl",
+          "view": "front",
+          "analysisView": "front",
+          "repCount": 0,
+          "gaitCycles": null,
+          "findings": 0
+        }
+      },
+      "match": {
+        "action": false,
+        "view": false,
+        "count": false
+      },
+      "oracle": null,
+      "seriesFps": 15
+    },
+    {
+      "clip": "peso-muerto",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "deadlift",
+        "movementFamily": "strength",
+        "view": "side",
+        "viewNote": "侧面单色布景；可评估髋锁定与躯干",
+        "repCount": 1,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [
+          {
+            "startMs": 16000,
+            "endMs": 29600,
+            "kind": "occluded-cycle",
+            "note": "第二次硬拉：16s 开始下放、20.5s 到底、22–28s 画面黑屏/人体丢失、28.5s 起身、29.6s 站直。起止可见但中段不可观测，按未完成/遮挡处理，不计入完整次数。"
+          }
+        ],
+        "notes": "原始视频逐帧核对（2026-11-26）：0–1s 站直，2–4s 开始俯身，约 10.5s 到最低点，13.6s 站直；第二次 16s 起下放，22–28s 黑屏/人体丢失，30.3s 站直。完整 1 次；第二次被 6 秒黑屏截断。V1 计 1 次是合理的保守口径，真正要补的是「遮挡未完成」提示，不是把次数改成 2。"
+      },
+      "auto": {
+        "action": "squat",
+        "actionConfident": false,
+        "view": "side",
+        "viewConfidence": 0.7285451013597644,
+        "mode": {
+          "action": "squat",
+          "analysisAction": "squat",
+          "view": "side",
+          "analysisView": "side",
+          "repCount": 1,
+          "gaitCycles": null,
+          "findings": 3
+        }
+      },
+      "match": {
+        "action": false,
+        "view": true,
+        "count": true
+      },
+      "oracle": null,
+      "seriesFps": 15
+    },
+    {
+      "clip": "sit-to-stand",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "sit-to-stand",
+        "movementFamily": "strength",
+        "view": "front",
+        "viewNote": "正面团体课；椅子起坐可计次，但正面不适合评估下蹲深度/躯干前倾",
+        "repCount": 0,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [
+          {
+            "startMs": 8800,
+            "endMs": 15200,
+            "kind": "descent-only",
+            "note": "前 7 秒是站姿举臂准备；约 9.6s 开始坐下，视频结束时仍为坐姿，没有起身动作。完整 sit-to-stand 次数为 0。"
+          }
+        ],
+        "notes": "GPT/Gemini 把本片当作「漏检完整起坐」是错误前提：片中只有坐下没有起身，正确输出应为 0 次完整 + 1 次未完成下降。"
+      },
+      "auto": {
+        "action": "curl",
+        "actionConfident": true,
+        "view": "side",
+        "viewConfidence": 0.20780072759079948,
+        "mode": {
+          "action": "curl",
+          "analysisAction": "curl",
+          "view": "side",
+          "analysisView": "side",
+          "repCount": 0,
+          "gaitCycles": null,
+          "findings": 0
+        }
+      },
+      "match": {
+        "action": false,
+        "view": false,
+        "count": true
+      },
+      "oracle": null,
+      "seriesFps": 15
+    },
+    {
+      "clip": "test_squat",
+      "annotationStatus": "provisional",
+      "hasTruth": true,
+      "truth": {
+        "action": "squat",
+        "movementFamily": "strength",
+        "view": "front",
+        "viewNote": "正面拍摄；可评估膝内扣/对称性，矢状面深度类规则不适用",
+        "repCount": 4,
+        "gaitCycles": null,
+        "gaitSubtype": null,
+        "partialRepetitions": [],
+        "notes": "4 次浅蹲（最低膝角约 114°）；V1 已能计 4 次，计数不是本片的问题。"
+      },
+      "auto": {
+        "action": "squat",
+        "actionConfident": false,
+        "view": "front",
+        "viewConfidence": 1,
+        "mode": {
+          "action": "squat",
+          "analysisAction": "squat",
+          "view": "front",
+          "analysisView": "front",
+          "repCount": 4,
+          "gaitCycles": null,
+          "findings": 0
+        }
+      },
+      "match": {
+        "action": true,
+        "view": true,
+        "count": true
+      },
+      "oracle": null,
+      "seriesFps": 15
+    }
+  ]
+}

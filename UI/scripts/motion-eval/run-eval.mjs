@@ -22,6 +22,7 @@ const flag = (name, fallback) => {
 }
 const target = flag('target', 'dev')
 const onlyClip = flag('clip', '')
+const gate = args.includes('--gate')
 const baseUrl = flag('url', target === 'preview' ? 'http://127.0.0.1:4173' : target === 'android' ? 'https://two-poles.bupt-empty-classrom.top' : 'http://127.0.0.1:5173')
 
 /** 候选素材：库存片机位/人物任意，只能逐片报告，不得聚合成单一准确率。 */
@@ -103,6 +104,8 @@ const pctl = (values, p) => {
   const sorted = [...values].sort((a, b) => a - b)
   return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
 }
+/** 动作 id 统一：真值里可能写 sit_to_stand / run，模板 id 用 sit-to-stand / running。 */
+const canonicalAction = value => value === 'sit_to_stand' ? 'sit-to-stand' : value === 'run' ? 'running' : value ?? null
 
 /** 逐片指标。无真值的维度一律返回 null 并标 untested，绝不编造。 */
 function scoreClip(clip, series, pipeline, truth) {
@@ -110,6 +113,16 @@ function scoreClip(clip, series, pipeline, truth) {
   const counted = pipeline?.result?.repCount ?? null
   const gaitTruth = truth?.gaitCycles ?? null
   const cycles = pipeline?.result?.gaitCycles ?? null
+  const truthAction = canonicalAction(truth?.action ?? null)
+  const measuredAction = canonicalAction(pipeline?.precheck?.action ?? series.action ?? null)
+  const truthView = truth?.view ?? null
+  const measuredView = series.view ?? null
+  const countKind = gaitTruth !== null ? 'gait' : 'reps'
+  const countTruth = countKind === 'gait' ? gaitTruth : repTruth
+  const countMeasured = countKind === 'gait' ? cycles : counted
+  const actionHit = truthAction === null ? null : truthAction === measuredAction
+  const viewHit = truthView === null ? null : truthView === measuredView
+  const countHit = countTruth === null ? null : countTruth === countMeasured
 
   const angleRows = (truth?.angleKeys ?? []).map(key => {
     const row = series.frames.reduce((best, candidate) =>
@@ -128,8 +141,22 @@ function scoreClip(clip, series, pipeline, truth) {
 
   return {
     clip, hasTruth: Boolean(truth),
-    view: series.view, viewConfidence: series.viewConfidence,
-    action: series.action, actionConfident: series.actionConfident,
+    annotationStatus: truth?.annotationStatus ?? 'pending',
+    truth: {
+      action: truthAction,
+      movementFamily: truth?.movementFamily ?? null,
+      view: truthView,
+      viewNote: truth?.viewNote ?? null,
+      repCount: repTruth,
+      gaitCycles: gaitTruth,
+      gaitSubtype: truth?.gaitSubtype ?? null,
+      partialRepetitions: truth?.partialRepetitions ?? []
+    },
+    view: measuredView, viewConfidence: series.viewConfidence,
+    action: measuredAction, actionConfident: pipeline?.precheck?.actionConfident ?? series.actionConfident,
+    captureAction: series.action,
+    gate: { action: actionHit, view: viewHit, count: countHit },
+    count: { kind: countKind, truth: countTruth, measured: countMeasured },
     precheckVerdict: series.precheck?.verdict,
     // 整片纯管道与真实 precheck 是两个不同口径：precheck 只看前 ≤10 秒，
     // 可能拒掉整片可分析的片子。两者都报，不互相掩盖。
@@ -220,8 +247,10 @@ async function main() {
       const pipeline = await cdp.evaluate(`window.__eval.runPipeline(${fps}, ${maxSeconds})`)
       const scored = scoreClip(name, series, pipeline, truth.get(name))
       results.push(scored)
-      console.log(`  视角 ${scored.view} · 动作 ${scored.action} · 预检 ${scored.precheckVerdict}`)
-      console.log(`  计数 真值 ${scored.repCount.truth ?? '未标注'} / 实测 ${scored.repCount.counted ?? '—'}`)
+      const mark = value => value === null ? '?' : value ? '✓' : '✗'
+      console.log(`  动作 真值 ${scored.truth.action ?? '未标注'} / 实测 ${scored.action ?? '—'} ${mark(scored.gate.action)}`)
+      console.log(`  视角 真值 ${scored.truth.view ?? '未标注'} / 实测 ${scored.view ?? '—'} ${mark(scored.gate.view)}`)
+      console.log(`  计数 真值 ${scored.count.truth ?? '未标注'} / 实测 ${scored.count.measured ?? '—'} ${mark(scored.gate.count)} · 预检 ${scored.precheckVerdict}`)
       console.log(`  推理 p50 ${scored.timing.inferenceP50}ms p95 ${scored.timing.inferenceP95}ms · ${scored.timing.delegate}/${scored.timing.runsIn}`)
       console.log(`  角度一致性 ${scored.angleAgreement.samples ? `MAE ${scored.angleAgreement.mae?.toFixed(2)}°` : '未标注'}`)
       // 逐帧序列单独落盘，换阈值后可离线重跑规则而不重推理
@@ -235,10 +264,12 @@ async function main() {
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const report = {
-    generatedAt: new Date().toISOString(), target, baseUrl,
+    generatedAt: new Date().toISOString(), target, baseUrl, gate,
     caveats: [
+      'truth 为 provisional：关键帧初标，尚未由用户逐条复核',
       '库存素材机位/人物任意且未裁剪，只能逐片报告，不得聚合成单一准确率',
       '角度口径是与人工数字化的一致性（±3–5°），不是绝对真值',
+      'reps 只含完整重复；partialRepetitions 单独记录，不参与计数',
       '语料未触发的规则标 untested，合成正例只算逻辑覆盖',
       target === 'dev' ? 'DEV 强制主线程 CPU，性能数字是最坏情况，不能代表生产' : ''
     ].filter(Boolean),
@@ -252,6 +283,20 @@ async function main() {
   if (untested.length) console.log(`未覆盖规则：${[...new Set(untested)].join(', ')}`)
   const noTruth = results.filter(r => r.hasTruth === false).map(r => r.clip)
   if (noTruth.length) console.log(`缺真值标注（只出耗时与识别结果，不出准确率）：${noTruth.join(', ')}`)
+
+  if (gate) {
+    const failed = results.filter(r => r.gate && Object.values(r.gate).includes(false))
+    if (failed.length) {
+      console.error(`\n门禁失败：${failed.map(r => r.clip).join(', ')}`)
+      for (const row of failed) {
+        const bad = Object.entries(row.gate).filter(([, hit]) => hit === false).map(([key]) => key)
+        console.error(`  ${row.clip}: ${bad.join(', ')}`)
+      }
+      process.exitCode = 1
+    } else {
+      console.log('\n门禁通过：全部素材 action/view/count 命中 provisional 真值')
+    }
+  }
 
   cdp.close()
   chrome?.kill()

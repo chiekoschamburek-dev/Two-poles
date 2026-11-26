@@ -36,7 +36,7 @@ export interface MotionSeriesRecord {
   usableRatio: number
   calibratedNeutral?: number | null
   angles: AngleSample[]
-  /** 仅 12 关节并集，坐标保留 4 位小数；便于日后修几何 bug 后无需视频重算 */
+  /** 仅 16 关节并集（8 关节 × 左右），坐标保留 4 位小数；便于日后修几何 bug 后无需视频重算 */
   landmarks: { timeMs: number; points: { x: number; y: number; v: number }[] }[]
   /** 运动学派生序列；旧记录没有该字段，详情页按无曲线处理 */
   kinematics?: MotionKinematics

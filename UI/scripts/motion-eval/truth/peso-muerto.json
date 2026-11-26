@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "clip": "peso-muerto",
+  "annotationStatus": "provisional",
+  "annotator": "agent (keyframe review 2026-11-26)",
+  "reviewedBy": null,
+  "source": ".scratch/peso-muerto.webm",
+  "fps": 15,
+  "durationSec": 30.33,
+  "action": "deadlift",
+  "movementFamily": "strength",
+  "view": "side",
+  "viewNote": "侧面单色布景；可评估髋锁定与躯干",
+  "activeIntervals": [
+    { "startMs": 0, "endMs": 30400 }
+  ],
+  "reps": [
+    { "startMs": 1500, "bottomMs": 10500, "endMs": 13600 }
+  ],
+  "partialRepetitions": [
+    {
+      "startMs": 16000,
+      "endMs": 29600,
+      "kind": "occluded-cycle",
+      "note": "第二次硬拉：16s 开始下放、20.5s 到底、22–28s 画面黑屏/人体丢失、28.5s 起身、29.6s 站直。起止可见但中段不可观测，按未完成/遮挡处理，不计入完整次数。"
+    }
+  ],
+  "gaitCycles": null,
+  "gaitSubtype": null,
+  "issues": [],
+  "angleKeys": [],
+  "notes": "原始视频逐帧核对（2026-11-26）：0–1s 站直，2–4s 开始俯身，约 10.5s 到最低点，13.6s 站直；第二次 16s 起下放，22–28s 黑屏/人体丢失，30.3s 站直。完整 1 次；第二次被 6 秒黑屏截断。V1 计 1 次是合理的保守口径，真正要补的是「遮挡未完成」提示，不是把次数改成 2。"
+}

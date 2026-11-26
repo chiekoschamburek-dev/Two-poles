@@ -217,7 +217,7 @@ async function main() {
     })()`)
     ok('开启后序列落进本机 IndexedDB', saved.count >= 1, JSON.stringify(saved))
     ok('落盘记录含逐帧角度', saved.angles > 0, String(saved.angles))
-    ok('落盘关键点为 12 关节并集', saved.landmarkJoints === 12, String(saved.landmarkJoints))
+    ok('落盘关键点为 16 关节并集', saved.landmarkJoints === 16, String(saved.landmarkJoints))
     ok('页面明示已保存在本机', saved.note.includes('已保存在本机'), saved.note)
 
     const cascade = await cdp.evaluate(`(async () => {

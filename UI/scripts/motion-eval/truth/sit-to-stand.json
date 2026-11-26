@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "clip": "sit-to-stand",
+  "annotationStatus": "provisional",
+  "annotator": "agent (keyframe review 2026-11-26)",
+  "reviewedBy": null,
+  "source": "UI/public/demo-videos/sit-to-stand.mp4",
+  "fps": 15,
+  "durationSec": 15.2,
+  "action": "sit-to-stand",
+  "movementFamily": "strength",
+  "view": "front",
+  "viewNote": "正面团体课；椅子起坐可计次，但正面不适合评估下蹲深度/躯干前倾",
+  "activeIntervals": [
+    { "startMs": 7000, "endMs": 15200 }
+  ],
+  "reps": [],
+  "partialRepetitions": [
+    {
+      "startMs": 8800,
+      "endMs": 15200,
+      "kind": "descent-only",
+      "note": "前 7 秒是站姿举臂准备；约 9.6s 开始坐下，视频结束时仍为坐姿，没有起身动作。完整 sit-to-stand 次数为 0。"
+    }
+  ],
+  "gaitCycles": null,
+  "gaitSubtype": null,
+  "issues": [],
+  "angleKeys": [],
+  "notes": "GPT/Gemini 把本片当作「漏检完整起坐」是错误前提：片中只有坐下没有起身，正确输出应为 0 次完整 + 1 次未完成下降。"
+}

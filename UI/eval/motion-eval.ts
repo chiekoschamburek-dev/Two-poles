@@ -10,7 +10,7 @@ import {
   measureTrunkAngle,
   analyzeMotion,
   precheckMotion,
-  classifyAction,
+  classifyTemplate,
   detectView,
   type MotionFrame
 } from '@/services/motionAnalysis'
@@ -194,7 +194,8 @@ const pctl = (values: number[], p: number) => {
       })
     }
     const view = detectView(frames)
-    const classification = classifyAction(frames, fps)
+    // 通道 a 必须用生产同一条分类入口（classifyTemplate），否则会漏掉弯举/平板等模板级判定。
+    const classification = classifyTemplate(frames, fps)
     return {
       fps, frames: rows, frameCount: frames.length,
       view: view.view, viewConfidence: view.confidence,

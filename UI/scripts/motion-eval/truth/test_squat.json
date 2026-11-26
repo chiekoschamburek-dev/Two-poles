@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "clip": "test_squat",
+  "annotationStatus": "provisional",
+  "annotator": "agent (keyframe review 2026-11-26)",
+  "reviewedBy": null,
+  "source": "data_demo/test_squat.mp4",
+  "fps": 15,
+  "durationSec": 9.93,
+  "action": "squat",
+  "movementFamily": "strength",
+  "view": "front",
+  "viewNote": "正面拍摄；可评估膝内扣/对称性，矢状面深度类规则不适用",
+  "activeIntervals": [
+    { "startMs": 0, "endMs": 9900 }
+  ],
+  "reps": [
+    { "startMs": 500, "bottomMs": 1300, "endMs": 1800 },
+    { "startMs": 2900, "bottomMs": 3700, "endMs": 4500 },
+    { "startMs": 5300, "bottomMs": 6100, "endMs": 6900 },
+    { "startMs": 7700, "bottomMs": 8500, "endMs": 9400 }
+  ],
+  "partialRepetitions": [],
+  "gaitCycles": null,
+  "gaitSubtype": null,
+  "issues": [],
+  "angleKeys": [],
+  "notes": "4 次浅蹲（最低膝角约 114°）；V1 已能计 4 次，计数不是本片的问题。"
+}

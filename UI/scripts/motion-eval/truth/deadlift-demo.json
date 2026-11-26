@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "clip": "deadlift-demo",
+  "annotationStatus": "provisional",
+  "annotator": "agent (keyframe review 2026-11-26)",
+  "reviewedBy": null,
+  "source": ".scratch/deadlift-demo.webm",
+  "fps": 15,
+  "durationSec": 7.33,
+  "action": "deadlift",
+  "movementFamily": "strength",
+  "view": "oblique",
+  "viewNote": "背向 3/4 机位；既不是纯侧面也不是正面，只能做通用计数/节律，矢状面锁定角与冠状面膝内扣都不可靠",
+  "activeIntervals": [
+    { "startMs": 0, "endMs": 7400 }
+  ],
+  "reps": [
+    { "startMs": 3000, "bottomMs": 5400, "endMs": 6900 }
+  ],
+  "partialRepetitions": [
+    {
+      "startMs": 0,
+      "endMs": 2200,
+      "kind": "ascent-only",
+      "note": "视频从底部开始，约 2.2s 站直。"
+    }
+  ],
+  "gaitCycles": null,
+  "gaitSubtype": null,
+  "issues": [],
+  "angleKeys": [],
+  "notes": "完整 1 次：约 3.0s 站直 → 3.8s 下放 → 5.4s 最低点 → 6.9s 站直；片头 0–2.2s 只有起身。原始视频逐帧核对（2026-11-26）：结尾 7.3s 仍为站直、杠铃在大腿高度，不存在片尾下放半程（初标多记了一次 descent-only，已删）。V1 engine 计 1 次正确；视角应归为斜侧/背向 3/4，而不是直接拒绝。"
+}
