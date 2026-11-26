@@ -120,11 +120,11 @@ function loadTruth(): Map<string, Truth> {
     .map(file => [file.replace(/\.json$/, ''), JSON.parse(readFileSync(resolve(TRUTH_DIR, file), 'utf8')) as Truth]))
 }
 
-/** 旧版模板集合里没有 sit-to-stand / walk；M0 先用最接近的现有模板做下游计数。 */
+/** M4 起 sit-to-stand / walk 都有正式模板，不再借用 squat / running 代跑 */
 function analysisActionFor(action: string | null | undefined, fallback: AnalysisAction): AnalysisAction {
   if (!action) return fallback
-  if (action === 'sit-to-stand' || action === 'sit_to_stand') return 'squat'
-  if (action === 'walk') return 'running'
+  if (action === 'sit_to_stand') return 'sit-to-stand'
+  if (action === 'run') return 'running'
   return action
 }
 

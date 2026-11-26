@@ -11,7 +11,7 @@ import type { RepRule } from '@/composables/repMachine'
 export const MOTION_TEMPLATES_VERSION = 'motion-templates-v1'
 
 export type MotionCategory = 'strength' | 'bodyweight' | 'cardio' | 'core' | 'mobility'
-export type MotionPattern = 'squat' | 'hinge' | 'push' | 'pull' | 'curl' | 'lunge' | 'core-hold' | 'gait'
+export type MotionPattern = 'squat' | 'hinge' | 'push' | 'pull' | 'curl' | 'lunge' | 'core-hold' | 'gait' | 'sit-to-stand'
 /** 分析形态：计次 / 步态 / 静态保持 */
 export type AnalysisKind = 'reps' | 'gait' | 'hold'
 export type TemplatePoint = 'shoulder' | 'elbow' | 'wrist' | 'hip' | 'knee' | 'ankle' | 'heel' | 'toe'
@@ -22,6 +22,11 @@ export interface TemplateSegmentation {
   bottom: number
   hysteresis: number
   minStageMs: number
+  /**
+   * 单段最长时长覆盖：椅子起坐底部可能坐很久（组课/示范视频），
+   * 沿用深蹲的 8 秒会把坐姿停留判成"动作中断"。
+   */
+  maxStageMs?: number
 }
 
 export interface MotionActionTemplate {
@@ -81,6 +86,12 @@ function segmentationOrProblem(exerciseId: string): TemplateSegmentation | undef
 function segmentationWithMinStage(exerciseId: string, minStageMs: number): TemplateSegmentation | undefined {
   const base = segmentationOrProblem(exerciseId)
   return base ? { ...base, minStageMs } : undefined
+}
+
+/** 椅子起坐：允许坐姿停留更久（组课/示范视频会坐着讲解） */
+function chairSitStandSegmentation(): TemplateSegmentation | undefined {
+  const base = segmentationOrProblem('ex-chair-sitstand')
+  return base ? { ...base, minStageMs: 220, maxStageMs: 20000 } : undefined
 }
 
 export const MOTION_TEMPLATES: MotionActionTemplate[] = [
@@ -151,6 +162,39 @@ export const MOTION_TEMPLATES: MotionActionTemplate[] = [
     note: '目前只提供次数、肘角幅度与节奏测量值，不出关注项'
   },
   {
+    id: 'sit-to-stand',
+    label: '椅子起坐',
+    category: 'strength',
+    pattern: 'sit-to-stand',
+    kind: 'reps',
+    // 斜侧只做计数/节律，不出矢状面/冠状面结论（视角-规则能力矩阵会拦住）
+    views: ['side', 'front', 'oblique'],
+    requiredPoints: ['shoulder', 'hip', 'knee', 'ankle'],
+    segmentation: chairSitStandSegmentation(),
+    // 测量型模板：没有可核验的起坐文献阈值，只出次数与节奏
+    findingsReady: false,
+    kinematics: false,
+    visible: true,
+    exerciseId: 'ex-chair-sitstand',
+    note: '坐下与起身各算半个动作；目前只提供次数、底部停留与节奏测量值，不出关注项'
+  },
+  {
+    id: 'walk',
+    label: '步行',
+    category: 'cardio',
+    pattern: 'gait',
+    kind: 'gait',
+    views: ['side', 'front', 'oblique'],
+    requiredPoints: ['shoulder', 'hip', 'knee', 'ankle', 'heel', 'toe'],
+    ruleSet: 'walk',
+    classifier: 'gait',
+    findingsReady: false,
+    kinematics: false,
+    // 不新增可见模板：识别到步行时只给基础节律测量，并提示跑姿专项规则不适用
+    visible: false,
+    note: '识别到步行：跑姿专项规则不适用，只给步频/触地等基础节律测量'
+  },
+  {
     id: 'plank',
     label: '平板支撑',
     category: 'core',
@@ -219,7 +263,8 @@ export function motionTemplateProblems(): string[] {
  * 跑姿没有动作选择器，存疑档也允许按跑姿分析；其他动作必须由用户确认。
  */
 export function requiresActionConfirmation(action: string, confirmed: boolean): boolean {
-  return !confirmed && action !== 'running'
+  // 跑姿/步行由步态特征判定且没有动作选择器，存疑档也允许按识别结果分析
+  return !confirmed && action !== 'running' && action !== 'walk'
 }
 
 /** 离线分段规则：优先复用实时配置的同一份阈值 */
@@ -228,8 +273,12 @@ export function repRuleForTemplate(template: MotionActionTemplate): RepRule | nu
   const config = template.exerciseId ? configForId(template.exerciseId) : undefined
   if (config) {
     const rule = repRuleFor(config, 'offline')
-    // 模板可覆盖单项时序（例如动态弯举的底部停留比深蹲短），关节/阈值仍来自统一配置
-    return { ...rule, minStageMs: template.segmentation.minStageMs ?? rule.minStageMs }
+    // 模板可覆盖单段时序（例如动态弯举的底部停留比深蹲短、椅子起坐允许久坐），关节/阈值仍来自统一配置
+    return {
+      ...rule,
+      minStageMs: template.segmentation.minStageMs ?? rule.minStageMs,
+      ...(template.segmentation.maxStageMs !== undefined ? { maxStageMs: template.segmentation.maxStageMs } : {})
+    }
   }
   return {
     neutral: template.segmentation.neutral,
@@ -237,7 +286,7 @@ export function repRuleForTemplate(template: MotionActionTemplate): RepRule | nu
     hysteresis: template.segmentation.hysteresis,
     minStageMs: template.segmentation.minStageMs,
     minRepMs: 500,
-    maxStageMs: 8000,
+    maxStageMs: template.segmentation.maxStageMs ?? 8000,
     minVisibility: 0.5
   }
 }

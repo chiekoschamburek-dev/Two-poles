@@ -16,6 +16,7 @@ import { rulesFor } from '@/services/motionRules'
 import { consistencyRulesFor } from '@/services/motionConsistency'
 import { computeKinematics, kinematicsMetrics } from '@/services/motionKinematics'
 import { estimateView, suggestedViewFromEstimate, viewToAnalysisView } from '@/services/motion-engine/view/estimate'
+import { recognizeAction } from '@/services/motion-engine/recognition/actions'
 
 export interface MotionPoint {
   x: number
@@ -873,107 +874,44 @@ export function summarizeMotionFeatures(frames: MotionFrame[], fps: number): Mot
   }
 }
 
-export const TEMPLATE_CLASSIFY_THRESHOLDS = {
-  /** 弯举：肘角大幅往返、腿部稳定、躯干不过度前倾 */
-  curlMinElbowRange: 60,
-  curlStrongElbowRange: 90,
-  curlMinFlexion: 100,
-  curlMaxKneeRange: 30,
-  curlMaxTrunkLean: 50,
-  /** 平板：保持够久、躯干接近水平、髋部几乎不动、肘角不往返 */
-  plankMinDurationSec: 3,
-  plankStrongDurationSec: 5,
-  plankMinMeanTrunkAngle: 65,
-  plankStrongMeanTrunkAngle: 80,
-  plankMaxHipVerticalRange: 0.12,
-  plankMaxElbowRange: 35,
-  plankMinAlignment: 150,
-  /** 候选/置信门控：特征不够强时只预选，仍要求用户确认 */
-  candidateMinScore: 0.55,
-  confidentMinScore: 0.9,
-  confidentMinMargin: 0.1
-} as const
-
-function curlScore(features: MotionFeatures): number {
-  if (features.elbowRange === null || features.minElbowAngle === null || features.maxElbowAngle === null) return 0
-  let score = 0
-  if (features.elbowRange >= TEMPLATE_CLASSIFY_THRESHOLDS.curlMinElbowRange) score += 0.4
-  if (features.elbowRange >= TEMPLATE_CLASSIFY_THRESHOLDS.curlStrongElbowRange) score += 0.15
-  if (features.minElbowAngle <= TEMPLATE_CLASSIFY_THRESHOLDS.curlMinFlexion) score += 0.15
-  if (features.minElbowAngle <= 70) score += 0.05
-  if (features.maxElbowAngle >= 140) score += 0.15
-  if (features.kneeRange !== null && features.kneeRange <= TEMPLATE_CLASSIFY_THRESHOLDS.curlMaxKneeRange) score += 0.1
-  if (features.maxTrunkAngle !== null && features.maxTrunkAngle <= TEMPLATE_CLASSIFY_THRESHOLDS.curlMaxTrunkLean) score += 0.1
-  if (features.usableRatio >= 0.5) score += 0.05
-  return Math.min(1, score)
-}
-
-function plankScore(features: MotionFeatures): number {
-  // 膝盖弯曲的静止姿势是硬拉/靠墙静蹲的准备位，不是平板；先排除
-  if (features.meanKneeAngle === null || features.meanKneeAngle < 150) return 0
-  // 躯干不够水平或身体明显不直，不当作平板候选（硬拉准备位常见）
-  if (features.meanTrunkAngle === null
-    || features.meanTrunkAngle < 60) return 0
-  if (features.meanBodyAlignment === null
-    || features.meanBodyAlignment < TEMPLATE_CLASSIFY_THRESHOLDS.plankMinAlignment) return 0
-  let score = 0
-  if (features.durationSec >= TEMPLATE_CLASSIFY_THRESHOLDS.plankMinDurationSec) score += 0.2
-  if (features.durationSec >= TEMPLATE_CLASSIFY_THRESHOLDS.plankStrongDurationSec) score += 0.1
-  if (features.meanTrunkAngle !== null
-    && features.meanTrunkAngle >= TEMPLATE_CLASSIFY_THRESHOLDS.plankMinMeanTrunkAngle) score += 0.2
-  if (features.meanTrunkAngle !== null
-    && features.meanTrunkAngle >= TEMPLATE_CLASSIFY_THRESHOLDS.plankStrongMeanTrunkAngle) score += 0.1
-  if (features.hipVerticalRange !== null
-    && features.hipVerticalRange <= TEMPLATE_CLASSIFY_THRESHOLDS.plankMaxHipVerticalRange) score += 0.2
-  if (features.elbowRange !== null
-    && features.elbowRange <= TEMPLATE_CLASSIFY_THRESHOLDS.plankMaxElbowRange) score += 0.1
-  if (features.meanBodyAlignment !== null
-    && features.meanBodyAlignment >= TEMPLATE_CLASSIFY_THRESHOLDS.plankMinAlignment) score += 0.1
-  if (features.meanKneeAngle >= 160) score += 0.1
-  if (features.usableRatio >= 0.5) score += 0.05
-  return Math.min(1, score)
-}
-
 export interface TemplateClassification extends ActionClassification {
   signals: ActionClassification['signals'] & {
     kneeRange: number | null
     elbowRange: number | null
     meanTrunkAngle: number | null
     hipVerticalRange: number | null
+    /** V2：一级大类与候选分差，便于排查"为什么判成这个动作" */
+    family?: string
+    margin?: number | null
+    /** 识别原因（不含用户可读文案包装） */
+    reasons?: string[]
   }
 }
 
 /**
- * 模板级自动识别：先保留三个既有动作的判定；未命中时再用通用特征评估
- * 弯举（肘主导往返）与平板（水平静止保持）。
- * 特征不够强时只返回候选并标 confident=false，由用户确认，不硬猜。
+ * 模板级自动识别：V2 起改走"一级大类分流 + 类内软打分 + 未知拒识"，
+ * 不再用"跑姿没过 → 掉进深蹲/硬拉二分 → 再被弯举覆盖"的瀑布判定。
+ * 低置信时保留最可能的动作但标 confident=false，由用户改判。
  */
 export function classifyTemplate(frames: MotionFrame[], fps: number): TemplateClassification {
-  const base = classifyAction(frames, fps)
-  const features = summarizeMotionFeatures(frames, fps)
-  const signals = {
-    ...base.signals,
-    kneeRange: features.kneeRange,
-    elbowRange: features.elbowRange,
-    meanTrunkAngle: features.meanTrunkAngle,
-    hipVerticalRange: features.hipVerticalRange
-  }
-  // 跑姿的步态特征最强，维持既有口径，不让其他分类器覆盖
-  if (base.action === 'running') return { ...base, signals }
-  const curl = curlScore(features)
-  const plank = plankScore(features)
-  const bestScore = Math.max(curl, plank)
-  const bestAction: AnalysisAction = curl >= plank ? 'curl' : 'plank'
-  const margin = Math.abs(curl - plank)
-  if (bestScore >= TEMPLATE_CLASSIFY_THRESHOLDS.candidateMinScore) {
-    return {
-      action: bestAction,
-      confident: bestScore >= TEMPLATE_CLASSIFY_THRESHOLDS.confidentMinScore
-        && margin >= TEMPLATE_CLASSIFY_THRESHOLDS.confidentMinMargin,
-      signals
+  const recognition = recognizeAction(frames, fps)
+  return {
+    action: recognition.action,
+    confident: recognition.confident,
+    signals: {
+      minKneeAngle: recognition.signals.minKneeAngle,
+      maxTrunkLean: recognition.signals.maxTrunkLean,
+      gaitFootStrikes: recognition.signals.gaitFootStrikes,
+      gaitCadence: recognition.signals.gaitCadence,
+      kneeRange: recognition.signals.kneeRange,
+      elbowRange: recognition.signals.elbowRange,
+      meanTrunkAngle: recognition.signals.meanTrunkAngle,
+      hipVerticalRange: recognition.signals.hipVerticalRange,
+      family: recognition.family,
+      margin: recognition.signals.margin,
+      reasons: recognition.reasons
     }
   }
-  return { ...base, signals }
 }
 
 export function precheckMotion(input: {

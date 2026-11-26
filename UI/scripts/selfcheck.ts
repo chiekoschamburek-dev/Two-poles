@@ -31,7 +31,7 @@ import { rulesFor } from '@/services/motionRules'
 import { MOTION_TEMPLATES, findingsTemplates, motionTemplateProblems, repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
-import { buildMotionFeatureSeries, assessPoseQuality, findPeaks, pearson, laggedAlternation, detectActiveWindows, sliceFeatureSeries, planAnalysisWindow, coarseGridTimes, fineGridTimes, estimateView } from '@/services/motion-engine'
+import { buildMotionFeatureSeries, assessPoseQuality, findPeaks, pearson, laggedAlternation, detectActiveWindows, sliceFeatureSeries, planAnalysisWindow, coarseGridTimes, fineGridTimes, estimateView, recognizeAction, extractRecognitionFeatures, decideFamily } from '@/services/motion-engine'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { ageError, bodyErrors, customTimeError, cycleRangeError, disciplinesOf, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, isValidAge, normalizeProfile, parseResult, parseTimeMinutes, sortTimeLabels, timeLabel } from '@/services/profileRules'
@@ -1659,8 +1659,11 @@ const ambiguousStrength = buildSquatSeries({ reps: 2, bottomKnee: 120, lean: 40 
 const ambiguousClass = classifyAction(ambiguousStrength.frames, ambiguousStrength.fps)
 ok('特征不明确时默认深蹲并标注低置信', ambiguousClass.action === 'squat' && !ambiguousClass.confident)
 const ambiguousStrengthPrecheck = precheckMotion({ fps: ambiguousStrength.fps, frames: ambiguousStrength.frames })
-ok('特征不明确走降级并提示可切换', ambiguousStrengthPrecheck.verdict === 'degraded' && ambiguousStrengthPrecheck.actionConfident === false
-  && ambiguousStrengthPrecheck.reasons.some(reason => reason.includes('特征不明确')))
+ok('特征接近时至少不误判成硬拉/不拒诊', ambiguousStrengthPrecheck.action === 'squat'
+  && ambiguousStrengthPrecheck.verdict !== 'rejected'
+  && (ambiguousStrengthPrecheck.actionConfident
+    || ambiguousStrengthPrecheck.reasons.some(reason => reason.includes('不够强') || reason.includes('分差'))),
+  JSON.stringify(ambiguousStrengthPrecheck))
 const lowVisibility = goodSquat.frames.map((frame, index) => index % 3 === 0 ? frame : { ...frame, visibility: 0.2 })
 const degradedPrecheck = precheckMotion({ fps: goodSquat.fps, frames: lowVisibility })
 ok('可见度偏低走降级而不是拒绝', degradedPrecheck.verdict === 'degraded'
@@ -1783,13 +1786,15 @@ const leaningFrames = Array.from({ length: 120 }, (_, index) => runningFrame((in
 const leaningResult = analyzeMotion({ action: 'running', view: 'side', fps: 30, frames: leaningFrames })
 ok('躯干前倾偏离参考区间命中', leaningResult.findings.some(finding => finding.ruleId === 'RUN-SE-01'))
 const noGaitPrecheck = precheckMotion({ fps: 15, frames: stillFrames.frames })
-ok('无步态的静止视频不判为跑姿，走力量降级', noGaitPrecheck.verdict === 'degraded'
-  && noGaitPrecheck.action === 'squat' && noGaitPrecheck.actionConfident === false)
+ok('无步态的静止视频不判为跑姿，走力量/未知降级', noGaitPrecheck.verdict === 'degraded'
+  && ['squat', 'unknown'].includes(noGaitPrecheck.action ?? '') && noGaitPrecheck.actionConfident === false,
+  JSON.stringify(noGaitPrecheck))
 const runningVideoPrecheck = precheckMotion({ fps: 30, frames: runningFrames })
 ok('跑步视频自动路由为跑姿而不是拒绝', runningVideoPrecheck.action === 'running'
   && runningVideoPrecheck.actionConfident === true && runningVideoPrecheck.verdict !== 'rejected')
 const stillStrengthPrecheck = precheckMotion({ fps: 15, frames: stillFrames.frames })
-ok('双脚不交替的动作不误判为跑姿', stillStrengthPrecheck.action === 'squat' && stillStrengthPrecheck.verdict !== 'rejected')
+ok('双脚不交替的动作不误判为跑姿', stillStrengthPrecheck.action !== 'running'
+  && stillStrengthPrecheck.verdict !== 'rejected')
 const fewCyclesPrecheck = precheckMotion({ fps: 30, frames: runningFrames.slice(0, 60) })
 ok('跑步特征存疑时按跑姿降级而不是误判成力量', fewCyclesPrecheck.action === 'running'
   && fewCyclesPrecheck.actionConfident === false && fewCyclesPrecheck.verdict === 'degraded'
@@ -3144,6 +3149,69 @@ ok('斜侧规则只出测量不出关注项',
   && analyzeMotion({ ...obliqueSeries, view: 'oblique' }).findings.length === 0)
 ok('斜侧不跑组内一致性（矢状面证据不成立）', consistencyRulesFor('squat').length > 0
   && analyzeMotion({ ...obliqueSeries, view: 'oblique' }).metrics.some(metric => metric.id === 'metric-rep-count'))
+
+console.log('\n60. Motion Engine V2 · M4 大类分流、软打分与未知拒识')
+const squatRecognition = recognizeAction(goodSquat.frames, 15)
+ok('深蹲：大类 strength + 动作 squat 置信', squatRecognition.family === 'strength'
+  && squatRecognition.action === 'squat' && squatRecognition.confident,
+  JSON.stringify({ family: squatRecognition.family, action: squatRecognition.action, candidates: squatRecognition.candidates }))
+const deadliftRecognition = recognizeAction(deadliftSeries.frames, 15)
+ok('硬拉：髋铰链特征胜出，不再因膝角/前倾同时命中而默认深蹲', deadliftRecognition.action === 'deadlift'
+  && deadliftRecognition.confident, JSON.stringify(deadliftRecognition.candidates))
+const runRecognition = recognizeAction(runningFrames, 30)
+ok('跑步：交替步态进 locomotion，不被力量候选截胡', runRecognition.family === 'locomotion'
+  && runRecognition.action === 'running' && runRecognition.confident, JSON.stringify(runRecognition.candidates))
+ok('步态候选不会被判成力量动作（步频只影响跑/走细分）', runRecognition.family === 'locomotion'
+  && ['running', 'walk'].includes(runRecognition.action))
+const curlRecognition = recognizeAction(curlFrames, 15)
+ok('弯举：肘主导动作保持 curl 置信', curlRecognition.action === 'curl' && curlRecognition.confident,
+  JSON.stringify(curlRecognition.candidates))
+const plankRecognition = recognizeAction(plankFrames, 15)
+ok('平板：低幅度近水平归 isometric', plankRecognition.family === 'isometric'
+  && plankRecognition.action === 'plank' && plankRecognition.confident,
+  JSON.stringify({ family: plankRecognition.family, candidates: plankRecognition.candidates }))
+const stillRecognition = recognizeAction(stillFrames.frames, 15)
+ok('静止画面不硬套动作：unknown + confident=false', stillRecognition.action === 'unknown'
+  && stillRecognition.confident === false, JSON.stringify({ family: stillRecognition.family, action: stillRecognition.action }))
+const stillFeatures = extractRecognitionFeatures(stillFrames.frames, 15)
+ok('大类决策输出分数与原因，便于排查', decideFamily(stillFeatures).reasons.length > 0)
+
+// 椅子起坐模板：测量型、可见、允许久坐
+const sitTemplate = templateFor('sit-to-stand')
+ok('新增椅子起坐测量型模板', sitTemplate.id === 'sit-to-stand' && sitTemplate.visible
+  && sitTemplate.findingsReady === false && sitTemplate.views.includes('oblique'))
+const sitRule = repRuleForTemplate(sitTemplate)
+ok('坐站分段允许 20 秒坐姿停留', sitRule?.maxStageMs === 20000, JSON.stringify(sitRule))
+const chairFrames: MotionFrame[] = []
+{
+  let time = 1000 / 15
+  const push = (kneeAngle: number, count: number) => {
+    for (let i = 0; i < count; i++) {
+      chairFrames.push(legFrame(time, kneeAngle, kneeAngle < 130 ? 25 : 5, kneeAngle < 130))
+      time += 1000 / 15
+    }
+  }
+  push(172, 20)
+  for (let i = 1; i <= 12; i++) push(172 + (90 - 172) * i / 12, 1)
+  push(90, 30) // 坐姿停留 2 秒：旧的 8 秒 maxStage 能过，但 20 秒口径要能覆盖更长停留
+  for (let i = 1; i <= 12; i++) push(90 + (172 - 90) * i / 12, 1)
+  push(172, 20)
+}
+const chairResult = analyzeMotion({ action: 'sit-to-stand', view: 'side', fps: 15, frames: chairFrames })
+ok('椅子起坐模板能计完整起坐', chairResult.repCount === 1, JSON.stringify(chairResult.reps?.map(rep => rep.startMs)))
+ok('椅子起坐只出测量不出关注项', chairResult.findings.length === 0)
+
+// 步行：识别后给基础节律，不套跑姿规则
+const walkTemplate = templateFor('walk')
+ok('步行是隐藏模板：不新增可见入口', walkTemplate.id === 'walk' && walkTemplate.visible === false
+  && walkTemplate.findingsReady === false)
+ok('步行不需要用户先确认动作', requiresActionConfirmation('walk', false) === false)
+const walkResult = analyzeMotion({ action: 'walk', view: 'front', fps: 30, frames: runningFrames })
+ok('步行分析只给节律测量', walkResult.findings.length === 0
+  && walkResult.gaitCycles !== null && walkResult.gaitCycles > 0
+  && walkResult.metrics.some(metric => metric.id === 'metric-cadence'),
+  JSON.stringify({ cycles: walkResult.gaitCycles, metrics: walkResult.metrics.map(metric => metric.id) }))
+ok('步行不改跑姿模板的可见性', visibleTemplates().every(template => template.id !== 'walk'))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

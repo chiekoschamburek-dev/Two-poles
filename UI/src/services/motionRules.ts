@@ -361,11 +361,32 @@ const curlFrontRules: MotionRule[] = [
  * 矢状面（深度/锁定/前倾）与冠状面（膝内扣/对称）的绝对角度结论一律不出。
  * 这不是"降级标注"，是根本不生成结论（ADR-0003 的证据闸门）。
  */
+/**
+ * 步行：只做测量，不套跑姿阈值。
+ * 用户拍到快走/通勤步行时，应给步频/触地等基础节律，而不是硬判成深蹲或跑步。
+ */
+const walkMetricRules: MotionRule[] = [
+  {
+    id: 'WALK-METRICS',
+    output: 'metric',
+    evaluate: ({ gait }) => {
+      if (!gait) return []
+      return [
+        { id: 'metric-gait-cycles', label: '步态周期', value: gait.cycles },
+        { id: 'metric-cadence', label: '步频', value: gait.cadence ?? '—', unit: '步/分' },
+        { id: 'metric-contact-time', label: '触地时间（代理）', value: seconds(gait.contactTimeMs), unit: '秒' },
+        { id: 'metric-vertical', label: '垂直振幅（代理）', value: gait.verticalOscillation === null ? '—' : round2(gait.verticalOscillation), unit: '（髋部波动/躯干长）' }
+      ]
+    }
+  }
+]
+
 const RULES_BY_ACTION: Record<string, Record<AnalysisView, MotionRule[]>> = {
   squat: { side: squatSideRules, front: squatFrontRules, oblique: [squatSideRules[3]] },
   deadlift: { side: deadliftSideRules, front: deadliftFrontRules, oblique: [deadliftSideRules[2]] },
   running: { side: runningSideRules, front: runningFrontRules, oblique: [runningSideRules[2]] },
-  curl: { side: curlSideRules, front: curlFrontRules, oblique: [curlSideRules[0]] }
+  curl: { side: curlSideRules, front: curlFrontRules, oblique: [curlSideRules[0]] },
+  walk: { side: walkMetricRules, front: walkMetricRules, oblique: walkMetricRules }
 }
 
 export function rulesFor(action: AnalysisAction, view: AnalysisView): MotionRule[] {

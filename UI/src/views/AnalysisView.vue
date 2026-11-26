@@ -113,7 +113,7 @@
           <div>
             <dt>动作</dt>
             <dd>
-              <template v-if="action === 'running'">自动识别：{{ actionLabel }}<span v-if="!actionConfirmed">（存疑，可按跑姿分析）</span></template>
+              <template v-if="action === 'running' || action === 'walk'">自动识别：{{ actionLabel }}<span v-if="!actionConfirmed">（存疑，可按识别结果继续）</span></template>
               <template v-else-if="actionConfirmed">自动识别：{{ actionLabel }}</template>
               <template v-else>自动识别不确定：请选择实际动作</template>
               <span v-if="canSwitchAction" class="switch-group" role="group" aria-label="切换动作">

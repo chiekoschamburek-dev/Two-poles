@@ -47,3 +47,16 @@ export {
   VIEW_THRESHOLDS
 } from './view/estimate'
 export type { ViewEstimateOptions } from './view/estimate'
+export {
+  extractRecognitionFeatures,
+  hasMovements
+} from './recognition/features'
+export type { RecognitionFeatures, GaitEvidence } from './recognition/features'
+export {
+  decideFamily,
+  familyLabel,
+  FAMILY_THRESHOLDS
+} from './recognition/family'
+export type { MotionFamily, FamilyDecision } from './recognition/family'
+export { recognizeAction, ACTION_CONFIDENCE } from './recognition/actions'
+export type { RecognitionResult, ActionCandidate } from './recognition/actions'
