@@ -25,6 +25,15 @@ import {
   verifyPassword
 } from '../auth.mjs'
 import { buildWeeklyReport, isoLocal, mondayOf, timeInZone, todayIso, weekDates } from '../report.mjs'
+import { createHealthRoutes } from './routes/health.mjs'
+import { createAuthRoutes } from './routes/auth.mjs'
+import { createAccountRoutes } from './routes/account.mjs'
+import { createSessionsRoutes } from './routes/sessions.mjs'
+import { createAnalysesRoutes } from './routes/analyses.mjs'
+import { createMealsRoutes } from './routes/meals.mjs'
+import { createPlansRoutes } from './routes/plans.mjs'
+import { createReportsRoutes } from './routes/reports.mjs'
+import { createExportRoutes } from './routes/export.mjs'
 
 const FOOD_CATEGORIES = ['谷薯类', '蔬菜类', '水果类', '蛋类', '奶类', '肉类', '豆类', '坚果类', '油脂类', '其他']
 const DEFAULT_PRIVACY = {
@@ -815,10 +824,29 @@ function createRateLimiter() {
   }
 }
 
+const DEV_FALLBACK_SECRET = 'twopoles-dev-secret-change-me'
+
+/**
+ * AUTH_SECRET 解析：生产环境必须显式配置，缺省直接拒绝启动。
+ * 默认值是公开的，拿它签名等于没有鉴权；宁可起不来，也不静默上线。
+ * 测试/本地开发保留兜底值（内存库、本机调试都靠它）；options.secret 优先级最高。
+ */
+export function resolveAuthSecret(options = {}) {
+  const provided = options.secret ?? process.env.AUTH_SECRET
+  if (process.env.NODE_ENV === 'production' && (!provided || provided === DEV_FALLBACK_SECRET)) {
+    throw new Error(
+      '生产环境必须设置 AUTH_SECRET（例如 openssl rand -hex 32），当前缺失或仍是开发默认值；'
+      + '拒绝启动，避免所有人共用公开的签名密钥。见 docs/engineering/deploy.md 的生产检查清单。'
+    )
+  }
+  return provided ?? DEV_FALLBACK_SECRET
+}
+
 export function createApiServer(options = {}) {
+  // 先解析密钥再开库：配置错误时不要留下半启动的数据库连接
+  const secret = resolveAuthSecret(options)
   const dbPath = options.dbPath ?? process.env.TWOPOLES_DB ?? DEFAULT_DB
   const db = openDatabase(dbPath)
-  const secret = options.secret ?? process.env.AUTH_SECRET ?? 'twopoles-dev-secret-change-me'
   /**
    * 账号标识哈希单独一把盐：轮换 AUTH_SECRET 只让 access token 失效，不会把所有人的
    * identifier_hash 一起换掉（那等于全员无法登录）。首次启用这项配置时要填当前的
@@ -982,808 +1010,104 @@ export function createApiServer(options = {}) {
     const method = req.method ?? 'GET'
     const ip = clientIp(req)
     const body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? await readBody(req) : {}
-
-    if (path === '/health') {
-      return sendJson(res, 200, { ok: true, serverTime: nowIso() })
-    }
-
-    if (path.startsWith('/auth/')) {
-      if (!allow(`auth:${ip}`, 30, 60_000)) fail('rate_limited', 429, '登录请求过于频繁，请稍后再试')
-      if (path === '/auth/device' && method === 'POST') {
-        const now = nowIso()
-        const id = randomUUID()
-        const identifier = `device:${id}`
-        db.prepare('INSERT INTO users (id, type, identifier_hash, password_hash, created_at) VALUES (?, ?, ?, NULL, ?)')
-          .run(id, 'anonymous', hashIdentifier(identifier, identifierSecret), now)
-        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id)
-        const result = issueSession(res, user)
-        return sendJson(res, result.status, result.body, result.headers)
-      }
-      if (path === '/auth/register' && method === 'POST') {
-        const identifier = normalizeIdentifier(body.identifier)
-        assert(identifier, '请输入有效的邮箱或手机号')
-        const password = typeof body.password === 'string' ? body.password : ''
-        assert(password.length >= 8 && password.length <= 200, '密码至少 8 位')
-        const exists = db.prepare('SELECT id FROM users WHERE identifier_hash = ?').get(hashIdentifier(identifier, identifierSecret))
-        assert(!exists, '该账号已注册')
-        const id = randomUUID()
-        const now = nowIso()
-        db.prepare('INSERT INTO users (id, type, identifier_hash, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-          .run(id, 'registered', hashIdentifier(identifier, identifierSecret), hashPassword(password), now)
-        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id)
-        audit(db, id, 'auth.register')
-        const result = issueSession(res, user)
-        return sendJson(res, result.status, result.body, result.headers)
-      }
-      if (path === '/auth/login' && method === 'POST') {
-        const identifier = normalizeIdentifier(body.identifier)
-        const password = typeof body.password === 'string' ? body.password : ''
-        assert(identifier && password, '请输入账号和密码')
-        // 按账号计数失败次数：成功登录不计数，也不会把后续正常登录挡住
-        if (loginBlocked(identifier)) fail('rate_limited', 429, '这个账号的登录尝试过于频繁，请稍后再试')
-        const user = db.prepare('SELECT * FROM users WHERE identifier_hash = ? AND deleted_at IS NULL')
-          .get(hashIdentifier(identifier, identifierSecret))
-        if (!user || !verifyPassword(password, user.password_hash)) {
-          recordLoginFailure(identifier)
-          fail('unauthorized', 401, '账号或密码不正确')
-        }
-        loginFailures.delete(identifier)
-        const result = issueSession(res, user)
-        return sendJson(res, result.status, result.body, result.headers)
-      }
-      if (path === '/auth/refresh' && method === 'POST') {
-        const raw = parseCookies(req)[REFRESH_COOKIE]
-        const rotated = rotateRefreshToken(db, raw)
-        if (!rotated) {
-          return sendJson(res, 401, { code: 'unauthorized', message: '登录已过期，请重新登录' }, {
-            'Set-Cookie': clearRefreshCookie(secureCookies)
-          })
-        }
-        const accessToken = signAccessToken(rotated.user.id, secret)
-        return sendJson(res, 200, {
-          userId: rotated.user.id,
-          user: userJson(rotated.user),
-          accessToken,
-          expiresIn: ACCESS_TTL_SECONDS
-        }, { 'Set-Cookie': refreshCookie(rotated.refreshToken, secureCookies) })
-      }
-      if (path === '/auth/bind' && method === 'POST') {
-        const current = userFromRequest(req, db, secret)
-        if (!current) return sendJson(res, 401, { code: 'unauthorized', message: '请先登录' })
-        if (current.type !== 'anonymous') fail('validation_failed', 400, '只有设备账号可以绑定正式账号')
-        const identifier = normalizeIdentifier(body.identifier)
-        assert(identifier, '请输入有效的邮箱或手机号')
-        const password = typeof body.password === 'string' ? body.password : ''
-        assert(password.length >= 8 && password.length <= 200, '密码至少 8 位')
-        const taken = db.prepare('SELECT id FROM users WHERE identifier_hash = ? AND id != ?')
-          .get(hashIdentifier(identifier, identifierSecret), current.id)
-        assert(!taken, '该账号已注册')
-        db.prepare('UPDATE users SET type = ?, identifier_hash = ?, password_hash = ? WHERE id = ?')
-          .run('registered', hashIdentifier(identifier, identifierSecret), hashPassword(password), current.id)
-        audit(db, current.id, 'auth.bind')
-        const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(current.id)
-        return sendJson(res, 200, { user: userJson(updated) })
-      }
-      if (path === '/auth/logout' && method === 'POST') {
-        revokeRefreshToken(db, parseCookies(req)[REFRESH_COOKIE])
-        return sendEmpty(res, 204, { 'Set-Cookie': clearRefreshCookie(secureCookies) })
-      }
-      if (path === '/auth/delete-account' && method === 'POST') {
-        const user = requireUser(req)
-        const need = confirmation(db, user.id, 'delete-account', body)
-        if (need) return sendJson(res, need.status, need.body)
-        wipeUser(db, user.id, true)
-        return sendEmpty(res, 204, { 'Set-Cookie': clearRefreshCookie(secureCookies) })
-      }
-      return sendJson(res, 404, { code: 'not_found', message: '接口不存在' })
-    }
-
-    if (path === '/data/wipe' && method === 'POST') {
-      const user = requireUser(req)
-      if (!allow(`wipe:${user.id}`, 5, 60_000)) fail('rate_limited', 429, '清除请求过于频繁')
-      const need = confirmation(db, user.id, 'wipe', body)
-      if (need) return sendJson(res, need.status, need.body)
-      wipeUser(db, user.id, false)
-      audit(db, user.id, 'data.wipe')
-      return sendEmpty(res, 204)
-    }
-
+    // 请求级依赖：url 供分页/查询参数，user 供需要登录态的路由（未登录为 null，不抛错）
     const user = userFromRequest(req, db, secret)
-    if (!user) fail('unauthorized', 401, '请先登录')
 
-    if (path === '/profile') {
-      if (method === 'GET') {
-        const row = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(user.id)
-        return sendJson(res, 200, { profile: profileJson(row) })
-      }
-      if (method === 'PUT') {
-        const currentRow = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(user.id)
-        const patch = body.profile && typeof body.profile === 'object' ? body.profile : body
-        if (currentRow && isIso(patch.updatedAt) && patch.updatedAt < currentRow.updated_at) {
-          return sendJson(res, 200, { profile: profileJson(currentRow) })
-        }
-        const row = writeProfile(db, user.id, patch, profileJson(currentRow))
-        audit(db, user.id, 'profile.update', 'profile', user.id)
-        return sendJson(res, 200, { profile: profileJson(row) })
-      }
-    }
-
-    if (path === '/settings/privacy') {
-      if (method === 'GET') {
-        const row = db.prepare('SELECT * FROM privacy_settings WHERE user_id = ?').get(user.id)
-        return sendJson(res, 200, { privacy: privacyJson(row) })
-      }
-      if (method === 'PUT') {
-        const current = privacyJson(db.prepare('SELECT * FROM privacy_settings WHERE user_id = ?').get(user.id))
-        const patch = body.privacy && typeof body.privacy === 'object' ? body.privacy : body
-        if (current.updatedAt && isIso(patch.updatedAt) && patch.updatedAt < current.updatedAt) {
-          return sendJson(res, 200, { privacy: current })
-        }
-        const merged = { ...current, ...patch }
-        if (merged.exportFormat !== 'csv') merged.exportFormat = 'json'
-        merged.cameraEnabled = !!merged.cameraEnabled
-        merged.showEnergyEstimate = !!merged.showEnergyEstimate
-        merged.saveFoodPhotoLocally = !!merged.saveFoodPhotoLocally
-        const updatedAt = nowIso()
-        db.prepare(`
-          INSERT INTO privacy_settings (user_id, json, updated_at) VALUES (?, ?, ?)
-          ON CONFLICT(user_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at
-        `).run(user.id, JSON.stringify(merged), updatedAt)
-        return sendJson(res, 200, { privacy: { ...merged, updatedAt } })
-      }
-    }
-
-    /**
-     * 已处理的计划调整建议：单条上报，按 updatedAt 做 last-write-wins。
-     * 客户端会按「首次全量 + 之后按同步窗口」重复上报，重复同一条必须是幂等的：
-     * 时间戳相同视为没有更新，直接回现有行。
-     */
-    if (path === '/adjustment-resolutions' && method === 'PUT') {
-      const key = stringOrNull(body.key, 400)
-      const status = body.status
-      if (!key) fail('invalid_key', 400, '缺少建议标识')
-      if (status !== 'accepted' && status !== 'dismissed') fail('invalid_status', 400, '状态只能是 accepted 或 dismissed')
-      const incomingAt = isIso(body.updatedAt) ? body.updatedAt : ''
-      const existing = db.prepare(
-        'SELECT * FROM adjustment_resolutions WHERE user_id = ? AND resolution_key = ?'
-      ).get(user.id, key)
-      // 空时间戳是老版本迁移上来的记录：只在服务端还没有这条时才写入，绝不覆盖别的设备的明确选择
-      if (!existing || (incomingAt && incomingAt > existing.updated_at)) {
-        db.prepare(`
-          INSERT INTO adjustment_resolutions (user_id, resolution_key, status, updated_at)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(user_id, resolution_key) DO UPDATE
-            SET status = excluded.status, updated_at = excluded.updated_at
-        `).run(user.id, key, status, incomingAt || nowIso())
-        const row = db.prepare('SELECT * FROM adjustment_resolutions WHERE user_id = ? AND resolution_key = ?').get(user.id, key)
-        return sendJson(res, 200, { resolution: { key: row.resolution_key, status: row.status, updatedAt: row.updated_at } })
-      }
-      return sendJson(res, 200, { resolution: { key: existing.resolution_key, status: existing.status, updatedAt: existing.updated_at } })
-    }
-
-    if (path === '/sessions' && method === 'GET') {
-      const from = isDate(url.searchParams.get('from')) ? url.searchParams.get('from') : '0000-01-01'
-      const to = isDate(url.searchParams.get('to')) ? url.searchParams.get('to') : '9999-12-31'
-      const { limit, offset } = pagination(url)
-      const rows = db.prepare(`
-        SELECT * FROM training_sessions
-        WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
-        ORDER BY date ASC, created_at ASC, id ASC
-        LIMIT ? OFFSET ?
-      `).all(user.id, from, to, limit + 1, offset)
-      const page = rows.slice(0, limit)
-      return sendJson(res, 200, { sessions: page.map(sessionJson), nextOffset: rows.length > limit ? offset + limit : null })
-    }
-
-    if (path === '/sessions' && method === 'POST') {
-      const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey, method, path)
-      if (cached) return sendJson(res, cached.status, cached.body)
-      const raw = body.session && typeof body.session === 'object' ? body.session : body
-      const clientId = stringOrNull(raw.clientId || raw.id, 100) ?? randomUUID()
-      const existing = db.prepare('SELECT * FROM training_sessions WHERE user_id = ? AND client_id = ?').get(user.id, clientId)
-      if (existing) {
-        // 软删的记录不能用同一个 clientId 复活，但也不能假装成功：否则客户端把墓碑当已同步，
-        // 记录在本机还在、在服务端和换设备后已经没了。
-        if (existing.deleted_at) fail('conflict', 409, '这条训练记录已删除，不能再用同一个 clientId 重建', { deletedAt: existing.deleted_at })
-        const result = { status: 200, body: { session: sessionJson(existing) } }
-        saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-        return sendJson(res, result.status, result.body)
-      }
-      const date = isDate(raw.date) ? raw.date : null
-      const exerciseName = stringOrNull(raw.exerciseName, 120)
-      assert(date && exerciseName, '训练记录缺少日期或动作名')
-      const rpe = raw.rpe === null || raw.rpe === undefined ? null : integerOrNull(raw.rpe)
-      assert(rpe === null || (rpe >= 0 && rpe <= 10), 'RPE 必须在 0–10 之间或留空')
-      const now = nowIso()
-      const id = randomUUID()
-      db.prepare(`
-        INSERT INTO training_sessions (
-          id, client_id, user_id, plan_item_id, date, exercise_name, type, actual_duration,
-          actual_distance, actual_sets, actual_reps, completion_status, completion_reason,
-          rpe, discomfort, notes, camera_used, manual_corrections, counted_reps,
-          avg_confidence, calibrated_neutral, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id, clientId, user.id, stringOrNull(raw.planItemId, 100), date, exerciseName,
-        stringOrNull(raw.type, 40) ?? '其他', integerOrNull(raw.actualDuration),
-        integerOrNull(raw.actualDistance), integerOrNull(raw.actualSets), integerOrNull(raw.actualReps),
-        ['completed', 'partial', 'skipped'].includes(raw.completionStatus) ? raw.completionStatus : 'completed',
-        stringOrNull(raw.completionReason, 300), rpe, bool(raw.discomfort) ? 1 : 0,
-        stringOrNull(raw.notes, 1000), bool(raw.cameraUsed) ? 1 : 0,
-        integerOrNull(raw.manualCorrections) ?? 0, integerOrNull(raw.countedReps),
-        numberOrNull(raw.confidence), integerOrNull(raw.calibratedNeutral),
-        stringOrNull(raw.createdAt, 40) ?? now, now
-      )
-      const row = db.prepare('SELECT * FROM training_sessions WHERE id = ?').get(id)
-      const result = { status: 201, body: { session: sessionJson(row) } }
-      saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-      return sendJson(res, result.status, result.body)
-    }
-
-    const sessionFeedback = /^\/sessions\/([^/]+)\/feedback$/.exec(path)
-    if (sessionFeedback && method === 'PATCH') {
-      const row = findSession(db, user.id, decodeURIComponent(sessionFeedback[1]))
-      if (!row) fail('not_found', 404, '训练记录不存在')
-      const rpe = body.rpe === null || body.rpe === undefined ? null : integerOrNull(body.rpe)
-      assert(rpe === null || (rpe >= 0 && rpe <= 10), 'RPE 必须在 0–10 之间或留空')
-      // 只写请求里真的出现的字段：前端不带 notes/reason 时不能把已经记下的内容清掉。
-      // 显式传 null 仍然表示"清空"，所以按 key 是否存在判断，而不是按值。
-      const fields = []
-      const values = []
-      const setIfPresent = (key, column, value) => {
-        if (!Object.hasOwn(body, key)) return
-        fields.push(`${column} = ?`)
-        values.push(value)
-      }
-      setIfPresent('duration', 'actual_duration', integerOrNull(body.duration))
-      setIfPresent('distance', 'actual_distance', integerOrNull(body.distance))
-      setIfPresent('rpe', 'rpe', rpe)
-      setIfPresent('discomfort', 'discomfort', bool(body.discomfort) ? 1 : 0)
-      setIfPresent('reason', 'completion_reason', stringOrNull(body.reason, 300))
-      setIfPresent('notes', 'notes', stringOrNull(body.notes, 1000))
-      if (!fields.length) return sendJson(res, 200, { session: sessionJson(row) })
-      fields.push('updated_at = ?')
-      values.push(nowIso(), row.id)
-      db.prepare(`UPDATE training_sessions SET ${fields.join(', ')} WHERE id = ?`).run(...values)
-      return sendJson(res, 200, { session: sessionJson(db.prepare('SELECT * FROM training_sessions WHERE id = ?').get(row.id)) })
-    }
-
-    const sessionPath = /^\/sessions\/([^/]+)$/.exec(path)
-    if (sessionPath && method === 'DELETE') {
-      const row = findSession(db, user.id, decodeURIComponent(sessionPath[1]))
-      if (!row) fail('not_found', 404, '训练记录不存在')
-      db.prepare('UPDATE training_sessions SET deleted_at = ?, updated_at = ? WHERE id = ?').run(nowIso(), nowIso(), row.id)
-      return sendEmpty(res, 204)
-    }
-
-    if (path === '/analyses' && method === 'GET') {
-      const from = isDate(url.searchParams.get('from')) ? url.searchParams.get('from') : '0000-01-01'
-      const to = isDate(url.searchParams.get('to')) ? url.searchParams.get('to') : '9999-12-31'
-      const { limit, offset } = pagination(url)
-      const rows = db.prepare(`
-        SELECT * FROM motion_analyses
-        WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
-        ORDER BY date DESC, created_at DESC, id DESC
-        LIMIT ? OFFSET ?
-      `).all(user.id, from, to, limit + 1, offset)
-      const page = rows.slice(0, limit)
-      return sendJson(res, 200, { analyses: page.map(analysisJson), nextOffset: rows.length > limit ? offset + limit : null })
-    }
-
-    if (path === '/analyses' && method === 'POST') {
-      const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey, method, path)
-      if (cached) return sendJson(res, cached.status, cached.body)
-      const raw = body.analysis && typeof body.analysis === 'object' ? body.analysis : body
-      const clientId = stringOrNull(raw.clientId || raw.id, 100) ?? randomUUID()
-      const existing = db.prepare('SELECT * FROM motion_analyses WHERE user_id = ? AND client_id = ?').get(user.id, clientId)
-      if (existing) {
-        if (existing.deleted_at) fail('conflict', 409, '这条分析记录已删除，不能再用同一个 clientId 重建', { deletedAt: existing.deleted_at })
-        const result = { status: 200, body: { analysis: analysisJson(existing) } }
-        saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-        return sendJson(res, result.status, result.body)
-      }
-      const date = isDate(raw.date) ? raw.date : null
-      const action = typeof raw.action === 'string'
-        && raw.action.trim().length > 0
-        && raw.action.trim().length <= 80
-        ? raw.action.trim()
-        : null
-      const view = ['side', 'front', 'oblique'].includes(raw.view) ? raw.view : null
-      const status = ['completed', 'low-confidence'].includes(raw.status) ? raw.status : null
-      const exerciseName = stringOrNull(raw.exerciseName, 120)
-      assert(date && action && view && status && exerciseName, '分析记录缺少有效的日期、动作、视角或状态')
-      const reasons = Array.isArray(raw.lowConfidenceReasons)
-        ? raw.lowConfidenceReasons.filter((reason) => typeof reason === 'string').slice(0, 10).map((reason) => reason.slice(0, 300))
-        : []
-      let sessionId = null
-      if (raw.sessionId !== undefined && raw.sessionId !== null) {
-        sessionId = stringOrNull(raw.sessionId, 100)
-        assert(sessionId, '关联的训练记录无效')
-        if (!findSession(db, user.id, sessionId)) fail('not_found', 404, '关联的训练记录不存在')
-      }
-      const findings = boundedJsonArray(raw.findings, 20)
-      const metrics = boundedJsonArray(raw.metrics, 30)
-      // 六层证据是本机 JSON 文本：只做长度与类型约束，不解析成结构（服务端不解释证据）
-      const evidence = stringOrNull(raw.evidence, 8000)
-      const now = nowIso()
-      const id = randomUUID()
-      db.prepare(`
-        INSERT INTO motion_analyses (
-          id, client_id, user_id, date, action, exercise_name, view, status,
-          low_confidence_reasons, findings, metrics, rep_count, gait_cycles, usable_ratio, evidence,
-          session_id, rule_version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        id, clientId, user.id, date, action, exerciseName, view, status,
-        JSON.stringify(reasons), JSON.stringify(findings), JSON.stringify(metrics),
-        integerOrNull(raw.repCount), integerOrNull(raw.gaitCycles), numberOrNull(raw.usableRatio), evidence, sessionId,
-        stringOrNull(raw.ruleVersion, 80) ?? 'motion-analysis-rules-v1',
-        stringOrNull(raw.createdAt, 40) ?? now, now
-      )
-      const row = db.prepare('SELECT * FROM motion_analyses WHERE id = ?').get(id)
-      const result = { status: 201, body: { analysis: analysisJson(row) } }
-      saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-      return sendJson(res, result.status, result.body)
-    }
-
-    const analysisPath = /^\/analyses\/([^/]+)$/.exec(path)
-    if (analysisPath && method === 'PATCH') {
-      const row = findAnalysis(db, user.id, decodeURIComponent(analysisPath[1]))
-      if (!row) fail('not_found', 404, '分析记录不存在')
-      // 只有请求里真的出现 sessionId 才改关联：省略这个字段不能把已有绑定清掉
-      if (!Object.hasOwn(body, 'sessionId')) return sendJson(res, 200, { analysis: analysisJson(row) })
-      const sessionId = body.sessionId === null ? null : stringOrNull(body.sessionId, 100)
-      if (sessionId) {
-        const session = findSession(db, user.id, sessionId)
-        if (!session) fail('not_found', 404, '关联的训练记录不存在')
-      }
-      db.prepare('UPDATE motion_analyses SET session_id = ?, updated_at = ? WHERE id = ?').run(sessionId, nowIso(), row.id)
-      return sendJson(res, 200, { analysis: analysisJson(db.prepare('SELECT * FROM motion_analyses WHERE id = ?').get(row.id)) })
-    }
-
-    if (analysisPath && method === 'DELETE') {
-      const row = findAnalysis(db, user.id, decodeURIComponent(analysisPath[1]))
-      if (!row) fail('not_found', 404, '分析记录不存在')
-      db.prepare('UPDATE motion_analyses SET deleted_at = ?, updated_at = ? WHERE id = ?').run(nowIso(), nowIso(), row.id)
-      return sendEmpty(res, 204)
-    }
-
-    if (path === '/meals' && method === 'GET') {
-      const date = url.searchParams.get('date')
-      const { limit, offset } = pagination(url)
-      const rows = date && isDate(date)
-        ? db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY time ASC, id ASC LIMIT ? OFFSET ?')
-          .all(user.id, date, limit + 1, offset)
-        : db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND deleted_at IS NULL ORDER BY date ASC, time ASC, id ASC LIMIT ? OFFSET ?')
-          .all(user.id, limit + 1, offset)
-      const page = rows.slice(0, limit)
-      return sendJson(res, 200, {
-        meals: page.map((row) => mealJson(row, readItems(db, 'meal_items', 'meal_record_id', row.id))),
-        nextOffset: rows.length > limit ? offset + limit : null
-      })
-    }
-
-    if (path === '/meals' && method === 'POST') {
-      const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey, method, path)
-      if (cached) return sendJson(res, cached.status, cached.body)
-      const raw = body.meal && typeof body.meal === 'object' ? body.meal : body
-      const clientId = stringOrNull(raw.clientId || raw.id, 100) ?? randomUUID()
-      const existing = db.prepare('SELECT * FROM meal_records WHERE user_id = ? AND client_id = ?').get(user.id, clientId)
-      if (existing) {
-        if (existing.deleted_at) fail('conflict', 409, '这条餐食记录已删除，不能再用同一个 clientId 重建', { deletedAt: existing.deleted_at })
-        const result = { status: 200, body: { meal: readMeal(db, existing.id) } }
-        saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-        return sendJson(res, result.status, result.body)
-      }
-      const date = isDate(raw.date) ? raw.date : null
-      assert(date, '餐食记录缺少日期')
-      const mealType = ['breakfast', 'lunch', 'dinner', 'snack'].includes(raw.mealType) ? raw.mealType : 'snack'
-      const id = randomUUID()
-      const now = nowIso()
-      db.exec('BEGIN')
-      try {
-        db.prepare(`
-          INSERT INTO meal_records (
-            id, client_id, user_id, date, meal_type, time, completeness, analyzed,
-            photo_thumb, photo_id, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          id, clientId, user.id, date, mealType, stringOrNull(raw.time, 10),
-          ['complete', 'partial', 'unknown'].includes(raw.completeness) ? raw.completeness : 'unknown',
-          raw.analyzed ? 1 : 0, stringOrNull(raw.photoThumb, 200000), stringOrNull(raw.photoId, 200),
-          stringOrNull(raw.createdAt, 40) ?? now, now
-        )
-        writeMealItems(db, id, Array.isArray(raw.items) ? raw.items : [])
-        db.exec('COMMIT')
-      } catch (error) {
-        db.exec('ROLLBACK')
-        throw error
-      }
-      const result = { status: 201, body: { meal: readMeal(db, id) } }
-      saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-      return sendJson(res, result.status, result.body)
-    }
-
-    // 缩略图单独取：同步与导出不再携带它（客户端按需拉取并缓存到本机）
-    const mealThumbPath = /^\/meals\/([^/]+)\/thumb$/.exec(path)
-    if (mealThumbPath && method === 'GET') {
-      const row = findMeal(db, user.id, decodeURIComponent(mealThumbPath[1]))
-      if (!row) fail('not_found', 404, '餐食记录不存在')
-      return sendJson(res, 200, { mealId: row.id, photoThumb: row.photo_thumb ?? null })
-    }
-
-    const mealPath = /^\/meals\/([^/]+)$/.exec(path)
-    if (mealPath && method === 'PATCH') {
-      const row = findMeal(db, user.id, decodeURIComponent(mealPath[1]))
-      if (!row) fail('not_found', 404, '餐食记录不存在')
-      const now = nowIso()
-      db.exec('BEGIN')
-      try {
-        // 与训练反馈同理：没带 analyzed 的 PATCH 不能顺手把它改成 false
-        const fields = []
-        const values = []
-        const setIfPresent = (key, column, value) => {
-          if (!Object.hasOwn(body, key) || value === undefined) return
-          fields.push(`${column} = ?`)
-          values.push(value)
-        }
-        setIfPresent('time', 'time', stringOrNull(body.time, 10))
-        setIfPresent('mealType', 'meal_type', ['breakfast', 'lunch', 'dinner', 'snack'].includes(body.mealType) ? body.mealType : undefined)
-        setIfPresent('completeness', 'completeness', ['complete', 'partial', 'unknown'].includes(body.completeness) ? body.completeness : undefined)
-        setIfPresent('analyzed', 'analyzed', body.analyzed ? 1 : 0)
-        fields.push('updated_at = ?')
-        values.push(now, row.id)
-        db.prepare(`UPDATE meal_records SET ${fields.join(', ')} WHERE id = ?`).run(...values)
-        if (Array.isArray(body.items)) writeMealItems(db, row.id, body.items)
-        db.exec('COMMIT')
-      } catch (error) {
-        db.exec('ROLLBACK')
-        throw error
-      }
-      return sendJson(res, 200, { meal: readMeal(db, row.id) })
-    }
-
-    if (mealPath && method === 'DELETE') {
-      const row = findMeal(db, user.id, decodeURIComponent(mealPath[1]))
-      if (!row) fail('not_found', 404, '餐食记录不存在')
-      db.prepare('UPDATE meal_records SET deleted_at = ?, updated_at = ? WHERE id = ?').run(nowIso(), nowIso(), row.id)
-      return sendEmpty(res, 204)
-    }
-
-    if (path === '/plans/current' && method === 'GET') {
-      const week = mondayOf(url.searchParams.get('week') ?? todayIso())
-      if (!week) fail('validation_failed', 400, 'week 参数不是有效日期')
-      const plan = latestPlan(db, user.id, isoLocal(week))
-      return sendJson(res, 200, { plan })
-    }
-
-    if (path === '/plans' && method === 'POST') {
-      const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey, method, path)
-      if (cached) return sendJson(res, cached.status, cached.body)
-      const raw = body.plan && typeof body.plan === 'object' ? body.plan : body
-      const clientId = stringOrNull(raw.clientId || raw.id, 120) ?? randomUUID()
-      const existing = db.prepare('SELECT * FROM plans WHERE user_id = ? AND client_id = ?').get(user.id, clientId)
-      if (existing) {
-        const result = { status: 200, body: { plan: readPlan(db, existing.id) } }
-        saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-        return sendJson(res, result.status, result.body)
-      }
-      const version = integerOrNull(raw.version) ?? 1
-      const weekStart = mondayOf(raw.weekStartDate)
-      assert(weekStart, '计划缺少有效的周起始日期')
-      const weekStartIso = isoLocal(weekStart)
-      const sameVersion = db.prepare(`
-        SELECT * FROM plans WHERE user_id = ? AND week_start = ? AND version = ?
-      `).get(user.id, weekStartIso, version)
-      if (sameVersion) {
-        const latest = latestPlan(db, user.id, weekStartIso)
-        return sendJson(res, 409, {
-          code: 'conflict',
-          message: '计划版本冲突',
-          detail: { latest, reason: 'same-version' }
-        })
-      }
-      assert(Array.isArray(raw.items), '计划缺少 items')
-      const id = randomUUID()
-      const weekEndDate = isDate(raw.weekEndDate)
-        ? raw.weekEndDate
-        : isoLocal(weekDates(weekStart).at(-1))
-      const now = nowIso()
-      db.exec('BEGIN')
-      try {
-        const current = latestPlan(db, user.id, weekStartIso)
-        if (current) {
-          const baseVersion = planBaseVersion(req, body)
-          if (current.version !== baseVersion || version !== baseVersion + 1) {
-            fail('conflict', 409, '计划已更新，请比较最新计划后再提交', { latest: current, currentVersion: current.version })
-          }
-        }
-        db.prepare(`
-          INSERT INTO plans (
-            id, user_id, client_id, version, week_start, week_end, reason,
-            rules_version, source, locked, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          id, user.id, clientId, version, weekStartIso, weekEndDate,
-          stringOrNull(raw.reason, 500) ?? '本机计划同步', stringOrNull(raw.rulesVersion, 80) ?? 'plan-rules-v4',
-          stringOrNull(raw.source, 20) ?? 'rules', raw.locked ? 1 : 0,
-          stringOrNull(raw.createdAt, 40) ?? now, now
-        )
-        const written = writePlanItems(db, id, raw.items)
-        // 全部条目都缺日期/动作名时不能回 201 + 空计划：客户端会把空计划当成同步成功
-        assert(raw.items.length === 0 || written > 0, '计划条目都缺少日期或动作名')
-        db.exec('COMMIT')
-      } catch (error) {
-        db.exec('ROLLBACK')
-        throw error
-      }
-      const result = { status: 201, body: { plan: readPlan(db, id) } }
-      saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-      return sendJson(res, result.status, result.body)
-    }
-
-    const adjustPath = /^\/plans\/([^/]+)\/adjustments$/.exec(path)
-      ?? (path === '/plans/adjustments' && typeof body.planId === 'string' ? [path, body.planId] : null)
-    if (adjustPath && method === 'POST') {
-      const baseVersion = planBaseVersion(req, body)
-      const idKey = String(req.headers['idempotency-key'] ?? '') || null
-      const cached = idempotencyResult(db, user.id, idKey, method, path)
-      if (cached) return sendJson(res, cached.status, cached.body)
-      const plan = findPlan(db, user.id, decodeURIComponent(adjustPath[1]))
-      if (!plan) fail('not_found', 404, '计划不存在')
-      const changes = Array.isArray(body.changes) ? body.changes : []
-      const id = randomUUID()
-      db.prepare(`
-        INSERT INTO plan_adjustments (id, plan_id, user_id, base_version, created_at, reason, status, changes_json)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-      `).run(id, plan.id, user.id, baseVersion, nowIso(), stringOrNull(body.reason, 500), JSON.stringify(changes))
-      const result = { status: 201, body: { adjustment: { id, planId: plan.id, baseVersion, status: 'pending', changes } } }
-      saveIdempotency(db, user.id, idKey, method, path, result.status, result.body)
-      return sendJson(res, result.status, result.body)
-    }
-
-    const acceptPath = /^\/plans\/adjustments\/([^/]+)\/accept$/.exec(path)
-    if (acceptPath && method === 'POST') {
-      const baseVersion = planBaseVersion(req, body)
-      const result = transaction(db, () => {
-        const adjustment = db.prepare('SELECT * FROM plan_adjustments WHERE id = ? AND user_id = ?')
-          .get(decodeURIComponent(acceptPath[1]), user.id)
-        if (!adjustment) fail('not_found', 404, '调整不存在')
-        const planRow = db.prepare('SELECT * FROM plans WHERE id = ? AND user_id = ?').get(adjustment.plan_id, user.id)
-        if (!planRow) fail('not_found', 404, '计划不存在')
-        if (adjustment.status === 'accepted') {
-          const acceptedPlan = db.prepare('SELECT * FROM plans WHERE user_id = ? AND client_id = ?')
-            .get(user.id, `adjustment:${adjustment.id}`)
-          if (acceptedPlan) {
-            return {
-              adjustmentId: adjustment.id,
-              newVersion: acceptedPlan.version,
-              plan: readPlan(db, acceptedPlan.id)
-            }
-          }
-        }
-        const latestRow = db.prepare(`
-          SELECT * FROM plans
-          WHERE user_id = ? AND week_start = ? AND deleted_at IS NULL
-          ORDER BY version DESC LIMIT 1
-        `).get(user.id, planRow.week_start)
-        if (!latestRow) fail('not_found', 404, '计划不存在')
-        if (latestRow.version !== baseVersion || adjustment.base_version !== baseVersion) {
-          fail('conflict', 409, '计划已被其他版本更新，请比较最新计划后重新提交',
-            { latest: readPlan(db, latestRow.id), baseVersion, currentVersion: latestRow.version })
-        }
-        const changes = jsonParse(adjustment.changes_json, [])
-        const items = readItems(db, 'plan_items', 'plan_id', latestRow.id)
-        const byClientId = new Map(items.map((item) => [item.client_item_id || item.id, { ...item }]))
-        for (const change of changes) {
-          if (!change || change.type !== 'changed') continue
-          const item = byClientId.get(String(change.itemId))
-          if (!item) continue
-          if (item.completed) {
-            continue
-          }
-          const patch = change.newValue && typeof change.newValue === 'object' ? change.newValue : {}
-          if (patch.date !== undefined) item.date = isDate(patch.date) ? patch.date : item.date
-          if (patch.exerciseName !== undefined) item.exercise_name = stringOrNull(patch.exerciseName, 120) ?? item.exercise_name
-          if (patch.type !== undefined) item.type = stringOrNull(patch.type, 40) ?? item.type
-          if (patch.note !== undefined) item.note = stringOrNull(patch.note, 200)
-          if (patch.plannedDuration !== undefined) item.planned_duration = integerOrNull(patch.plannedDuration)
-          if (patch.plannedDistance !== undefined) item.planned_distance = integerOrNull(patch.plannedDistance)
-          if (patch.plannedSets !== undefined) item.planned_sets = integerOrNull(patch.plannedSets)
-          if (patch.plannedReps !== undefined) item.planned_reps = integerOrNull(patch.plannedReps)
-          if (patch.plannedHoldSeconds !== undefined) item.planned_hold_seconds = integerOrNull(patch.plannedHoldSeconds)
-          if (patch.plannedTargetMinutes !== undefined) item.planned_target_minutes = integerOrNull(patch.plannedTargetMinutes)
-        }
-        const now = nowIso()
-        const newPlanId = randomUUID()
-        db.prepare(`
-          INSERT INTO plans (
-            id, user_id, client_id, version, week_start, week_end, reason,
-            rules_version, source, locked, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          newPlanId, user.id, `adjustment:${adjustment.id}`, latestRow.version + 1,
-          latestRow.week_start, latestRow.week_end, `${latestRow.reason}（调整 ${adjustment.id}）`,
-          latestRow.rules_version, latestRow.source, latestRow.locked, now, now
-        )
-        const insert = db.prepare(`
-          INSERT INTO plan_items (
-            id, client_item_id, plan_id, date, exercise_id, exercise_name, type, note,
-            planned_duration, planned_distance, planned_sets, planned_reps, planned_hold_seconds,
-            planned_target_minutes, locked, completed, alternatives_json, order_index
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        [...byClientId.values()].forEach((item, index) => {
-          insert.run(
-            randomUUID(), item.client_item_id || item.id, newPlanId, item.date, item.exercise_id,
-            item.exercise_name, item.type, item.note, item.planned_duration, item.planned_distance,
-            item.planned_sets, item.planned_reps, item.planned_hold_seconds, item.planned_target_minutes,
-            item.locked, item.completed, item.alternatives_json, index
-          )
-        })
-        db.prepare('UPDATE plan_adjustments SET status = ? WHERE id = ?').run('accepted', adjustment.id)
-        return {
-          adjustmentId: adjustment.id,
-          newVersion: latestRow.version + 1,
-          plan: readPlan(db, newPlanId)
-        }
-      })
-      return sendJson(res, 200, result)
-    }
-
-    if (path === '/reports/weekly' && method === 'GET') {
-      const start = mondayOf(url.searchParams.get('start') ?? todayIso())
-      if (!start) fail('validation_failed', 400, 'start 参数不是有效日期')
-      const plan = latestPlan(db, user.id, isoLocal(start))
-      const days = weekDates(start)
-      const from = isoLocal(days[0])
-      const to = isoLocal(days.at(-1))
-      const report = buildWeeklyReport({
-        start: from,
-        userId: user.id,
-        sessions: sessionRowsForWeek(db, user.id, from, to),
-        meals: mealRowsForWeek(db, user.id, from, to),
-        planItems: plan?.items ?? []
-      })
-      return sendJson(res, 200, { report })
-    }
-
-    if (path === '/sync' && method === 'GET') {
-      const since = url.searchParams.get('since')
-      const serverTime = nowIso()
-      const profileRow = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(user.id)
-      const privacyRow = db.prepare('SELECT * FROM privacy_settings WHERE user_id = ?').get(user.id)
-      const profileChanged = !since || (profileRow && profileRow.updated_at > since)
-      const privacyChanged = !since || (privacyRow && privacyRow.updated_at > since)
-      const sessionRows = since
-        ? db.prepare(`
-            SELECT * FROM training_sessions
-            WHERE user_id = ? AND (updated_at > ? OR deleted_at > ?)
-            ORDER BY date ASC
-          `).all(user.id, since, since)
-        : db.prepare('SELECT * FROM training_sessions WHERE user_id = ? ORDER BY date ASC').all(user.id)
-      const mealRows = since
-        ? db.prepare(`
-            SELECT * FROM meal_records
-            WHERE user_id = ? AND (updated_at > ? OR deleted_at > ?)
-            ORDER BY date ASC
-          `).all(user.id, since, since)
-        : db.prepare('SELECT * FROM meal_records WHERE user_id = ? ORDER BY date ASC').all(user.id)
-      const analysisRows = since
-        ? db.prepare(`
-            SELECT * FROM motion_analyses
-            WHERE user_id = ? AND (updated_at > ? OR deleted_at > ?)
-            ORDER BY date DESC, created_at DESC
-          `).all(user.id, since, since)
-        : db.prepare('SELECT * FROM motion_analyses WHERE user_id = ? ORDER BY date DESC, created_at DESC').all(user.id)
-      const plans = (since
-        ? db.prepare(`
-            SELECT * FROM plans
-            WHERE user_id = ? AND deleted_at IS NULL AND updated_at > ?
-            ORDER BY week_start ASC, version ASC
-          `).all(user.id, since)
-        : db.prepare('SELECT * FROM plans WHERE user_id = ? AND deleted_at IS NULL ORDER BY week_start ASC, version ASC').all(user.id))
-        .map((row) => planJson(row, readItems(db, 'plan_items', 'plan_id', row.id)))
-      const resolutionRows = since
-        ? db.prepare(`
-            SELECT * FROM adjustment_resolutions
-            WHERE user_id = ? AND updated_at > ?
-            ORDER BY updated_at ASC
-          `).all(user.id, since)
-        : db.prepare('SELECT * FROM adjustment_resolutions WHERE user_id = ? ORDER BY updated_at ASC').all(user.id)
-      const deleted = {
-        sessions: sessionRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
-        meals: mealRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id })),
-        plans: [],
-        analyses: analysisRows.filter((row) => row.deleted_at).map((row) => ({ id: row.id, clientId: row.client_id }))
-      }
-      db.prepare(`
-        INSERT INTO sync_state (user_id, last_sync_at) VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET last_sync_at = excluded.last_sync_at
-      `).run(user.id, serverTime)
-      return sendJson(res, 200, {
-        serverTime,
-        profile: profileChanged ? profileJson(profileRow) : null,
-        privacy: privacyChanged ? privacyJson(privacyRow) : null,
-        sessions: sessionRows.filter((row) => !row.deleted_at).map(sessionJson),
-        meals: mealRows.filter((row) => !row.deleted_at).map((row) => mealJson(row, readItems(db, 'meal_items', 'meal_record_id', row.id))),
-        analyses: analysisRows.filter((row) => !row.deleted_at).map(analysisJson),
-        plans,
-        adjustmentResolutions: resolutionRows.map((row) => ({
-          key: row.resolution_key,
-          status: row.status,
-          updatedAt: row.updated_at
-        })),
-        deleted
-      })
-    }
-
-    if (path === '/export' && method === 'GET') {
-      // 只取状态列：content 是整份导出快照，为了列 20 条任务把它全读进内存不划算
-      const rows = db.prepare(`
-        SELECT id, format, status, created_at, completed_at
-        FROM export_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 20
-      `).all(user.id)
-      return sendJson(res, 200, {
-        jobs: rows.map((row) => ({
-          jobId: row.id,
-          format: row.format,
-          status: row.status,
-          createdAt: row.created_at,
-          completedAt: row.completed_at
-        }))
-      })
-    }
-
-    if (path === '/export' && method === 'POST') {
-      if (!allow(`export:${user.id}`, 10, 60_000)) fail('rate_limited', 429, '导出请求过于频繁')
-      const format = body.format === 'json' ? 'json' : 'csv'
-      const id = randomUUID()
-      const now = nowIso()
-      db.prepare(`
-        INSERT INTO export_jobs (id, user_id, format, status, content, error, created_at, completed_at)
-        VALUES (?, ?, ?, 'pending', NULL, NULL, ?, NULL)
-      `).run(id, user.id, format, now)
-      // 导出文件是整份用户数据快照；只保留最新一份，避免主库（和备份）被历史导出无限撑大
-      db.prepare("UPDATE export_jobs SET content = NULL WHERE user_id = ? AND status = 'completed'").run(user.id)
-      setImmediate(scheduleExports)
-      return sendJson(res, 202, { jobId: id, format, status: 'pending' })
-    }
-
-    const exportPath = /^\/export\/([^/]+)$/.exec(path)
-    if (exportPath && method === 'GET') {
-      const job = db.prepare('SELECT id, format, status, error, content IS NOT NULL AS has_content FROM export_jobs WHERE id = ? AND user_id = ?')
-        .get(decodeURIComponent(exportPath[1]), user.id)
-      if (!job) fail('not_found', 404, '导出任务不存在')
-      return sendJson(res, 200, {
-        jobId: job.id,
-        format: job.format,
-        status: job.status,
-        // 内容被新导出清空后就不再给下载地址：否则客户端点进去只能拿到 404
-        downloadUrl: job.status === 'completed' && job.has_content ? `/api/v1/export/${job.id}/download` : null,
-        error: job.error ?? undefined
-      })
-    }
-
-    const downloadPath = /^\/export\/([^/]+)\/download$/.exec(path)
-    if (downloadPath && method === 'GET') {
-      const job = db.prepare('SELECT * FROM export_jobs WHERE id = ? AND user_id = ?').get(decodeURIComponent(downloadPath[1]), user.id)
-      if (!job) fail('not_found', 404, '导出任务不存在')
-      if (job.status !== 'completed' || !job.content) fail('not_found', 404, '导出文件尚未就绪')
-      res.writeHead(200, {
-        'Content-Type': job.format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
-        'Content-Disposition': `attachment; filename="twopoles-${job.id.slice(0, 8)}.${job.format}"`,
-        'Cache-Control': 'no-store'
-      })
-      return res.end(job.content)
+    for (const handleRoute of routeHandlers) {
+      const result = await handleRoute({ path, method, body, ip, url, user }, req, res)
+      if (result !== false) return result
     }
 
     return sendJson(res, 404, { code: 'not_found', message: '接口不存在' })
   }
+
+  /** 路由模块的依赖面：全部来自本闭包，按值传入（Map 与函数引用保持同一对象）。 */
+  const api = {
+    ACCESS_TTL_SECONDS,
+    REFRESH_COOKIE,
+    allow,
+    analysisJson,
+    assert,
+    audit,
+    bool,
+    boundedJsonArray,
+    buildWeeklyReport,
+    clearRefreshCookie,
+    confirmation,
+    db,
+    fail,
+    findAnalysis,
+    findMeal,
+    findPlan,
+    findSession,
+    hashIdentifier,
+    hashPassword,
+    idempotencyResult,
+    identifierSecret,
+    integerOrNull,
+    isDate,
+    isIso,
+    isoLocal,
+    issueSession,
+    join,
+    jsonParse,
+    latestPlan,
+    loginBlocked,
+    loginFailures,
+    mealJson,
+    mealRowsForWeek,
+    mondayOf,
+    normalizeIdentifier,
+    nowIso,
+    numberOrNull,
+    pagination,
+    parseCookies,
+    planBaseVersion,
+    planJson,
+    privacyJson,
+    profileJson,
+    randomUUID,
+    readItems,
+    readMeal,
+    readPlan,
+    recordLoginFailure,
+    refreshCookie,
+    requireUser,
+    revokeRefreshToken,
+    rotateRefreshToken,
+    saveIdempotency,
+    scheduleExports,
+    secret,
+    secureCookies,
+    sendEmpty,
+    sendJson,
+    sessionJson,
+    sessionRowsForWeek,
+    signAccessToken,
+    stringOrNull,
+    todayIso,
+    transaction,
+    userFromRequest,
+    userJson,
+    verifyPassword,
+    weekDates,
+    wipeUser,
+    writeMealItems,
+    writePlanItems,
+    writeProfile,
+  }
+
+  const routeHandlers = [
+    createHealthRoutes(api),
+    createAuthRoutes(api),
+    createAccountRoutes(api),
+    createSessionsRoutes(api),
+    createAnalysesRoutes(api),
+    createMealsRoutes(api),
+    createPlansRoutes(api),
+    createReportsRoutes(api),
+    createExportRoutes(api),
+  ]
 
   async function handler(req, res) {
     try {

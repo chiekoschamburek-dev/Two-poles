@@ -1214,6 +1214,26 @@ test('an old profiles table migrates to multi-select disciplines and a wider age
   }
 })
 
+test('生产环境缺少真实 AUTH_SECRET 时拒绝启动', async () => {
+  const previousEnv = process.env.NODE_ENV
+  const previousSecret = process.env.AUTH_SECRET
+  try {
+    process.env.NODE_ENV = 'production'
+    delete process.env.AUTH_SECRET
+    assert.throws(() => createApiServer({ dbPath: ':memory:' }), /AUTH_SECRET/, '缺密钥必须起不来')
+    process.env.AUTH_SECRET = 'twopoles-dev-secret-change-me'
+    assert.throws(() => createApiServer({ dbPath: ':memory:' }), /AUTH_SECRET/, '开发默认值不能进生产')
+    process.env.AUTH_SECRET = 'production-secret-from-env'
+    const instance = createApiServer({ dbPath: ':memory:' })
+    await instance.close()
+  } finally {
+    if (previousEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = previousEnv
+    if (previousSecret === undefined) delete process.env.AUTH_SECRET
+    else process.env.AUTH_SECRET = previousSecret
+  }
+})
+
 test.after(async () => {
   await api.close()
 })

@@ -72,6 +72,7 @@ npm run check    # typecheck → selfcheck（907 项纯逻辑断言）→ API �
 | 前端架构与页面 | [docs/engineering/web.md](docs/engineering/web.md) |
 | 服务端接口与环境变量 | [docs/engineering/api.md](docs/engineering/api.md) |
 | 部署（ESA + 主机） | [docs/engineering/deploy.md](docs/engineering/deploy.md) |
+| 动作分析与食物识别的流程/算法 | [docs/engineering/pipelines.md](docs/engineering/pipelines.md) |
 | 动作分析引擎 v2 与真值口径 | [docs/engineering/motion-analysis-v2.md](docs/engineering/motion-analysis-v2.md) |
 | 架构决策 | [docs/adr/](docs/adr/) |
 | 产品设计 / 周计划 | [docs/product/](docs/product/) |
