@@ -6,6 +6,7 @@
 //   npm run eval:replay -- --clip sit-to-stand
 //   npm run eval:replay -- --oracle
 //   npm run eval:replay -- --gate
+//   npm run eval:replay -- --features            # 导出 M1 共享特征/质量/活跃区间（真实素材可复查）
 //   npm run eval:replay -- --freeze scripts/motion-eval/baseline/v1-frozen.json
 import { readdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -15,6 +16,7 @@ import {
   detectView,
   type MotionFrame
 } from '@/services/motionAnalysis'
+import { buildMotionFeatureSeries, detectActiveWindows } from '@/services/motion-engine'
 import type { AnalysisAction, AnalysisView } from '@/types/domain'
 
 // esbuild 把产物放到 UI 根，import.meta.url 会失真；npm 脚本的 cwd 就是 UI 根
@@ -32,6 +34,7 @@ const viewOverride = flag('view', '')
 const oracle = has('oracle')
 const gate = has('gate')
 const jsonOut = has('json')
+const featuresOut = has('features')
 const freezePath = flag('freeze', '')
 
 type TruthView = 'side' | 'front' | 'oblique'
@@ -187,6 +190,10 @@ if (!existsSync(BASELINE)) {
     const autoAction = actionOverride || autoClass.action
     const chosenView = (viewOverride || autoView) as TruthView | null
 
+    // M1：共享特征与活跃区间；--features 时导出，供人工复查真实素材的特征口径
+    const featureSeries = featuresOut || jsonOut ? buildMotionFeatureSeries(frames, fps) : null
+    const activeResult = featuresOut || jsonOut ? detectActiveWindows(frames, fps) : null
+
     const auto = runMode(frames, fps, autoAction, chosenView)
     const truthActionAnalysis = clipTruth?.action ? runMode(frames, fps, clipTruth.action, chosenView) : null
     const truthFullAnalysis = clipTruth?.action
@@ -226,6 +233,22 @@ if (!existsSync(BASELINE)) {
         + ' truthFull=' + JSON.stringify(truthFullAnalysis))
     }
 
+    if (featuresOut && featureSeries && activeResult) {
+      const numbers = (values: (number | null)[]) => values.filter((value): value is number => value !== null)
+      const knee = numbers(featureSeries.frames.map(frame => frame.kneeAngle))
+      const hipHeight = numbers(featureSeries.frames.map(frame => frame.hipHeightNorm))
+      const wrist = numbers(featureSeries.frames.map(frame => frame.wristBelowKnee))
+      const round = (value: number) => Math.round(value)
+      console.log('  features ' + series.clip
+        + ` usable=${Math.round(featureSeries.quality.usableRatio * 100)}%`
+        + ` meanRel=${featureSeries.quality.meanReliability}`
+        + ` gaps=${featureSeries.quality.gaps.length}`
+        + ` active=${JSON.stringify(activeResult.windows.map(window => [round(window.startMs), round(window.endMs)]))}`
+        + ` knee=${round(Math.min(...knee))}~${round(Math.max(...knee))}`
+        + ` hipHeight=${hipHeight.length ? `${Math.min(...hipHeight).toFixed(2)}~${Math.max(...hipHeight).toFixed(2)}` : '—'}`
+        + ` wristBelowKnee=${wrist.length ? `${Math.min(...wrist).toFixed(2)}~${Math.max(...wrist).toFixed(2)}` : '—'}`)
+    }
+
     rows.push({
       clip: series.clip,
       annotationStatus: clipTruth?.annotationStatus ?? 'pending',
@@ -249,6 +272,15 @@ if (!existsSync(BASELINE)) {
         mode: auto
       },
       match: { action: actionMatch, view: viewMatch, count: countMatch },
+      features: featureSeries && activeResult
+        ? {
+            version: featureSeries.version,
+            quality: featureSeries.quality,
+            activeWindows: activeResult.windows,
+            activeThreshold: activeResult.threshold,
+            scale: featureSeries.scale
+          }
+        : null,
       oracle: oracle && truthActionAnalysis && truthFullAnalysis
         ? { truthAction: truthActionAnalysis, truthFull: truthFullAnalysis }
         : null,

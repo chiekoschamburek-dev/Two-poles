@@ -25,12 +25,13 @@ import { useMotionExplanation } from '@/composables/useMotionExplanation'
 import { saveMotionSeries, getMotionSeries, listMotionSeriesKeys, deleteMotionSeries, clearMotionSeries, buildSeriesRecord } from '@/services/motionSeries'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
 import type { RepMachineSnapshot } from '@/composables/repMachine'
-import { analyzeMotion, analyzeGait, analyzeHold, classifyAction, classifyTemplate, summarizeMotionFeatures, detectView, precheckMotion, extractMotionFrame, analyzeRep, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
+import { analyzeMotion, analyzeGait, analyzeHold, classifyAction, classifyTemplate, summarizeMotionFeatures, detectView, precheckMotion, extractMotionFrame, analyzeRep, measureJointAngle, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
 import { POSE_DETECT_TIMEOUT_MS, POSE_FIRST_DETECT_TIMEOUT_MS, POSE_INPUT_MAX_WIDTH, PoseTimeoutError, isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import { rulesFor } from '@/services/motionRules'
 import { MOTION_TEMPLATES, findingsTemplates, motionTemplateProblems, repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
+import { buildMotionFeatureSeries, assessPoseQuality, findPeaks, pearson, laggedAlternation, detectActiveWindows, sliceFeatureSeries } from '@/services/motion-engine'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { ageError, bodyErrors, customTimeError, cycleRangeError, disciplinesOf, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, isValidAge, normalizeProfile, parseResult, parseTimeMinutes, sortTimeLabels, timeLabel } from '@/services/profileRules'
@@ -2894,6 +2895,107 @@ const storedAfterReset = loadStoredState()
 ok('重置后的完成标记已落盘（刷新也不会卡在引导）', storedAfterReset.onboardingCompleted === false)
 ok('重置不删除已保存的档案', !!storedAfterReset.profile)
 clearStoredState()
+
+console.log('\n57. Motion Engine V2 · M1 共享特征与姿态质量')
+const m1Series = buildMotionFeatureSeries(goodSquat.frames, goodSquat.fps)
+ok('特征序列与输入帧一一对应', m1Series.frames.length === goodSquat.frames.length)
+ok('特征序列带版本号与尺度基准', m1Series.version.length > 0 && m1Series.scale.torsoLengthMedian !== null,
+  JSON.stringify(m1Series.scale))
+ok('真实几何的质量统计可用', m1Series.quality.usableRatio > 0.9 && m1Series.quality.meanReliability > 0.5,
+  JSON.stringify(m1Series.quality))
+const angleParity = m1Series.frames.every((frame, index) => {
+  const measured = measureJointAngle(goodSquat.frames[index], 'knee').angle
+  return measured === null ? frame.kneeAngle === null : frame.kneeAngle !== null && Math.round(frame.kneeAngle) === measured
+})
+ok('关节角口径与现有测量函数一致', angleParity)
+const hipHeightVsKnee = pearson(
+  m1Series.frames.map(frame => frame.hipHeightNorm),
+  m1Series.frames.map(frame => frame.kneeAngle)
+)
+ok('髋部归一化高度与膝角同向（蹲得越深髋越低）', hipHeightVsKnee !== null && hipHeightVsKnee > 0.9, String(hipHeightVsKnee))
+const kneeVelocity = m1Series.frames.map(frame => frame.kneeVelocity).filter((value): value is number => value !== null)
+ok('Savitzky–Golay 角速度非空且量级合理',
+  kneeVelocity.length > 10 && Math.max(...kneeVelocity.map(Math.abs)) > 50,
+  JSON.stringify({ count: kneeVelocity.length, peak: Math.round(Math.max(...kneeVelocity.map(Math.abs))) }))
+
+const teleported = goodSquat.frames.map((frame, index) => index === 20
+  ? { ...frame, points: { ...frame.points, knee: { left: pointAt(0.8, 0.6), right: pointAt(0.8, 0.6) } } }
+  : frame)
+const teleportQuality = assessPoseQuality(teleported, 15)
+ok('关键点瞬跳会拉低该帧可靠性',
+  teleportQuality.reliability[20] < (teleportQuality.reliability[19] ?? 1) * 0.6,
+  JSON.stringify({ at: teleportQuality.reliability[20], previous: teleportQuality.reliability[19] }))
+
+const stretched = goodSquat.frames.map((frame, index) => index > 40
+  ? {
+      ...frame,
+      points: {
+        ...frame.points,
+        ankle: {
+          left: pointAt(frame.points.ankle.left!.x, frame.points.ankle.left!.y + 0.1),
+          right: pointAt(frame.points.ankle.right!.x, frame.points.ankle.right!.y + 0.1)
+        }
+      }
+    }
+  : frame)
+const cleanShank = assessPoseQuality(goodSquat.frames, 15).summary.boneStability.shankLeft
+const stretchedQuality = assessPoseQuality(stretched, 15)
+ok('骨长突变计入稳定性指标', stretchedQuality.summary.boneStability.shankLeft > cleanShank * 2,
+  JSON.stringify({ clean: cleanShank, stretched: stretchedQuality.summary.boneStability.shankLeft }))
+
+const gapped = goodSquat.frames.filter(frame => frame.timeMs < 1000 || frame.timeMs > 2200)
+const gappedQuality = assessPoseQuality(gapped, 15)
+ok('推理缺口被切段记录',
+  gappedQuality.summary.gaps.length >= 1 && gappedQuality.summary.problems.some(problem => problem.includes('缺口')),
+  JSON.stringify(gappedQuality.summary.gaps))
+
+const triangleTimes = Array.from({ length: 20 }, (_, index) => index * 100)
+const triangle = triangleTimes.map((_, index) => index % 3 === 1 ? 1 : 0)
+ok('峰检测找出全部三角波峰', findPeaks(triangle, triangleTimes, { direction: 'max' }).length === 6,
+  String(findPeaks(triangle, triangleTimes, { direction: 'max' }).length))
+ok('峰位置落在波峰上', findPeaks(triangle, triangleTimes, { direction: 'max' }).every(peak => peak.value === 1))
+const holedTriangle = triangle.map((value, index) => index >= 6 && index <= 8 ? null : value)
+ok('缺口两侧不跨段比较', findPeaks(holedTriangle, triangleTimes, { direction: 'max' }).length === 5,
+  String(findPeaks(holedTriangle, triangleTimes, { direction: 'max' }).length))
+ok('显著度过滤掉小起伏',
+  findPeaks(triangle.map((value, index) => value + (index % 2 ? 0.05 : -0.05)), triangleTimes,
+    { direction: 'max', minProminence: 0.5 }).length === 6)
+
+const rising = [1, 2, 3, 4, 5, 6, 7, 8]
+ok('同步信号相关系数为 +1', pearson(rising, rising) === 1)
+ok('反相信号相关系数为 -1', pearson(rising, rising.map(value => -value)) === -1)
+ok('缺测样本被跳过而不是按 0 计算',
+  pearson([1, null, 3, null, 5], [1, 100, 3, 100, 5]) === 1)
+ok('交替相位滞后可检出', laggedAlternation(
+  [0, 1, 0, -1, 0, 1, 0, -1, 0, 1, 0, -1],
+  [0, -1, 0, 1, 0, -1, 0, 1, 0, -1, 0, 1]
+).r !== null && laggedAlternation(
+  [0, 1, 0, -1, 0, 1, 0, -1, 0, 1, 0, -1],
+  [0, -1, 0, 1, 0, -1, 0, 1, 0, -1, 0, 1]
+).r! < -0.9)
+
+const idleFrame = (timeMs: number) => legFrame(timeMs, 172, 5, false)
+const idleHead = Array.from({ length: 30 }, (_, index) => idleFrame(index * (1000 / 15)))
+const motionBody = buildSquatSeries({ reps: 2 }).frames.map(frame => ({
+  ...frame,
+  timeMs: frame.timeMs + 2000
+}))
+const motionEnd = motionBody[motionBody.length - 1].timeMs
+const idleTail = Array.from({ length: 30 }, (_, index) => idleFrame(motionEnd + (index + 1) * (1000 / 15)))
+const windowedInput = [...idleHead, ...motionBody, ...idleTail]
+const activeResult = detectActiveWindows(windowedInput, 15)
+ok('活跃区间能切掉片头/片尾的静止段',
+  activeResult.found && activeResult.windows[0].startMs <= 2100
+  && activeResult.windows[activeResult.windows.length - 1].endMs >= motionEnd - 100,
+  JSON.stringify({ windows: activeResult.windows, threshold: activeResult.threshold }))
+const staticOnly = detectActiveWindows(idleHead.concat(idleTail), 15)
+ok('整段静止不硬造活跃区间（静态保持走回退而不是判失败）', staticOnly.found === false)
+const sliced = sliceFeatureSeries(m1Series, 1000, 3000)
+ok('特征序列可按分析区间切片', sliced.frames.length > 0
+  && sliced.frames.every(frame => frame.timeMs >= 1000 - 1e-6 && frame.timeMs <= 3000 + 1e-6)
+  && sliced.durationSec > 0 && sliced.durationSec < m1Series.durationSec,
+  JSON.stringify({ frames: sliced.frames.length, duration: sliced.durationSec, whole: m1Series.durationSec,
+    first: sliced.frames[0]?.timeMs, last: sliced.frames[sliced.frames.length - 1]?.timeMs }))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1
