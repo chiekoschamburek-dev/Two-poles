@@ -24,18 +24,12 @@ apps/api/data/
 # 本机私有资料与可再生产物（保留在本机，不进仓库）
 .scratch/
 artifacts/
-acl-recovery/
 launch/
 launch-site.zip
 test-videos/
 data_demo/
 redesign-shots/
 food-trainning/
-diag-admin.log
-cpu-check.ps1
-diag-admin.ps1
-diagnose-pc.ps1
-dsh-probe.js
 
 # 动作评测：逐帧序列是可再生产物；manifest（sha256）与人工真值入库
 apps/web/scripts/motion-eval/baseline/*.series.json
