@@ -270,25 +270,51 @@ export function detectView(frames: MotionFrame[]): {
   return { view: null, confidence: 0, suggested: median >= boundary ? 'front' : 'side' }
 }
 
-/**
- * 计数区间校验：一次"完整重复"必须真的走到接近本次动作的底部/顶部，
- * 并且开始前有一段起始姿势；否则它多半是视频首尾的半程、或跟踪抖动造出来的假周期。
- * 这一步只过滤"不构成重复"的区间，不评价动作质量（质量留给规则层）。
- */
+/** 计数区间校验结果：保留的区间 + 被丢弃区间及原因（评测/界面解释 live 计数用） */
+export interface RepValidationDebug {
+  fixed: number
+  kept: number
+  dropped: { startMs: number; endMs: number; reason: string }[]
+  /** 状态机原始命中的区间（校验前） */
+  fixedIntervals?: { startMs: number; endMs: number }[]
+  /** 最终保留的区间（含多策略合并） */
+  keptIntervals?: { startMs: number; endMs: number }[]
+  /** 副信号（硬拉用膝角）状态机的原始命中数，仅供排查补漏为何没生效 */
+  secondaryFixed?: number
+  secondaryIntervals?: { startMs: number; endMs: number }[]
+  /** 通过合并补进来的区间数 */
+  mergedExtra?: number
+}
+
 function validateRepIntervals(
   frames: MotionFrame[],
   template: MotionActionTemplate,
   intervals: RepInterval[],
-  identityRisk: boolean
-): RepInterval[] {
-  if (!intervals.length) return []
+  identityRisk: boolean,
+  jointOverride?: 'knee' | 'hip' | 'elbow'
+): { intervals: RepInterval[]; debug: RepValidationDebug } {
+  const debug: RepValidationDebug = {
+    fixed: intervals.length,
+    kept: 0,
+    dropped: [],
+    fixedIntervals: intervals.map(interval => ({ startMs: interval.startMs, endMs: interval.endMs }))
+  }
+  const keep = (list: RepInterval[]) => {
+    debug.kept = list.length
+    debug.keptIntervals = list.map(interval => ({ startMs: interval.startMs, endMs: interval.endMs }))
+    return { intervals: list, debug }
+  }
+  const drop = (interval: RepInterval, reason: string) => {
+    debug.dropped.push({ startMs: interval.startMs, endMs: interval.endMs, reason })
+  }
+  if (!intervals.length) return keep([])
   const rule = repRuleForTemplate(template)
   const segmentation = template.segmentation
-  if (!rule || !segmentation) return intervals
-  const joint = segmentation.joint
+  if (!rule || !segmentation) return keep(intervals)
+  const joint = jointOverride ?? segmentation.joint
   const samples = frames.map(frame => ({ timeMs: frame.timeMs, angle: jointAngle(frame, joint).angle }))
   const values = samples.map(sample => sample.angle).filter((value): value is number => value !== null)
-  if (values.length < 8) return intervals
+  if (values.length < 8) return keep(intervals)
   const percentile = (p: number) => {
     const sorted = [...values].sort((a, b) => a - b)
     return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
@@ -296,32 +322,49 @@ function validateRepIntervals(
   const p10 = percentile(0.1)
   const p90 = percentile(0.9)
   const range = p90 - p10
-  if (!(range > 1)) return intervals
+  if (!(range > 1)) return keep(intervals)
   const increasing = rule.bottom > rule.neutral
   const amplitudeFloor = range * 0.55
   const switchThreshold = identityRisk ? 0.6 : 1
-  return intervals.filter(interval => {
+  const kept: RepInterval[] = []
+  for (const interval of intervals) {
     const inside = samples
       .filter(sample => sample.timeMs >= interval.startMs && sample.timeMs <= interval.endMs && sample.angle !== null)
       .map(sample => sample.angle as number)
-    if (inside.length < 5) return false
+    if (inside.length < 5) { drop(interval, '区间内有效帧不足'); continue }
     const min = Math.min(...inside)
     const max = Math.max(...inside)
-    if (max - min < amplitudeFloor) return false
-    if (interval.endMs - interval.startMs < 700) return false
-    const before = samples.filter(sample => sample.timeMs <= interval.startMs - 100
-      && sample.timeMs >= interval.startMs - 1500 && sample.angle !== null)
-    // 视频从半程开始 / 从底部开始时，开始前没有稳定的起始姿势：
-    // 这种区间只能算半程，不能算完整重复。这里看"最近的起始姿势极值"，
-    // 而不是窗口均值——均值会被同一次动作的下降段污染。
-    if (before.length >= 3) {
-      const beforeAngles = before.map(sample => sample.angle as number)
-      const span = Math.abs(rule.neutral - rule.bottom)
-      const startLevel = increasing ? rule.neutral + span * 0.2 : rule.neutral - span * 0.2
-      const nearest = increasing ? Math.min(...beforeAngles) : Math.max(...beforeAngles)
-      if (increasing ? nearest > startLevel : nearest < startLevel) return false
+    if (max - min < amplitudeFloor) {
+      drop(interval, `幅度不足（${(max - min).toFixed(0)}° < 全局行程 55% = ${amplitudeFloor.toFixed(0)}°）`)
+      continue
     }
-    if (intervalHasTargetSwitch(frames, interval, switchThreshold)) return false
+    if (interval.endMs - interval.startMs < 700) {
+      drop(interval, `时长不足（${interval.endMs - interval.startMs}ms < 700ms）`)
+      continue
+    }
+    // 副信号区间（例如硬拉用膝角补漏）只校幅度/时长/换人/起始俯身；
+    // 起始姿势检查依赖主信号的动作阈值，副信号不适用。
+    if (!jointOverride) {
+      const before = samples.filter(sample => sample.timeMs <= interval.startMs - 100
+        && sample.timeMs >= interval.startMs - 1500 && sample.angle !== null)
+      // 视频从半程开始 / 从底部开始时，开始前没有稳定的起始姿势：
+      // 这种区间只能算半程，不能算完整重复。这里看"最近的起始姿势极值"，
+      // 而不是窗口均值——均值会被同一次动作的下降段污染。
+      if (before.length >= 3) {
+        const beforeAngles = before.map(sample => sample.angle as number)
+        const span = Math.abs(rule.neutral - rule.bottom)
+        const startLevel = increasing ? rule.neutral + span * 0.2 : rule.neutral - span * 0.2
+        const nearest = increasing ? Math.min(...beforeAngles) : Math.max(...beforeAngles)
+        if (increasing ? nearest > startLevel : nearest < startLevel) {
+          drop(interval, `开始前没有稳定起始姿势（最近值 ${nearest.toFixed(0)}°）`)
+          continue
+        }
+      }
+    }
+    if (intervalHasTargetSwitch(frames, interval, switchThreshold)) {
+      drop(interval, '疑似跟踪目标切换')
+      continue
+    }
     // 视频从"已经俯身/下蹲"的姿态开始时，开头这段上升只是一次动作的后半程，
     // 不能算完整重复。用起始 0.3s 的躯干前倾判断，而不是动作名特判。
     if (interval.startMs <= (frames[0]?.timeMs ?? 0) + 800) {
@@ -336,11 +379,15 @@ function validateRepIntervals(
         .filter((value): value is number => value !== null)
       if (leans.length >= 3) {
         const meanLean = leans.reduce((sum, value) => sum + value, 0) / leans.length
-        if (meanLean > 20) return false
+        if (meanLean > 20) {
+          drop(interval, `视频开头已俯身（起始 ${meanLean.toFixed(0)}° > 20°），只能算半程`)
+          continue
+        }
       }
     }
-    return true
-  })
+    kept.push(interval)
+  }
+  return keep(kept)
 }
 
 function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps: number, identityRisk = false): {
@@ -348,9 +395,10 @@ function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps:
   count: number
   partials: PartialRepetition[]
   segmentation: { signal: string; neutral: number; bottom: number; amplitude: number; noise: number } | null
+  validation: RepValidationDebug | null
 } {
   const rule = repRuleForTemplate(template)
-  if (!rule || !template.segmentation) return { intervals: [], count: 0, partials: [], segmentation: null }
+  if (!rule || !template.segmentation) return { intervals: [], count: 0, partials: [], segmentation: null, validation: null }
   // V2：先尝试自适应分段（主信号 + 稳健分位数），失败才回退模板固定阈值。
   // 浅蹲/个体幅度差异靠这次自适应吃下；文献质量阈值仍由规则层单独判断。
   const adaptive = segmentRepsAdaptive(frames, fps, {
@@ -364,9 +412,8 @@ function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps:
     ? { signal: adaptive.signal, neutral: adaptive.neutral, bottom: adaptive.bottom, amplitude: adaptive.amplitude, noise: adaptive.noise }
     : null
   // 固定阈值状态机是保守基线：它计数正确时优先采信（真实素材上更稳）。
-  const runFixed = () => {
+  const runFixedFor = (joint: 'knee' | 'hip' | 'elbow') => {
     const machine = createRepMachine(rule)
-    const joint = template.segmentation!.joint
     const intervals: RepInterval[] = []
     for (const frame of frames) {
       const sample = jointAngle(frame, joint)
@@ -375,13 +422,57 @@ function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps:
     }
     return { intervals, count: machine.snapshot().count }
   }
-  const fixed = runFixed()
-  const finalize = (intervals: RepInterval[], partials: PartialRepetition[]) => {
-    const validated = validateRepIntervals(frames, template, intervals, identityRisk)
-    return { intervals: validated, count: validated.length, partials, segmentation }
+  const fixed = runFixedFor(template.segmentation.joint)
+  // 铰链类动作（硬拉）用髋角作主信号，但侧向/背向机位下髋角常被躯干遮挡，
+  // 膝角反而能保住完整周期。膝角状态机只作为"补漏"输入，仍要过同一套区间校验。
+  const secondary = template.pattern === 'hinge' && template.segmentation.joint === 'hip'
+    ? runFixedFor('knee')
+    : { intervals: [] as RepInterval[], count: 0 }
+  const finalize = (intervals: RepInterval[], partials: PartialRepetition[], extraIntervals: RepInterval[] = [], secondary?: { count: number; intervals: RepInterval[] }) => {
+    const primary = validateRepIntervals(frames, template, intervals, identityRisk)
+    const kept = [...primary.intervals]
+    let mergedExtra = 0
+    const merge = (candidates: RepInterval[]) => {
+      for (const interval of candidates) {
+        const overlaps = kept.some(existing => Math.min(existing.endMs, interval.endMs)
+          - Math.max(existing.startMs, interval.startMs)
+          > 0.3 * Math.min(existing.endMs - existing.startMs, interval.endMs - interval.startMs))
+        if (!overlaps) {
+          kept.push(interval)
+          mergedExtra++
+        }
+      }
+    }
+    // 固定阈值状态机与自适应状态机可能各自漏掉不同的重复（机位切换/幅度差异）。
+    // 但只有在固定机"命中的区间全部通过校验"时才合并：如果固定机自己都产出了
+    // 被丢弃的假区间（半程/抖动），说明这份素材噪声大，再并只会放大假阳性。
+    if (primary.intervals.length === intervals.length) {
+      if (extraIntervals.length) {
+        merge(validateRepIntervals(frames, template, extraIntervals, identityRisk).intervals)
+      }
+      if (secondary?.intervals.length) {
+        // 副信号按其自身关节的幅度/时长校验（硬拉补漏用膝角）
+        const jointOverride = template.segmentation && template.segmentation.joint === 'hip' ? 'knee' as const : undefined
+        if (jointOverride) {
+          merge(validateRepIntervals(frames, template, secondary.intervals, identityRisk, jointOverride).intervals)
+        }
+      }
+    }
+    kept.sort((a, b) => a.startMs - b.startMs)
+    const debug: RepValidationDebug = {
+      ...primary.debug,
+      kept: kept.length,
+      keptIntervals: kept.map(interval => ({ startMs: interval.startMs, endMs: interval.endMs })),
+      mergedExtra,
+      ...(secondary ? {
+        secondaryFixed: secondary.count,
+        secondaryIntervals: secondary.intervals.map(interval => ({ startMs: interval.startMs, endMs: interval.endMs }))
+      } : {})
+    }
+    return { intervals: kept, count: kept.length, partials, segmentation, validation: debug }
   }
-  if (!adaptive.usable) return finalize(fixed.intervals, [])
-  if (fixed.count > 0) return finalize(fixed.intervals, adaptive.partials)
+  if (!adaptive.usable) return finalize(fixed.intervals, [], secondary.intervals, secondary)
+  if (fixed.count > 0) return finalize(fixed.intervals, adaptive.partials, [...adaptive.intervals, ...secondary.intervals], secondary)
   // 固定阈值一次都没数到：仅在"幅度足够大 + 视角稳定（没有换人风险）"时才改用自适应，
   // 否则宁可保守报 0，也不把多人画面里的跟踪抖动算成动作。
   const expectedRange = Math.abs(rule.neutral - rule.bottom)
@@ -828,7 +919,7 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   const viewEstimate = estimateView(series.frames, series.fps, { aspect: series.frames.find(frame => frame.aspect)?.aspect })
   const segmented = template.kind === 'reps'
     ? segmentReps(series.frames, template, series.fps, viewEstimate.temporalStability < 0.35)
-    : { intervals: [], count: 0, partials: [], segmentation: null }
+    : { intervals: [] as RepInterval[], count: 0, partials: [] as PartialRepetition[], segmentation: null, validation: null }
   const reps = segmented.intervals.map((interval, index) =>
     analyzeRep(series.frames, interval, index + 1, series.fps, series.action)
   )
@@ -948,6 +1039,7 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     evidence,
     ...(segmented.partials.length ? { partialRepetitions: segmented.partials } : {}),
     ...(segmented.segmentation ? { segmentation: segmented.segmentation } : {}),
+    ...(segmented.validation ? { repValidation: segmented.validation } : {}),
     ...(series.range ? { analyzedRange: series.range } : {}),
     viewEstimate: {
       category: viewEstimate.category,
@@ -1317,6 +1409,7 @@ export function precheckMotion(input: {
     })
   }
   let repCount: number | null = null
+  let repValidation: RepValidationDebug | null = null
   let gaitCycles: number | null = null
   let holdSeconds: number | null = null
   if (template.kind === 'gait') {
@@ -1342,7 +1435,9 @@ export function precheckMotion(input: {
       reasons.push('静态保持区间不足 3 秒：请拍摄完整的支撑过程后重试')
     }
   } else {
-    repCount = segmentReps(input.frames, template, input.fps, viewEstimate.temporalStability < 0.35).count
+    const repSegmentation = segmentReps(input.frames, template, input.fps, viewEstimate.temporalStability < 0.35)
+    repCount = repSegmentation.count
+    repValidation = repSegmentation.validation
     if (repCount === 0) {
       degraded = true
       reasons.push('未识别到完整重复动作：请完整拍摄至少 1 次动作后重试')
@@ -1363,6 +1458,7 @@ export function precheckMotion(input: {
     action: template.id,
     actionConfident: classification.confident,
     analyzedRange,
+    ...(repValidation ? { repValidation } : {}),
     viewEstimate: viewEstimateSummary,
     classificationDebug: {
       action: classification.action,

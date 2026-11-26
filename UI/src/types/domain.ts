@@ -71,6 +71,13 @@ export interface MotionAnalysisMetric {
   unit?: string
 }
 
+/** 计数区间校验明细：固定机原计数、保留数、被丢弃区间及原因；用于解释 live/回放计数 */
+export interface RepIntervalValidation {
+  fixed: number
+  kept: number
+  dropped: { startMs: number; endMs: number; reason: string }[]
+}
+
 export interface MotionAnalysisResult {
   findings: MotionAnalysisFinding[]
   metrics: MotionAnalysisMetric[]
@@ -97,6 +104,8 @@ export interface MotionAnalysisResult {
   }
   /** 首尾不完整的单程动作：只有起身/只有下放/遮挡中断，不混入完整次数 */
   partialRepetitions?: { startMs: number; endMs: number; kind: string; signal: string }[]
+  /** V2 计数校验明细：哪些区间被丢弃、为什么（旧记录/非重复动作没有该字段） */
+  repValidation?: RepIntervalValidation
   /** 本次结论覆盖的视频时间区间；旧记录没有该字段，按全片处理 */
   analyzedRange?: { startMs: number; endMs: number; source: string }
   /** 因视角/姿态可靠性不足而没有执行的规则；界面必须明示"未评估项" */
@@ -267,6 +276,8 @@ export interface MotionPrecheckResult {
   /** 视角判不准时按分离度给出的就近建议，只用于界面预选，不直接当结论 */
   suggestedView?: AnalysisView | null
   repCount: number | null
+  /** 计数校验明细（仅重复型动作有）：固定机原计数、保留数、被丢弃区间原因 */
+  repValidation?: RepIntervalValidation
   gaitCycles: number | null
   /** 静态保持型动作在预检区间内检测到的秒数；其他类型为 null/缺省 */
   holdSeconds?: number | null

@@ -185,6 +185,7 @@ function scoreClip(clip, series, pipeline, truth) {
       segmentation: pipeline?.result?.segmentation ?? null,
       viewEstimate: pipeline?.result?.viewEstimate ?? null,
       partialRepetitions: pipeline?.result?.partialRepetitions ?? [],
+      repValidation: pipeline?.result?.repValidation ?? null,
       skippedRules: pipeline?.result?.skippedRules ?? [],
       evidence: pipeline?.result?.evidence ?? null
     },
