@@ -33,3 +33,10 @@ export type {
   ActiveWindowResult,
   MotionEnergyFrame
 } from './temporal/activeWindow'
+export {
+  ACTIVE_WINDOW_RULES,
+  planAnalysisWindow,
+  coarseGridTimes,
+  fineGridTimes
+} from './pipeline/precheck'
+export type { AnalysisWindowPlan } from './pipeline/precheck'

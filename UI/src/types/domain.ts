@@ -77,6 +77,8 @@ export interface MotionAnalysisResult {
   angles?: MotionAngleSample[]
   /** 由逐帧角度/髋部位置派生的运动学序列；只在本机会话与可选留存里使用 */
   kinematics?: MotionKinematics
+  /** 本次结论覆盖的视频时间区间；旧记录没有该字段，按全片处理 */
+  analyzedRange?: { startMs: number; endMs: number; source: string }
 }
 
 /** 与 motionAnalysis.RepAnalysis 同形，放这里避免 types 反向依赖 services */
@@ -199,6 +201,8 @@ export interface MotionPrecheckResult {
   action: AnalysisAction | null
   /** false = 自动识别特征不明确，需要用户确认或改选动作 */
   actionConfident: boolean
+  /** 本次预检实际覆盖的视频时间区间（V2：活跃区间精扫，不再是固定的前 10 秒） */
+  analyzedRange?: { startMs: number; endMs: number; source: string }
 }
 
 export interface MotionAnalysis {

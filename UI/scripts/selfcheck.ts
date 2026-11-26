@@ -31,7 +31,7 @@ import { rulesFor } from '@/services/motionRules'
 import { MOTION_TEMPLATES, findingsTemplates, motionTemplateProblems, repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
 import { angleAt, angleAtExact, trunkAngleAt, computeMetrics, nextTimestamp } from '@/composables/poseMath'
 import { computeKinematics, savitzkyGolay, kinematicsMetrics, isKinematicsMetric, MOTION_KINEMATICS_VERSION, KINEMATICS_CONFIG } from '@/services/motionKinematics'
-import { buildMotionFeatureSeries, assessPoseQuality, findPeaks, pearson, laggedAlternation, detectActiveWindows, sliceFeatureSeries } from '@/services/motion-engine'
+import { buildMotionFeatureSeries, assessPoseQuality, findPeaks, pearson, laggedAlternation, detectActiveWindows, sliceFeatureSeries, planAnalysisWindow, coarseGridTimes, fineGridTimes } from '@/services/motion-engine'
 import { useAppStore } from '@/stores/app'
 import { pickDailyWellnessCard, wellnessCards, WELLNESS_DISCLAIMER } from '@/services/wellnessCards'
 import { ageError, bodyErrors, customTimeError, cycleRangeError, disciplinesOf, eventBests, formatCnDate, goalSummary, gymRecordLabel, isCurrentBest, isValidAge, normalizeProfile, parseResult, parseTimeMinutes, sortTimeLabels, timeLabel } from '@/services/profileRules'
@@ -2996,6 +2996,67 @@ ok('特征序列可按分析区间切片', sliced.frames.length > 0
   && sliced.durationSec > 0 && sliced.durationSec < m1Series.durationSec,
   JSON.stringify({ frames: sliced.frames.length, duration: sliced.durationSec, whole: m1Series.durationSec,
     first: sliced.frames[0]?.timeMs, last: sliced.frames[sliced.frames.length - 1]?.timeMs }))
+
+console.log('\n58. Motion Engine V2 · M2 全片粗扫与活跃区间')
+const m2Idle = (timeMs: number) => legFrame(timeMs, 172, 5, false)
+const idleOnly = Array.from({ length: 60 }, (_, index) => m2Idle(index * (1000 / 15)))
+const idlePlan = planAnalysisWindow(idleOnly, 15, idleOnly[idleOnly.length - 1].timeMs)
+ok('整段静止时回退全片，不硬切区间', idlePlan.fallback === 'no-active-window'
+  && idlePlan.range.source === 'whole-clip' && idlePlan.range.startMs === 0, JSON.stringify(idlePlan.range))
+
+const m2Head = Array.from({ length: 23 }, (_, index) => m2Idle(index * (1000 / 15)))
+const m2Motion = buildSquatSeries({ reps: 1 }).frames.map(frame => ({ ...frame, timeMs: frame.timeMs + 1500 }))
+const m2MotionEnd = m2Motion[m2Motion.length - 1].timeMs
+const m2Tail = Array.from({ length: 30 }, (_, index) => m2Idle(m2MotionEnd + (index + 1) * (1000 / 15)))
+const m2WithMotion = [...m2Head, ...m2Motion, ...m2Tail]
+const motionPlan = planAnalysisWindow(m2WithMotion, 15, m2WithMotion[m2WithMotion.length - 1].timeMs)
+ok('粗扫能切掉片头片尾静止段', motionPlan.fallback === null
+  && motionPlan.range.startMs >= 0 && motionPlan.range.startMs <= 1500
+  && motionPlan.range.endMs >= m2MotionEnd - 100,
+  JSON.stringify({ range: motionPlan.range, coverage: motionPlan.coverage, windows: motionPlan.windows }))
+
+const slowRamp = Array.from({ length: 37 }, (_, index) =>
+  legFrame(index * (1000 / 15), 172 - index * 0.75, 5, false))
+const slowMotion = buildSquatSeries({ reps: 1 }).frames.map(frame => ({ ...frame, timeMs: frame.timeMs + 2500 }))
+const slowEnd = slowMotion[slowMotion.length - 1].timeMs
+const slowTail = Array.from({ length: 15 }, (_, index) => m2Idle(slowEnd + (index + 1) * (1000 / 15)))
+const slowPlan = planAnalysisWindow([...slowRamp, ...slowMotion, ...slowTail], 15, slowEnd + 1000)
+ok('活跃区间外的慢速姿势变化不被裁掉（回退到 0）', slowPlan.fallback === null && slowPlan.range.startMs === 0,
+  JSON.stringify({ range: slowPlan.range, fallback: slowPlan.fallback, coverage: slowPlan.coverage }))
+
+const shortBurstHead = Array.from({ length: 120 }, (_, index) => m2Idle(index * (1000 / 15)))
+const shortBurst = buildSquatSeries({ reps: 1 }).frames.map(frame => ({ ...frame, timeMs: frame.timeMs + 8000 }))
+const shortBurstEnd = shortBurst[shortBurst.length - 1].timeMs
+const shortBurstTail = Array.from({ length: 60 }, (_, index) => m2Idle(shortBurstEnd + (index + 1) * (1000 / 15)))
+const shortPlan = planAnalysisWindow([...shortBurstHead, ...shortBurst, ...shortBurstTail], 15, shortBurstEnd + 4000)
+ok('活跃占比过低时回退全片（不拿局部代表整段）', shortPlan.fallback === 'low-coverage'
+  && shortPlan.range.source === 'whole-clip', JSON.stringify({ coverage: shortPlan.coverage, fallback: shortPlan.fallback }))
+
+const coarseGrid = coarseGridTimes(1000, 5)
+const fineGrid = fineGridTimes(0, 1000, 15, coarseGrid)
+ok('精扫网格覆盖粗扫点（粗扫帧可复用缓存）', coarseGrid.every(time => fineGrid.includes(time)),
+  JSON.stringify({ coarse: coarseGrid, fine: fineGrid }))
+ok('精扫网格不越界', fineGrid.every(time => time >= 0 && time <= 1000) && fineGrid.length >= 14)
+
+const gaitOnStrength = precheckMotion({
+  fps: 15,
+  frames: goodSquat.frames,
+  templateId: 'running',
+  range: { startMs: 0, endMs: goodSquat.frames[goodSquat.frames.length - 1].timeMs, source: 'whole-clip' }
+})
+ok('步态周期不足只降级不拒诊', gaitOnStrength.verdict === 'degraded'
+  && (gaitOnStrength.gaitCycles ?? 0) < 5,
+  JSON.stringify({ verdict: gaitOnStrength.verdict, cycles: gaitOnStrength.gaitCycles }))
+ok('预检结果带分析区间', gaitOnStrength.analyzedRange?.endMs === goodSquat.frames[goodSquat.frames.length - 1].timeMs
+  && gaitOnStrength.analyzedRange?.source === 'whole-clip', JSON.stringify(gaitOnStrength.analyzedRange))
+const rangedSquat = analyzeMotion({
+  ...goodSquat,
+  view: 'side',
+  range: { startMs: 1000, endMs: 3000, source: 'active-window' }
+})
+ok('正式结果记录分析区间并出度量', !!rangedSquat.analyzedRange
+  && rangedSquat.metrics.some(metric => metric.id === 'metric-analyzed-range'),
+  JSON.stringify(rangedSquat.metrics.find(metric => metric.id === 'metric-analyzed-range')))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1

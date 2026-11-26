@@ -43,6 +43,8 @@ export interface MotionFramesInput {
   action: AnalysisAction
   fps: number
   frames: MotionFrame[]
+  /** 本次分析实际覆盖的区间；V2 由活跃区间精扫给出，旧调用不传按全片处理 */
+  range?: { startMs: number; endMs: number; source: string }
 }
 
 export interface MotionFrameSeries extends MotionFramesInput {
@@ -649,6 +651,16 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   }
   if (kinematics) metrics.push(...kinematicsMetrics(kinematics, series.action))
   if (hold) metrics.push(...holdMetrics(hold))
+  // 分析区间必须跟着结论走：V2 不再默认全片，用户要知道结论覆盖了哪几秒
+  if (series.range) {
+    const seconds = (ms: number) => (Math.max(0, ms) / 1000).toFixed(1)
+    metrics.push({
+      id: 'metric-analyzed-range',
+      label: '分析区间',
+      value: `${seconds(series.range.startMs)}–${seconds(series.range.endMs)}`,
+      unit: '秒'
+    })
+  }
   // 模板没配可核验阈值时一律不出关注项：即使将来有人给该动作加了 finding 规则，
   // 也不会把测量值包装成结论（ADR-0003 的最后一道闸）
   if (!template.findingsReady) findings.length = 0
@@ -691,6 +703,7 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     fps: series.fps,
     reps,
     angles,
+    ...(series.range ? { analyzedRange: series.range } : {}),
     ...(kinematics ? { kinematics } : {})
   }
 }
@@ -949,7 +962,18 @@ export function classifyTemplate(frames: MotionFrame[], fps: number): TemplateCl
   return { ...base, signals }
 }
 
-export function precheckMotion(input: { fps: number; frames: MotionFrame[]; templateId?: string }): MotionPrecheckResult {
+export function precheckMotion(input: {
+  fps: number
+  frames: MotionFrame[]
+  templateId?: string
+  /** 预检覆盖区间；不传时按传入帧的首尾时间推断 */
+  range?: { startMs: number; endMs: number; source: string }
+}): MotionPrecheckResult {
+  const analyzedRange = input.range ?? {
+    startMs: input.frames[0]?.timeMs ?? 0,
+    endMs: input.frames[input.frames.length - 1]?.timeMs ?? 0,
+    source: 'whole-clip'
+  }
   /**
    * 视角判不准或模板不支持该视角时的统一返回形状：不直接拒绝，把视角交给用户选。
    * 三条分支（判不出视角 / hold 模板 / 自动识别到单视角模板）都走这里，
@@ -969,7 +993,8 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
     gaitCycles: null,
     holdSeconds: null,
     action: args.action,
-    actionConfident: args.actionConfident
+    actionConfident: args.actionConfident,
+    analyzedRange
   })
   const selected = input.templateId ? templateFor(input.templateId) : undefined
   const usable = input.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
@@ -977,7 +1002,7 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
     return {
       verdict: 'rejected', reasons: ['没有检测到人体：请确认全身入镜、光线充足后重试'],
       view: null, repCount: null, gaitCycles: null, holdSeconds: null,
-      action: selected?.id ?? null, actionConfident: !!selected
+      action: selected?.id ?? null, actionConfident: !!selected, analyzedRange
     }
   }
   const reasons: string[] = []
@@ -1027,7 +1052,8 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
         gaitCycles: null,
         holdSeconds: null,
         action: template.id,
-        actionConfident: true
+        actionConfident: true,
+        analyzedRange
       }
     }
     // 自动识别猜到了只支持单一视角的模板时，不按不支持的机位直接分析，
@@ -1045,10 +1071,12 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
   if (template.kind === 'gait') {
     const gait = analyzeGait(input.frames, input.fps)
     gaitCycles = gait.cycles
+    // V2：帧数/周期不足是"这段素材能支撑什么分析"的问题，不是视频采集质量问题。
+    // 不能因为周期为 0 就整段拒诊——基础测量与节律仍可交付，只是不出步态结论。
     if (gait.cycles === 0) {
-      return { verdict: 'rejected', reasons: ['没有检测到连续跑步步态：请拍摄包含至少 5 个步态周期的侧面或正面跑步画面'], view: viewResult.view, repCount: null, gaitCycles, holdSeconds: null, action: template.id, actionConfident: classification.confident }
-    }
-    if (gait.cycles < 5) {
+      degraded = true
+      reasons.push('没有识别到连续步态周期：结果只保留命中项与基础测量，步态节律类结论不出')
+    } else if (gait.cycles < 5) {
       degraded = true
       reasons.push(`步态周期不足（识别到 ${gait.cycles} 个，至少 5 个），结果置信度低`)
     } else if (!classification.confident) {
@@ -1082,6 +1110,7 @@ export function precheckMotion(input: { fps: number; frames: MotionFrame[]; temp
     gaitCycles,
     holdSeconds,
     action: template.id,
-    actionConfident: classification.confident
+    actionConfident: classification.confident,
+    analyzedRange
   }
 }

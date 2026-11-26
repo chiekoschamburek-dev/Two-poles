@@ -16,7 +16,8 @@ import {
   detectView,
   type MotionFrame
 } from '@/services/motionAnalysis'
-import { buildMotionFeatureSeries, detectActiveWindows } from '@/services/motion-engine'
+import { buildMotionFeatureSeries, detectActiveWindows, planAnalysisWindow } from '@/services/motion-engine'
+import { coarseGridTimes } from '@/services/motion-engine/pipeline/precheck'
 import type { AnalysisAction, AnalysisView } from '@/types/domain'
 
 // esbuild 把产物放到 UI 根，import.meta.url 会失真；npm 脚本的 cwd 就是 UI 根
@@ -193,6 +194,16 @@ if (!existsSync(BASELINE)) {
     // M1：共享特征与活跃区间；--features 时导出，供人工复查真实素材的特征口径
     const featureSeries = featuresOut || jsonOut ? buildMotionFeatureSeries(frames, fps) : null
     const activeResult = featuresOut || jsonOut ? detectActiveWindows(frames, fps) : null
+    // M2：模拟预检的两阶段规划——降采样到约 5fps 粗扫，再规划精扫区间
+    const durationMs = frames.length ? frames[frames.length - 1].timeMs : 0
+    const stride = Math.max(1, Math.round(fps / 5))
+    const coarseFrames = frames.filter((_, index) => index % stride === 0)
+        .map(frame => ({ ...frame, timeMs: Math.round(frame.timeMs) }))
+    const plan = planAnalysisWindow(coarseFrames, 5, durationMs)
+    const truthRepWindows = (clipTruth?.reps ?? []).map(rep => ({ startMs: rep.startMs, endMs: rep.endMs }))
+    const rangeCoversTruth = truthRepWindows.length === 0
+      ? null
+      : truthRepWindows.every(window => window.startMs >= plan.range.startMs - 50 && window.endMs <= plan.range.endMs + 50)
 
     const auto = runMode(frames, fps, autoAction, chosenView)
     const truthActionAnalysis = clipTruth?.action ? runMode(frames, fps, clipTruth.action, chosenView) : null
@@ -213,9 +224,10 @@ if (!existsSync(BASELINE)) {
     const countMatch = countTruth === null ? null : countTruth === countMeasured
     const partials = clipTruth?.partialRepetitions?.length ?? null
 
-    const resultLabel = [actionMatch === false ? 'action' : '', viewMatch === false ? 'view' : '', countMatch === false ? 'count' : '']
+    const resultLabel = [actionMatch === false ? 'action' : '', viewMatch === false ? 'view' : '', countMatch === false ? 'count' : '',
+      rangeCoversTruth === false ? 'range' : '']
       .filter(Boolean).join('+') || 'ok'
-    if (actionMatch === false || viewMatch === false || countMatch === false) failures++
+    if (actionMatch === false || viewMatch === false || countMatch === false || rangeCoversTruth === false) failures++
 
     console.log(
       series.clip.padEnd(18)
@@ -244,6 +256,7 @@ if (!existsSync(BASELINE)) {
         + ` meanRel=${featureSeries.quality.meanReliability}`
         + ` gaps=${featureSeries.quality.gaps.length}`
         + ` active=${JSON.stringify(activeResult.windows.map(window => [round(window.startMs), round(window.endMs)]))}`
+        + ` plan=${plan.fallback ?? 'active'} [${round(plan.range.startMs)},${round(plan.range.endMs)}]`
         + ` knee=${round(Math.min(...knee))}~${round(Math.max(...knee))}`
         + ` hipHeight=${hipHeight.length ? `${Math.min(...hipHeight).toFixed(2)}~${Math.max(...hipHeight).toFixed(2)}` : '—'}`
         + ` wristBelowKnee=${wrist.length ? `${Math.min(...wrist).toFixed(2)}~${Math.max(...wrist).toFixed(2)}` : '—'}`)
@@ -271,7 +284,15 @@ if (!existsSync(BASELINE)) {
         viewConfidence: autoViewResult.confidence,
         mode: auto
       },
-      match: { action: actionMatch, view: viewMatch, count: countMatch },
+      match: { action: actionMatch, view: viewMatch, count: countMatch, range: rangeCoversTruth },
+      plan: {
+        range: plan.range,
+        windows: plan.windows,
+        coverage: Math.round(plan.coverage * 1000) / 1000,
+        fallback: plan.fallback,
+        threshold: plan.threshold,
+        coversTruthReps: rangeCoversTruth
+      },
       features: featureSeries && activeResult
         ? {
             version: featureSeries.version,
@@ -291,7 +312,7 @@ if (!existsSync(BASELINE)) {
   if (!jsonOut) {
     console.log('\n注：T=真值（truth/*.json），E=当前引擎实测；reps 只数完整重复，partial 含半程/遮挡。')
     console.log('     action 列的 ? = 自动识别不自信；count 用管道实际产出，自动分成 curl 时步态周期为 —。')
-    console.log('     action/view/count 任一 ✗ 时，--gate 会以非零退出码结束。')
+    console.log('     action/view/count/range 任一 ✗ 时，--gate 会以非零退出码结束。')
   }
 
   const report = {
@@ -313,7 +334,7 @@ if (!existsSync(BASELINE)) {
     console.log(`\n已冻结报告：${resolve(process.cwd(), freezePath)}`)
   }
   if (gate && failures > 0) {
-    console.error(`\n门禁失败：${failures} 条素材存在 action/view/count 不匹配`)
+    console.error(`\n门禁失败：${failures} 条素材存在 action/view/count/range 不匹配`)
     process.exitCode = 1
   }
 }

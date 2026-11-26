@@ -3,8 +3,22 @@ import { createMainThreadPoseEngine, createPoseEngine } from './poseEngine'
 import type { PoseEngine } from './poseEngine'
 import { POSE_MODEL_PATHS, POSE_ASSETS_HINT } from './poseLandmarkerFactory'
 import { isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
-import { analyzeMotion, extractMotionFrame, precheckMotion, type MotionFrame } from '@/services/motionAnalysis'
+import {
+  analyzeGait,
+  analyzeMotion,
+  extractMotionFrame,
+  precheckMotion,
+  type MotionFrame
+} from '@/services/motionAnalysis'
 import { templateFor } from '@/services/motionTemplates'
+import {
+  coarseGridTimes,
+  fineGridTimes,
+  planAnalysisWindow,
+  type AnalysisWindowPlan
+} from '@/services/motion-engine/pipeline/precheck'
+import { mostActiveSpan } from '@/services/motion-engine/temporal/activeWindow'
+import type { MotionEnergyFrame } from '@/services/motion-engine/temporal/activeWindow'
 import type {
   AnalysisAction,
   AnalysisView,
@@ -18,8 +32,15 @@ const ALLOWED_EXTS = ['.mp4', '.webm', '.mov']
 const MAX_BYTES = 200 * 1024 * 1024
 const MIN_DURATION_SECONDS = 1
 const MAX_DURATION_SECONDS = 60
-const STRENGTH_FPS = 15
-const RUNNING_FPS = 30
+/**
+ * V2 采样策略：全片 5fps 粗扫 → 活跃区间 15fps 精扫（步态候选 30fps）。
+ * 粗扫点刻意落在 15fps 网格上，精扫时直接命中缓存，总推理次数不超过 V1。
+ */
+const COARSE_FPS = 5
+/** 计次/静态保持的精扫帧率；15fps 足够覆盖 minStageMs=200ms 的状态机 */
+const ANALYSIS_FPS = 15
+/** 步态事件需要更高时间分辨率 */
+const GAIT_FPS = 30
 const RUNNING_MAX_SECONDS = 20
 const SEEK_TIMEOUT_MS = 4000
 
@@ -37,6 +58,15 @@ export interface VideoMeta {
   duration: number
   width: number
   height: number
+}
+
+interface AnalysisPlanState {
+  range: { startMs: number; endMs: number; source: string }
+  fps: number
+  frames: MotionFrame[]
+  coarseTimes: number[]
+  energy: MotionEnergyFrame[]
+  durationMs: number
 }
 
 function waitEvent(target: HTMLVideoElement, name: 'loadedmetadata' | 'loadeddata', timeoutMs: number, message: string): Promise<void> {
@@ -85,6 +115,14 @@ export function useVideoAnalysis() {
   /** 最近一次全帧分析的原始帧；供本机留存与事件流用，视频本身仍然丢弃 */
   let lastFrames: MotionFrame[] = []
   let lastFps = 0
+  /** 本次视频的预检规划；改动作/改视角时复用它，不重新解码整段视频 */
+  let lastPlan: AnalysisPlanState | null = null
+  /**
+   * 逐帧推理缓存：键为毫秒时间戳。粗扫帧与精扫帧共用同一份，
+   * 改动作/改视角只补推理缺的帧（验收要求"缓存改判 < 50ms"的前提）。
+   */
+  const frameCache = new Map<number, MotionFrame>()
+  const stats = { inferences: 0, cacheHits: 0 }
   /**
    * 每趟扫描（precheck / analyze）都要从 t=0 重采样，但 MediaPipe 的 VIDEO 模式要求
    * 时间戳跨调用严格递增。做法：每趟加一个巨大的基数，趟内按真实帧间隔递增。
@@ -106,6 +144,15 @@ export function useVideoAnalysis() {
     if (cancelled || (seq !== undefined && seq !== runSeq)) {
       throw new VideoAnalysisError('cancelled', '已取消分析')
     }
+  }
+
+  function resetAnalysisState() {
+    frameCache.clear()
+    lastPlan = null
+    lastFrames = []
+    lastFps = 0
+    stats.inferences = 0
+    stats.cacheHits = 0
   }
 
   function validateFile(file: File) {
@@ -144,6 +191,7 @@ export function useVideoAnalysis() {
       URL.revokeObjectURL(objectUrl)
       objectUrl = ''
     }
+    resetAnalysisState()
     cancelled = false
     progress.value = 0
     statusText.value = '正在读取视频……'
@@ -298,9 +346,45 @@ export function useVideoAnalysis() {
   }
 
   /**
-   * 可分析性检查 + 动作自动识别。动作不再由用户预选：
-   * 统一按 15fps 采一段样帧（最多 10 秒，兼顾步态检测的时间分辨率），
-   * 判定出的动作随结果返回，全帧分析再按动作各自的帧率跑。
+   * 按时间点扫描：命中缓存的帧直接复用，缺的才推理。
+   * 调用方必须按时间升序传点，保证喂给 MediaPipe 的时间戳递增。
+   */
+  async function scanTimes(
+    timesMs: number[],
+    seq: number,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<MotionFrame[]> {
+    const frames: MotionFrame[] = []
+    for (let index = 0; index < timesMs.length; index++) {
+      throwIfCancelled(seq)
+      const timeMs = timesMs[index]
+      const cached = frameCache.get(timeMs)
+      if (cached) {
+        stats.cacheHits++
+        frames.push(cached)
+      } else {
+        const frame = await detectAt(timeMs / 1000, seq)
+        frameCache.set(timeMs, frame)
+        stats.inferences++
+        frames.push(frame)
+      }
+      onProgress?.(index + 1, timesMs.length)
+    }
+    return frames
+  }
+
+  /** 粗扫判定"这是不是步态候选"：命中则精扫用 30fps，否则 15fps */
+  function isGaitCandidate(coarseFrames: MotionFrame[], fps: number, templateId?: string): boolean {
+    if (templateId && templateFor(templateId).kind === 'gait') return true
+    const gait = analyzeGait(coarseFrames, fps)
+    // 步频只作连续特征/候选条件，不再是一票否决的硬门槛
+    return (gait.alternating && gait.footStrikes >= 4 && (gait.cadence ?? 0) >= 100)
+      || (gait.alternating && gait.footStrikes >= 6)
+  }
+
+  /**
+   * 两阶段预检：全片 5fps 粗扫找活跃区间 → 区间内 15/30fps 精扫。
+   * 动作识别、视角、计数都只在"精扫帧"上做；不再用视频前 10 秒代表整段。
    */
   async function precheck(templateId?: string): Promise<MotionPrecheckResult> {
     if (!video || !duration.value) throw new VideoAnalysisError('decode', '请先选择视频')
@@ -312,19 +396,37 @@ export function useVideoAnalysis() {
       : '正在检查视频是否可分析……'
     beginPass()
     try {
-      const fps = 15
-      const span = Math.min(duration.value, 10)
-      const count = Math.max(12, Math.floor(span * fps))
-      const frames: MotionFrame[] = []
-      for (let index = 0; index < count; index++) {
-        throwIfCancelled(seq)
-        const time = (index + 0.5) / fps
-        if (time >= duration.value - 0.01) break
-        frames.push(await detectAt(time, seq))
-        progress.value = (index + 1) / count
-        statusText.value = `正在检查 ${index + 1} / ${count} 帧`
+      const durationMs = Math.round(duration.value * 1000)
+      const coarseTimes = coarseGridTimes(durationMs, COARSE_FPS)
+      const coarseFrames = await scanTimes(coarseTimes, seq, (done, total) => {
+        progress.value = total ? 0.35 * done / total : 0.35
+        statusText.value = `正在粗扫全片 ${done} / ${total} 帧`
+      })
+      const plan: AnalysisWindowPlan = planAnalysisWindow(coarseFrames, COARSE_FPS, durationMs)
+      let range = plan.range
+      const gaitCandidate = isGaitCandidate(coarseFrames, COARSE_FPS, templateId)
+      if (gaitCandidate) {
+        // 跑姿只分析"最活跃的一段"（最多 20 秒），不再默认截取视频开头
+        const span = mostActiveSpan(plan.energy, { startMs: 0, endMs: durationMs }, Math.min(durationMs, RUNNING_MAX_SECONDS * 1000))
+        if (span) range = span
       }
-      return precheckMotion({ fps, frames, ...(templateId ? { templateId } : {}) })
+      const fineFps = gaitCandidate ? GAIT_FPS : ANALYSIS_FPS
+      const fineTimes = fineGridTimes(range.startMs, range.endMs, fineFps, coarseTimes)
+      const frames = await scanTimes(fineTimes, seq, (done, total) => {
+        progress.value = total ? 0.35 + 0.6 * done / total : 0.95
+        statusText.value = `正在精扫 ${(range.startMs / 1000).toFixed(1)}–${(range.endMs / 1000).toFixed(1)} 秒 ${done} / ${total} 帧`
+      })
+      lastPlan = { range, fps: fineFps, frames, coarseTimes, energy: plan.energy, durationMs }
+      lastFrames = frames
+      lastFps = fineFps
+      progress.value = 1
+      statusText.value = '正在判定动作与视角'
+      return precheckMotion({
+        fps: fineFps,
+        frames,
+        range,
+        ...(templateId ? { templateId } : {})
+      })
     } finally {
       if (seq === runSeq) {
         phase.value = 'idle'
@@ -334,6 +436,10 @@ export function useVideoAnalysis() {
     }
   }
 
+  /**
+   * 正式分析：复用预检的活跃区间与逐帧缓存，只补缺失帧。
+   * 用户改动作/视角时走这里，不重新解码整段视频。
+   */
   async function analyze(action: AnalysisAction, view: AnalysisView): Promise<MotionAnalysisResult> {
     if (!video || !duration.value) throw new VideoAnalysisError('decode', '请先选择视频')
     const seq = beginRun()
@@ -342,21 +448,26 @@ export function useVideoAnalysis() {
     beginPass()
     try {
       const template = templateFor(action)
-      const fps = template.kind === 'gait' ? RUNNING_FPS : STRENGTH_FPS
-      const maxSeconds = template.kind === 'gait' ? Math.min(duration.value, RUNNING_MAX_SECONDS) : duration.value
-      const step = 1 / fps
-      const times: number[] = []
-      for (let time = step; time <= maxSeconds - step / 2; time += step) times.push(time)
-      const frames: MotionFrame[] = []
-      for (let index = 0; index < times.length; index++) {
-        throwIfCancelled(seq)
-        frames.push(await detectAt(times[index], seq))
-        progress.value = times.length ? (index + 1) / times.length : 1
-        statusText.value = `正在分析 ${times[index].toFixed(0)} / ${maxSeconds.toFixed(0)} 秒`
+      const fps = template.kind === 'gait' ? GAIT_FPS : ANALYSIS_FPS
+      const durationMs = Math.round(duration.value * 1000)
+      let range = lastPlan?.range ?? { startMs: 0, endMs: durationMs, source: 'whole-clip' }
+      if (template.kind === 'gait' && lastPlan) {
+        const span = mostActiveSpan(
+          lastPlan.energy,
+          { startMs: 0, endMs: durationMs },
+          Math.min(durationMs, RUNNING_MAX_SECONDS * 1000)
+        )
+        if (span) range = span
       }
+      const times = fineGridTimes(range.startMs, range.endMs, fps, lastPlan?.coarseTimes ?? [])
+      statusText.value = `正在分析 ${(range.startMs / 1000).toFixed(1)}–${(range.endMs / 1000).toFixed(1)} 秒`
+      const frames = await scanTimes(times, seq, (done, total) => {
+        progress.value = total ? done / total : 1
+        statusText.value = `正在分析 ${(range.startMs / 1000).toFixed(1)}–${(range.endMs / 1000).toFixed(1)} 秒 ${done} / ${total} 帧`
+      })
       lastFrames = frames
       lastFps = fps
-      return analyzeMotion({ action, view, fps, frames })
+      return analyzeMotion({ action, view, fps, frames, range })
     } finally {
       if (seq === runSeq) {
         phase.value = 'idle'
@@ -412,6 +523,7 @@ export function useVideoAnalysis() {
     }
     engine?.close()
     engine = null
+    resetAnalysisState()
     phase.value = 'idle'
     progress.value = 0
     statusText.value = ''
@@ -420,6 +532,13 @@ export function useVideoAnalysis() {
 
   onUnmounted(dispose)
 
-  return { phase, progress, statusText, duration, prepare, precheck, analyze, captureKeyframes, cancel, dispose,
-    capturedFrames: () => lastFrames, capturedFps: () => lastFps }
+  return {
+    phase, progress, statusText, duration, prepare, precheck, analyze, captureKeyframes, cancel, dispose,
+    capturedFrames: () => lastFrames,
+    capturedFps: () => lastFps,
+    /** 本次分析的采样统计：推理帧数 / 缓存命中。用于性能验收与排查 */
+    scanStats: () => ({ ...stats }),
+    /** 最近一次预检的活跃区间规划，供界面展示"分析区间" */
+    analyzedRange: () => lastPlan?.range ?? null
+  }
 }

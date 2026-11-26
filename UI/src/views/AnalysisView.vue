@@ -132,6 +132,7 @@
           <div><dt>视角</dt><dd>{{ viewLabel(precheckResult.view) }}</dd></div>
           <div><dt>{{ countLabel }}</dt><dd>{{ countValue }}</dd></div>
           <div><dt>时长</dt><dd>{{ duration.toFixed(1) }} 秒</dd></div>
+          <div v-if="analyzedRangeLabel"><dt>分析区间</dt><dd>{{ analyzedRangeLabel }}</dd></div>
         </dl>
         <p v-if="needsActionConfirmation" class="manual-warning" role="status">自动识别不确定：请选择一个动作；未选择前不会开始分析。</p>
         <p v-if="!supportsFindings" class="muted">该动作目前只提供测量值，未配置文献阈值，不出关注项。</p>
@@ -218,6 +219,7 @@
           <span class="micro">RESULT</span>
           <h2>{{ actionLabel }} · {{ viewLabel(precheckResult.view) }}视角</h2>
           <p>{{ resultSummary }}</p>
+          <p v-if="analyzedRangeLabel" class="muted small">分析区间 {{ analyzedRangeLabel }}{{ analyzedRangeNote }}</p>
           <p v-if="!supportsFindings && actionTemplate.note" class="muted small">{{ actionTemplate.note }}</p>
         </div>
       </div>
@@ -456,6 +458,18 @@ const resultSummary = computed(() => {
     return `分析区间 ${Math.round(result.value.holdSeconds * 10) / 10} 秒`
   }
   return '已完成分析'
+})
+/** 分析区间：V2 先粗扫找活跃段，结论要如实说明覆盖了哪几秒 */
+const analyzedRangeLabel = computed(() => {
+  const range = result.value?.analyzedRange ?? precheckResult.value?.analyzedRange ?? null
+  if (!range) return ''
+  const seconds = (ms: number) => (Math.max(0, ms) / 1000).toFixed(1)
+  return `${seconds(range.startMs)}–${seconds(range.endMs)} 秒`
+})
+const analyzedRangeNote = computed(() => {
+  const range = result.value?.analyzedRange ?? precheckResult.value?.analyzedRange ?? null
+  if (!range) return ''
+  return range.source === 'whole-clip' ? '（未找到稳定活跃段，按全片统计）' : '（只统计活跃运动段）'
 })
 
 /**
