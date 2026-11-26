@@ -176,6 +176,30 @@ const pctl = (values: number[], p: number) => {
   return Math.round(sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] * 100) / 100
 }
 
+/** 把 MotionFrame 压成可序列化的 16 点结构：用于把真实管线帧 dump 下来离线复盘 */
+function serializableFrame(frame: MotionFrame) {
+  const point = (value: { x: number; y: number; visibility: number } | null | undefined) =>
+    value ? [Math.round(value.x * 1e4) / 1e4, Math.round(value.y * 1e4) / 1e4, Math.round(value.visibility * 1e3) / 1e3] : null
+  const pair = (group: { left: { x: number; y: number; visibility: number } | null; right: { x: number; y: number; visibility: number } | null } | undefined) =>
+    group ? [point(group.left), point(group.right)] : null
+  const { points } = frame
+  return {
+    timeMs: frame.timeMs,
+    visibility: frame.visibility,
+    ...(frame.aspect ? { aspect: frame.aspect } : {}),
+    points: {
+      shoulder: pair(points.shoulder),
+      elbow: pair(points.elbow),
+      wrist: pair(points.wrist),
+      hip: pair(points.hip),
+      knee: pair(points.knee),
+      ankle: pair(points.ankle),
+      heel: pair(points.heel),
+      toe: pair(points.toe)
+    }
+  }
+}
+
 // CDP 驱动入口。返回结构化数据，不做人类可读渲染。
 ;(window as unknown as Record<string, unknown>).__eval = {
   ready: () => Boolean(video.src && video.readyState >= 2),
@@ -240,6 +264,8 @@ const pctl = (values: number[], p: number) => {
     void fps; void maxSeconds
     return {
       precheck: pre, rejected: false, result,
+      // 真实管线实际喂给识别/计数的帧（含分析区间裁剪），用于离线复盘 live 行为
+      frames: pipeline.capturedFrames().map(serializableFrame),
       wallMs: Math.round(performance.now() - wallStart),
       engineState: engine?.state ?? null
     }

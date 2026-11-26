@@ -25,6 +25,8 @@ const onlyClip = flag('clip', '')
 const gate = args.includes('--gate')
 /** 显式重采样逐帧夹具；默认不覆盖，避免 replay 门禁的基准静默漂移 */
 const recapture = args.includes('--recapture')
+/** dump 真实管线帧（composable 实际喂给识别/计数的帧），用于离线复盘 live 行为 */
+const dumpFrames = args.includes('--dump-frames')
 const baseUrl = flag('url', target === 'preview' ? 'http://127.0.0.1:4173' : target === 'android' ? 'https://two-poles.bupt-empty-classrom.top' : 'http://127.0.0.1:5173')
 
 /** 候选素材：库存片机位/人物任意，只能逐片报告，不得聚合成单一准确率。 */
@@ -269,6 +271,21 @@ async function main() {
       const pipeline = await cdp.evaluate(`window.__eval.runPipeline(${fps}, ${maxSeconds})`)
       const scored = scoreClip(name, series, pipeline, truth.get(name))
       results.push(scored)
+      if (dumpFrames && Array.isArray(pipeline?.frames)) {
+        const dir = resolve(REPO_ROOT, '.scratch/eval-pipeline')
+        mkdirSync(dir, { recursive: true })
+        const out = resolve(dir, `${name}.frames.json`)
+        writeFileSync(out, JSON.stringify({
+          clip: name,
+          action: pipeline?.precheck?.action,
+          view: pipeline?.precheck?.view,
+          range: pipeline?.precheck?.analyzedRange,
+          sampling: pipeline?.precheck?.sampling,
+          classificationDebug: pipeline?.precheck?.classificationDebug,
+          frames: pipeline.frames
+        }, null, 2))
+        console.log(`  已 dump 管线帧：${out}`)
+      }
       const mark = value => value === null ? '?' : value ? '✓' : '✗'
       console.log(`  动作 真值 ${scored.truth.action ?? '未标注'} / 实测 ${scored.action ?? '—'} ${mark(scored.gate.action)}`)
       console.log(`  视角 真值 ${scored.truth.view ?? '未标注'} / 实测 ${scored.view ?? '—'} ${mark(scored.gate.view)}`)

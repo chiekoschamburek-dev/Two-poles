@@ -231,31 +231,40 @@ function detectPartials(
 
 /**
  * 跟踪目标切换检测：多人画面里 MediaPipe 可能在两个人之间跳。
- * 表现是髋/肩中点在一两帧内整体平移大半个躯干长——这不是动作，是换了人。
+ * 表现是髋/肩中点在一两帧内整体平移大半个躯干长、并且**之后仍停留在新位置**。
+ *
+ * 注意不能只凭"躯干尺度突变"就判换人：硬拉/俯身这类动作本身会让 2D 投影的
+ * 躯干长度明显变化（前倾时缩短），人偶类素材的骨架尺度也天然抖动。所以这里只看
+ * 位置是否持续迁移；一两帧的骨架抖动会自动放行。
  * 这类区间不能计数：宁可少计一次，也不能把"换人"当成完成一次动作。
  */
 export function intervalHasTargetSwitch(frames: MotionFrame[], interval: RepInterval, threshold = 1.0): boolean {
-  const rows = frames.filter(frame => frame.timeMs >= interval.startMs - 80 && frame.timeMs <= interval.endMs + 80
-    && frame.visibility >= 0.5)
-  let previous: { x: number; y: number; torso: number; timeMs: number } | null = null
-  for (const frame of rows) {
+  const rows: { x: number; y: number; torso: number; timeMs: number }[] = []
+  for (const frame of frames) {
+    if (frame.timeMs < interval.startMs - 80 || frame.timeMs > interval.endMs + 80) continue
+    if (frame.visibility < 0.5) continue
     const shoulder = frame.points.shoulder.left && frame.points.shoulder.right
       ? { x: (frame.points.shoulder.left.x + frame.points.shoulder.right.x) / 2, y: (frame.points.shoulder.left.y + frame.points.shoulder.right.y) / 2 }
       : null
     const hip = frame.points.hip.left && frame.points.hip.right
       ? { x: (frame.points.hip.left.x + frame.points.hip.right.x) / 2, y: (frame.points.hip.left.y + frame.points.hip.right.y) / 2 }
       : null
-    if (!shoulder || !hip) { previous = null; continue }
+    if (!shoulder || !hip) continue
     const torso = Math.hypot(shoulder.x - hip.x, shoulder.y - hip.y)
-    if (!(torso > 0.02)) { previous = null; continue }
-    const mid = { x: (shoulder.x + hip.x) / 2, y: (shoulder.y + hip.y) / 2, torso, timeMs: frame.timeMs }
-    if (previous && mid.timeMs - previous.timeMs <= 150) {
-      const shift = Math.hypot(mid.x - previous.x, mid.y - previous.y) / Math.max(previous.torso, 0.02)
-      // 换人/尺度突变：同一个人的躯干长在一两帧内不会变三分之一
-      const scaleShift = Math.abs(mid.torso - previous.torso) / Math.max(previous.torso, 0.02)
-      if (shift > threshold || scaleShift > 0.3) return true
-    }
-    previous = mid
+    if (!(torso > 0.02)) continue
+    rows.push({ x: (shoulder.x + hip.x) / 2, y: (shoulder.y + hip.y) / 2, torso, timeMs: frame.timeMs })
+  }
+  for (let index = 1; index < rows.length; index++) {
+    const previous = rows[index - 1]
+    const current = rows[index]
+    if (current.timeMs - previous.timeMs > 180) continue
+    const shift = Math.hypot(current.x - previous.x, current.y - previous.y) / Math.max(previous.torso, 0.02)
+    if (shift <= threshold) continue
+    // 一两帧后是否仍在新位置：真换人会保持，骨架抖动会回到原处
+    const after = rows[index + 2] ?? rows[index + 1]
+    if (!after) continue
+    const persistence = Math.hypot(after.x - previous.x, after.y - previous.y) / Math.max(previous.torso, 0.02)
+    if (persistence > threshold) return true
   }
   return false
 }
