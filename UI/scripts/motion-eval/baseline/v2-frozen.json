@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-11-26T12:22:02.361Z",
+  "generatedAt": "2026-11-26T13:13:13.293Z",
   "engine": "v2",
   "caveats": [
     "truth 为 provisional：关键帧初标，尚未由用户逐条复核",
-    "fixtures 是本机重新采样的逐帧序列（baseline/*.series.json），不是不可变数据集；同一视频换一次姿态后端就可能采到不同 landmarks",
+    "夹具是 scripts/motion-eval/fixtures/ 下冻结的逐帧序列（sha256 记录在 manifest.json），replay 只读；刷新夹具必须显式 npm run eval:fixtures",
     "库存素材机位/人物任意，只能逐片报告，不能聚合成单一准确率",
     "reps 只含完整重复；partialRepetitions 单独记录，不参与计数",
     "动作/视角/计数与冻结真值逐片对比；fail 的片子必须逐条修，不能只用放宽阈值换通过"
@@ -124,13 +124,13 @@
         "viewConfidence": 0.96,
         "viewEstimate": {
           "category": "oblique",
-          "yawDeg": 52,
+          "yawDeg": 53,
           "reliability": 0.96,
-          "temporalStability": 0.96,
+          "temporalStability": 0.97,
           "evidence": {
             "uprightFrames": 22,
-            "medianSeparationRatio": 0.501,
-            "medianFarSideVisibilityGap": 0.113,
+            "medianSeparationRatio": 0.498,
+            "medianFarSideVisibilityGap": 0.112,
             "shoulderCrossings": 0,
             "worldYawDeg": null,
             "problems": []
@@ -153,7 +153,7 @@
           "findings": 0,
           "intervals": [
             {
-              "startMs": 4000,
+              "startMs": 3933,
               "endMs": 5733
             }
           ],
@@ -166,10 +166,10 @@
           ],
           "segmentation": {
             "signal": "hipAngle",
-            "neutral": 177.87,
-            "bottom": 94.32,
-            "amplitude": 83.55,
-            "noise": 28.25
+            "neutral": 178.09,
+            "bottom": 94.97,
+            "amplitude": 83.12,
+            "noise": 26.96
           }
         }
       },
@@ -199,7 +199,7 @@
         ],
         "coverage": 0.814,
         "fallback": null,
-        "threshold": 7.15,
+        "threshold": 6.69,
         "coversTruthReps": true
       },
       "features": null,
@@ -216,13 +216,13 @@
         "view": "front",
         "viewNote": "背向跑（冠状面）；可评估左右交替/步频，矢状面躯干前倾与触地膝角不可评估",
         "repCount": 0,
-        "gaitCycles": 10,
+        "gaitCycles": 12,
         "gaitSubtype": "run",
         "partialRepetitions": [],
-        "notes": "约 20 次触地、10 个步态周期；步频约 121 步/分，低于旧硬门槛 140，但明显是跑步。"
+        "notes": "背向跑（后方机位）。步态周期按左右踝相对髋的抬升信号复核：周期约 0.80s、约 12 个完整周期（原标注 10 来自 V1 的原始踝 y 极值折半，未经人工复核；按 12 周期折算步频约 145 步/分）。仍待用户逐帧抽查。"
       },
       "auto": {
-        "action": "walk",
+        "action": "running",
         "actionConfident": true,
         "view": "front",
         "viewConfidence": 0.96,
@@ -234,7 +234,7 @@
           "evidence": {
             "uprightFrames": 36,
             "medianSeparationRatio": 0.665,
-            "medianFarSideVisibilityGap": 0.087,
+            "medianFarSideVisibilityGap": 0.088,
             "shoulderCrossings": 0,
             "worldYawDeg": null,
             "problems": []
@@ -248,21 +248,21 @@
           }
         },
         "mode": {
-          "action": "walk",
-          "analysisAction": "walk",
+          "action": "running",
+          "analysisAction": "running",
           "view": "front",
           "analysisView": "front",
           "repCount": null,
-          "gaitCycles": 5,
+          "gaitCycles": 12,
           "findings": 0,
           "intervals": [],
           "partials": []
         }
       },
       "match": {
-        "action": false,
+        "action": true,
         "view": true,
-        "count": false,
+        "count": true,
         "range": null
       },
       "plan": {
@@ -311,26 +311,26 @@
         "action": "deadlift",
         "actionConfident": true,
         "view": "side",
-        "viewConfidence": 0.84,
+        "viewConfidence": 0.82,
         "viewEstimate": {
           "category": "side",
-          "yawDeg": 85,
-          "reliability": 0.84,
-          "temporalStability": 0.7,
+          "yawDeg": 86,
+          "reliability": 0.82,
+          "temporalStability": 0.64,
           "evidence": {
-            "uprightFrames": 44,
-            "medianSeparationRatio": 0.076,
+            "uprightFrames": 40,
+            "medianSeparationRatio": 0.063,
             "medianFarSideVisibilityGap": 0.132,
             "shoulderCrossings": 0,
             "worldYawDeg": null,
             "problems": []
           },
           "observability": {
-            "sagittalAngles": 0.87,
+            "sagittalAngles": 0.86,
             "frontalAngles": 0.11,
-            "rhythm": 0.87,
-            "gaitEvents": 0.83,
-            "holdDuration": 0.78
+            "rhythm": 0.86,
+            "gaitEvents": 0.82,
+            "holdDuration": 0.77
           }
         },
         "mode": {
@@ -338,63 +338,61 @@
           "analysisAction": "deadlift",
           "view": "side",
           "analysisView": "side",
-          "repCount": 0,
+          "repCount": 2,
           "gaitCycles": null,
-          "findings": 0,
-          "intervals": [],
-          "partials": [
+          "findings": 2,
+          "intervals": [
             {
-              "startMs": 2067,
-              "endMs": 7467,
-              "kind": "descent-only"
+              "startMs": 2133,
+              "endMs": 4600
+            },
+            {
+              "startMs": 6400,
+              "endMs": 7867
             }
           ],
+          "partials": [],
           "segmentation": {
             "signal": "hipAngle",
-            "neutral": 156.55,
-            "bottom": 14.92,
-            "amplitude": 141.63,
-            "noise": 60.77
+            "neutral": 166.08,
+            "bottom": 57.17,
+            "amplitude": 108.91,
+            "noise": 29.26
           }
         }
       },
       "match": {
         "action": true,
         "view": true,
-        "count": false,
+        "count": true,
         "range": true
       },
       "plan": {
         "range": {
           "startMs": 567,
-          "endMs": 20167,
+          "endMs": 22067,
           "source": "active-window"
         },
         "windows": [
           {
             "startMs": 1567,
-            "endMs": 4967,
-            "source": "active-window"
-          },
-          {
-            "startMs": 5767,
             "endMs": 8167,
             "source": "active-window"
           },
           {
             "startMs": 11167,
-            "endMs": 12767,
+            "endMs": 12567,
             "source": "active-window"
           },
           {
-            "startMs": 16167,
-            "endMs": 19167,
+            "startMs": 15767,
+            "endMs": 18967,
             "source": "active-window"
           }
         ],
-        "coverage": 0.471,
+        "coverage": 0.508,
         "fallback": null,
-        "threshold": 12.48,
+        "threshold": 16.2,
         "coversTruthReps": true
       },
       "features": null,
@@ -558,26 +556,26 @@
         "action": "sit-to-stand",
         "actionConfident": true,
         "view": "oblique",
-        "viewConfidence": 0.64,
+        "viewConfidence": 0.74,
         "viewEstimate": {
           "category": "oblique",
-          "yawDeg": 65,
-          "reliability": 0.64,
-          "temporalStability": 0.03,
+          "yawDeg": 59,
+          "reliability": 0.74,
+          "temporalStability": 0.33,
           "evidence": {
             "uprightFrames": 46,
-            "medianSeparationRatio": 0.353,
-            "medianFarSideVisibilityGap": 0.058,
-            "shoulderCrossings": 5,
+            "medianSeparationRatio": 0.42,
+            "medianFarSideVisibilityGap": 0.052,
+            "shoulderCrossings": 9,
             "worldYawDeg": null,
             "problems": []
           },
           "observability": {
-            "sagittalAngles": 0.37,
-            "frontalAngles": 0.37,
-            "rhythm": 0.78,
-            "gaitEvents": 0.74,
-            "holdDuration": 0.7
+            "sagittalAngles": 0.39,
+            "frontalAngles": 0.39,
+            "rhythm": 0.83,
+            "gaitEvents": 0.78,
+            "holdDuration": 0.74
           }
         },
         "mode": {
@@ -585,35 +583,30 @@
           "analysisAction": "sit-to-stand",
           "view": "oblique",
           "analysisView": "side",
-          "repCount": 1,
+          "repCount": 0,
           "gaitCycles": null,
           "findings": 0,
-          "intervals": [
-            {
-              "startMs": 9400,
-              "endMs": 10400
-            }
-          ],
+          "intervals": [],
           "partials": [
             {
-              "startMs": 12467,
+              "startMs": 12600,
               "endMs": 15133,
               "kind": "descent-only"
             }
           ],
           "segmentation": {
             "signal": "kneeAngle",
-            "neutral": 177.16,
-            "bottom": 104.1,
-            "amplitude": 73.06,
-            "noise": 8.03
+            "neutral": 176.61,
+            "bottom": 102.44,
+            "amplitude": 74.18,
+            "noise": 7.86
           }
         }
       },
       "match": {
         "action": true,
         "view": true,
-        "count": false,
+        "count": true,
         "range": null
       },
       "plan": {
@@ -625,7 +618,7 @@
         "windows": [
           {
             "startMs": 4567,
-            "endMs": 7567,
+            "endMs": 7367,
             "source": "active-window"
           },
           {
@@ -634,9 +627,9 @@
             "source": "active-window"
           }
         ],
-        "coverage": 0.375,
+        "coverage": 0.362,
         "fallback": null,
-        "threshold": 28.3,
+        "threshold": 30.85,
         "coversTruthReps": null
       },
       "features": null,
@@ -665,13 +658,13 @@
         "viewConfidence": 0.99,
         "viewEstimate": {
           "category": "front",
-          "yawDeg": 32,
+          "yawDeg": 31,
           "reliability": 0.99,
-          "temporalStability": 0.99,
+          "temporalStability": 0.98,
           "evidence": {
             "uprightFrames": 30,
-            "medianSeparationRatio": 0.699,
-            "medianFarSideVisibilityGap": 0,
+            "medianSeparationRatio": 0.7,
+            "medianFarSideVisibilityGap": 0.001,
             "shoulderCrossings": 0,
             "worldYawDeg": null,
             "problems": []
@@ -691,7 +684,7 @@
           "analysisView": "front",
           "repCount": 4,
           "gaitCycles": null,
-          "findings": 0,
+          "findings": 1,
           "intervals": [
             {
               "startMs": 867,
@@ -702,8 +695,8 @@
               "endMs": 4133
             },
             {
-              "startMs": 5933,
-              "endMs": 6733
+              "startMs": 5867,
+              "endMs": 6667
             },
             {
               "startMs": 8400,
@@ -713,10 +706,10 @@
           "partials": [],
           "segmentation": {
             "signal": "kneeAngle",
-            "neutral": 172.86,
-            "bottom": 119.26,
-            "amplitude": 53.59,
-            "noise": 7.77
+            "neutral": 171.94,
+            "bottom": 121.06,
+            "amplitude": 50.88,
+            "noise": 8.18
           }
         }
       },
@@ -741,7 +734,7 @@
         ],
         "coverage": 0.983,
         "fallback": null,
-        "threshold": 11.17,
+        "threshold": 11.26,
         "coversTruthReps": true
       },
       "features": null,

@@ -10,6 +10,7 @@ import type { MotionFrame, MotionPoint } from '@/services/motionAnalysis'
 import { angleAtExact, trunkAngleAt } from '@/composables/poseMath'
 import { pearson } from '@/services/motion-engine/temporal/correlation'
 import { findPeaks } from '@/services/motion-engine/temporal/peaks'
+import { estimateGaitEvents } from '@/services/motion-engine/temporal/gait'
 
 export interface GaitEvidence {
   footStrikes: number
@@ -275,33 +276,12 @@ export function extractRecognitionFeatures(frames: MotionFrame[], fps: number): 
   const liftAmps = [liftAmpOf(ankleLiftLeft), liftAmpOf(ankleLiftRight)].filter((value): value is number => value !== null)
   const ankleLiftAmp = liftAmps.length ? liftAmps.reduce((sum, value) => sum + value, 0) / liftAmps.length : null
 
-  // 与 analyzeGait 同口径的触地检测（这里只取计数/步频，用于大类分流）
-  const strikes: { timeMs: number; side: Side }[] = []
-  for (const side of ['left', 'right'] as const) {
-    const series = usable
-      .map(frame => ({ frame, ankle: frame.points.ankle[side] }))
-      .filter((row): row is { frame: MotionFrame; ankle: MotionPoint } => !!row.ankle && row.ankle.visibility >= 0.5)
-      .map(row => ({ timeMs: row.frame.timeMs, y: row.ankle.y }))
-    const sideStrikes: number[] = []
-    for (let index = 1; index < series.length - 1; index++) {
-      const current = series[index]
-      if (!(current.y <= series[index - 1].y && current.y <= series[index + 1].y)) continue
-      const window = series.slice(Math.max(0, index - 3), Math.min(series.length, index + 4))
-      const prominence = Math.max(...window.map(point => point.y)) - current.y
-      if (prominence < 0.01) continue
-      if (sideStrikes.length && current.timeMs - sideStrikes[sideStrikes.length - 1] < 150) continue
-      sideStrikes.push(current.timeMs)
-    }
-    for (const timeMs of sideStrikes) strikes.push({ timeMs, side })
-  }
-  strikes.sort((a, b) => a.timeMs - b.timeMs)
-  const gaitCycles = Math.floor(strikes.length / 2)
-  const cadence = durationMs > 0 && strikes.length > 0 ? Math.round(strikes.length / (durationMs / 60000)) : null
-  const contactTimes: number[] = []
-  if (strikes.length) {
-    const frameStep = 1000 / Math.max(1, fps)
-    contactTimes.push(Math.max(frameStep, 2 * frameStep))
-  }
+  // 步态证据与 analyzeGait 共用同一套事件估计（归一化踝抬升 + 步幅自相关），
+// 不再各写一份原始踝 y 极小值检测——两份口径会在真实素材上给出不同步频。
+  const gaitEstimate = estimateGaitEvents(frames, fps)
+  const gaitCycles = gaitEstimate.cycles
+  const cadence = gaitEstimate.cadence
+  const strikeCount = gaitEstimate.strikes.length
 
   const trunkLeanSeries = trunk
   return {
@@ -341,10 +321,10 @@ export function extractRecognitionFeatures(frames: MotionFrame[], fps: number): 
     oneWayTrip,
     ankleLiftAmp: ankleLiftAmp === null ? null : Math.round(ankleLiftAmp * 100) / 100,
     gait: {
-      footStrikes: strikes.length,
+      footStrikes: strikeCount,
       cycles: gaitCycles,
       cadence,
-      contactTimeMs: contactTimes.length ? contactTimes[0] : null
+      contactTimeMs: null
     },
     minKneeAngle: kneeBottom,
     maxTrunkLean: trunkLeanSeries.length ? Math.round(Math.max(...trunkLeanSeries)) : null,

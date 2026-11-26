@@ -17,8 +17,9 @@ import { consistencyRulesFor } from '@/services/motionConsistency'
 import { computeKinematics, kinematicsMetrics } from '@/services/motionKinematics'
 import { estimateView, suggestedViewFromEstimate, viewToAnalysisView } from '@/services/motion-engine/view/estimate'
 import { recognizeAction } from '@/services/motion-engine/recognition/actions'
-import { segmentRepsAdaptive, type PartialRepetition } from '@/services/motion-engine/segmentation/reps'
+import { segmentRepsAdaptive, intervalHasTargetSwitch, type PartialRepetition } from '@/services/motion-engine/segmentation/reps'
 import { buildMotionEvidence } from '@/services/motion-engine/evidence/evidence'
+import { estimateGaitEvents } from '@/services/motion-engine/temporal/gait'
 
 export interface MotionPoint {
   x: number
@@ -269,6 +270,79 @@ export function detectView(frames: MotionFrame[]): {
   return { view: null, confidence: 0, suggested: median >= boundary ? 'front' : 'side' }
 }
 
+/**
+ * 计数区间校验：一次"完整重复"必须真的走到接近本次动作的底部/顶部，
+ * 并且开始前有一段起始姿势；否则它多半是视频首尾的半程、或跟踪抖动造出来的假周期。
+ * 这一步只过滤"不构成重复"的区间，不评价动作质量（质量留给规则层）。
+ */
+function validateRepIntervals(
+  frames: MotionFrame[],
+  template: MotionActionTemplate,
+  intervals: RepInterval[],
+  identityRisk: boolean
+): RepInterval[] {
+  if (!intervals.length) return []
+  const rule = repRuleForTemplate(template)
+  const segmentation = template.segmentation
+  if (!rule || !segmentation) return intervals
+  const joint = segmentation.joint
+  const samples = frames.map(frame => ({ timeMs: frame.timeMs, angle: jointAngle(frame, joint).angle }))
+  const values = samples.map(sample => sample.angle).filter((value): value is number => value !== null)
+  if (values.length < 8) return intervals
+  const percentile = (p: number) => {
+    const sorted = [...values].sort((a, b) => a - b)
+    return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
+  }
+  const p10 = percentile(0.1)
+  const p90 = percentile(0.9)
+  const range = p90 - p10
+  if (!(range > 1)) return intervals
+  const increasing = rule.bottom > rule.neutral
+  const amplitudeFloor = range * 0.55
+  const switchThreshold = identityRisk ? 0.6 : 1
+  return intervals.filter(interval => {
+    const inside = samples
+      .filter(sample => sample.timeMs >= interval.startMs && sample.timeMs <= interval.endMs && sample.angle !== null)
+      .map(sample => sample.angle as number)
+    if (inside.length < 5) return false
+    const min = Math.min(...inside)
+    const max = Math.max(...inside)
+    if (max - min < amplitudeFloor) return false
+    if (interval.endMs - interval.startMs < 700) return false
+    const before = samples.filter(sample => sample.timeMs <= interval.startMs - 100
+      && sample.timeMs >= interval.startMs - 1500 && sample.angle !== null)
+    // 视频从半程开始 / 从底部开始时，开始前没有稳定的起始姿势：
+    // 这种区间只能算半程，不能算完整重复。这里看"最近的起始姿势极值"，
+    // 而不是窗口均值——均值会被同一次动作的下降段污染。
+    if (before.length >= 3) {
+      const beforeAngles = before.map(sample => sample.angle as number)
+      const span = Math.abs(rule.neutral - rule.bottom)
+      const startLevel = increasing ? rule.neutral + span * 0.2 : rule.neutral - span * 0.2
+      const nearest = increasing ? Math.min(...beforeAngles) : Math.max(...beforeAngles)
+      if (increasing ? nearest > startLevel : nearest < startLevel) return false
+    }
+    if (intervalHasTargetSwitch(frames, interval, switchThreshold)) return false
+    // 视频从"已经俯身/下蹲"的姿态开始时，开头这段上升只是一次动作的后半程，
+    // 不能算完整重复。用起始 0.3s 的躯干前倾判断，而不是动作名特判。
+    if (interval.startMs <= (frames[0]?.timeMs ?? 0) + 800) {
+      const head = frames.slice(0, 5)
+      const leans = head
+        .map(frame => {
+          const shoulder = frame.points.shoulder.left
+          const hip = frame.points.hip.left
+          if (!shoulder || !hip) return null
+          return Math.atan2(Math.abs(shoulder.x - hip.x), Math.max(0, hip.y - shoulder.y)) * 180 / Math.PI
+        })
+        .filter((value): value is number => value !== null)
+      if (leans.length >= 3) {
+        const meanLean = leans.reduce((sum, value) => sum + value, 0) / leans.length
+        if (meanLean > 20) return false
+      }
+    }
+    return true
+  })
+}
+
 function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps: number, identityRisk = false): {
   intervals: RepInterval[]
   count: number
@@ -302,20 +376,20 @@ function segmentReps(frames: MotionFrame[], template: MotionActionTemplate, fps:
     return { intervals, count: machine.snapshot().count }
   }
   const fixed = runFixed()
-  if (!adaptive.usable) {
-    return { intervals: fixed.intervals, count: fixed.count, partials: [], segmentation }
+  const finalize = (intervals: RepInterval[], partials: PartialRepetition[]) => {
+    const validated = validateRepIntervals(frames, template, intervals, identityRisk)
+    return { intervals: validated, count: validated.length, partials, segmentation }
   }
-  if (fixed.count > 0) {
-    return { intervals: fixed.intervals, count: fixed.count, partials: adaptive.partials, segmentation }
-  }
+  if (!adaptive.usable) return finalize(fixed.intervals, [])
+  if (fixed.count > 0) return finalize(fixed.intervals, adaptive.partials)
   // 固定阈值一次都没数到：仅在"幅度足够大 + 视角稳定（没有换人风险）"时才改用自适应，
   // 否则宁可保守报 0，也不把多人画面里的跟踪抖动算成动作。
   const expectedRange = Math.abs(rule.neutral - rule.bottom)
   const strongAmplitude = adaptive.amplitude >= Math.max(expectedRange * 0.35, adaptive.noise * 2)
   if (!identityRisk && strongAmplitude && adaptive.count > 0) {
-    return { intervals: adaptive.intervals, count: adaptive.count, partials: adaptive.partials, segmentation }
+    return finalize(adaptive.intervals, adaptive.partials)
   }
-  return { intervals: fixed.intervals, count: fixed.count, partials: adaptive.partials, segmentation }
+  return finalize(fixed.intervals, adaptive.partials)
 }
 
 /** 供实时模式复用：rep 结束时该次所有帧都是过去/当前，摘要与离线逐位相同 */
@@ -499,7 +573,6 @@ export function analyzeGait(frames: MotionFrame[], fps: number): GaitAnalysis {
   const strikeTimes = strikeRecords.map(record => record.timeMs).sort((a, b) => a - b)
   strikeRecords.sort((a, b) => a.timeMs - b.timeMs)
   const footStrikes = strikeTimes.length
-  const cadence = durationSec > 0 && footStrikes > 0 ? Math.round(footStrikes / (durationSec / 60)) : null
   const average = (values: number[]) => values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length : null
   const leftContact = average(contactBySide.left)
@@ -527,10 +600,13 @@ export function analyzeGait(frames: MotionFrame[], fps: number): GaitAnalysis {
   }).filter((value): value is number => value !== null && value > 0.05)
   const averageTorso = average(torsoLengths)
   const hipRange = hipYs.length ? Math.max(...hipYs) - Math.min(...hipYs) : null
+  // 周期数/步频用 V2 事件估计（归一化踝抬升 + 步幅自相关），不再用原始踝 y 极值折半；
+  // 触地事件仍保留给接触时间、触地膝角等指标。
+  const gaitEstimate = estimateGaitEvents(frames, fps)
   return {
     footStrikes,
-    cycles: Math.floor(footStrikes / 2),
-    cadence,
+    cycles: gaitEstimate.cycles,
+    cadence: gaitEstimate.cadence,
     contactTimeMs: average(contactDurations),
     contactTimeDiffMs: leftContact !== null && rightContact !== null ? Math.abs(leftContact - rightContact) : null,
     contactKneeAngle: average(contactKnees),

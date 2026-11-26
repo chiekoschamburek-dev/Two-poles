@@ -28,6 +28,8 @@ export {
   unionRange,
   mostActiveSpan
 } from './temporal/activeWindow'
+export { estimateGaitEvents, GAIT_EVENT_THRESHOLDS } from './temporal/gait'
+export type { GaitEventEstimate, GaitStrike } from './temporal/gait'
 export type {
   ActiveWindowOptions,
   ActiveWindowResult,

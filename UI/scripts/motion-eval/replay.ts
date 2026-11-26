@@ -9,6 +9,7 @@
 //   npm run eval:replay -- --features            # 导出 M1 共享特征/质量/活跃区间（真实素材可复查）
 //   npm run eval:replay -- --freeze scripts/motion-eval/baseline/v1-frozen.json
 import { readdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import {
   analyzeMotion,
@@ -24,6 +25,9 @@ import type { AnalysisAction, AnalysisView } from '@/types/domain'
 
 // esbuild 把产物放到 UI 根，import.meta.url 会失真；npm 脚本的 cwd 就是 UI 根
 const BASELINE = resolve(process.cwd(), 'scripts/motion-eval/baseline')
+/** replay 优先读冻结夹具；fixtures/manifest.json 记录 sha256，gate 会校验没有被篡改 */
+const FIXTURES = resolve(process.cwd(), 'scripts/motion-eval/fixtures')
+const FIXTURE_MANIFEST = resolve(FIXTURES, 'manifest.json')
 const TRUTH_DIR = resolve(process.cwd(), 'scripts/motion-eval/truth')
 const args = process.argv.slice(2)
 const flag = (name: string, fallback: string) => {
@@ -181,11 +185,28 @@ function mark(value: boolean | null): string {
 }
 
 const truth = loadTruth()
-if (!existsSync(BASELINE)) {
-  console.error('还没有基线序列，先跑 npm run eval:motion')
+const fixtureSource = existsSync(FIXTURES) && existsSync(FIXTURE_MANIFEST) ? FIXTURES : BASELINE
+if (!existsSync(fixtureSource)) {
+  console.error('还没有评测夹具：先跑 npm run eval:motion -- --recapture && npm run eval:fixtures')
   process.exitCode = 1
 } else {
-  const files = readdirSync(BASELINE).filter(file => file.endsWith('.series.json') && (!onlyClip || file.startsWith(onlyClip)))
+  const files = readdirSync(fixtureSource).filter(file => file.endsWith('.series.json') && (!onlyClip || file.startsWith(onlyClip)))
+  if (fixtureSource === FIXTURES) {
+    const manifest = JSON.parse(readFileSync(FIXTURE_MANIFEST, 'utf8')) as { clips: { file: string; sha256: string }[] }
+    const expected = new Map(manifest.clips.map(entry => [entry.file, entry.sha256]))
+    const tampered = files.filter(file => {
+      const want = expected.get(file)
+      if (!want) return true
+      return createHash('sha256').update(readFileSync(resolve(FIXTURES, file))).digest('hex') !== want
+    })
+    if (tampered.length) {
+      console.error(`夹具与 manifest 不一致（${tampered.join(', ')}）：评测数据被改过。若是有意刷新，重跑 npm run eval:fixtures`)
+      if (gate) process.exitCode = 1
+    }
+    if (!jsonOut) console.log(`夹具：scripts/motion-eval/fixtures（${files.length} 条，sha256 已校验）`)
+  } else if (!jsonOut) {
+    console.log('夹具：baseline/（未冻结；建议 npm run eval:fixtures 冻结成不可变夹具）')
+  }
   const rows: Record<string, unknown>[] = []
   let failures = 0
 
@@ -379,7 +400,7 @@ if (!existsSync(BASELINE)) {
     engine: 'v2',
     caveats: [
       'truth 为 provisional：关键帧初标，尚未由用户逐条复核',
-      'fixtures 是本机重新采样的逐帧序列（baseline/*.series.json），不是不可变数据集；同一视频换一次姿态后端就可能采到不同 landmarks',
+      '夹具是 scripts/motion-eval/fixtures/ 下冻结的逐帧序列（sha256 记录在 manifest.json），replay 只读；刷新夹具必须显式 npm run eval:fixtures',
       '库存素材机位/人物任意，只能逐片报告，不能聚合成单一准确率',
       'reps 只含完整重复；partialRepetitions 单独记录，不参与计数',
       '动作/视角/计数与冻结真值逐片对比；fail 的片子必须逐条修，不能只用放宽阈值换通过'

@@ -234,7 +234,7 @@ function detectPartials(
  * 表现是髋/肩中点在一两帧内整体平移大半个躯干长——这不是动作，是换了人。
  * 这类区间不能计数：宁可少计一次，也不能把"换人"当成完成一次动作。
  */
-function intervalHasTargetSwitch(frames: MotionFrame[], interval: RepInterval, threshold = 1.0): boolean {
+export function intervalHasTargetSwitch(frames: MotionFrame[], interval: RepInterval, threshold = 1.0): boolean {
   const rows = frames.filter(frame => frame.timeMs >= interval.startMs - 80 && frame.timeMs <= interval.endMs + 80
     && frame.visibility >= 0.5)
   let previous: { x: number; y: number; torso: number; timeMs: number } | null = null

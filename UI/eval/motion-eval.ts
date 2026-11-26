@@ -15,6 +15,7 @@ import {
   type MotionFrame
 } from '@/services/motionAnalysis'
 import { estimateView } from '@/services/motion-engine/view/estimate'
+import { poseInputSize } from '@/services/analysisRuntime'
 import type { AnalysisAction, AnalysisView } from '@/types/domain'
 
 const MODEL_PATHS = { wasmPath: '/mediapipe/wasm', modelPath: '/mediapipe/models/pose_landmarker_lite.task' }
@@ -102,7 +103,23 @@ function drawFrame() {
 
 async function detectAt(sec: number): Promise<MotionFrame> {
   await seek(sec)
-  const bitmap = await createImageBitmap(video)
+  // 与生产 useVideoAnalysis.detectAt 同一套预处理：先缩到 poseInputSize 再送模型。
+  // 否则夹具序列是"原图输入"的结果，replay 与真实管线会对不上（同一素材两种关键点）。
+  const target = poseInputSize(video.videoWidth, video.videoHeight)
+  let bitmap: ImageBitmap
+  if (target) {
+    try {
+      bitmap = await createImageBitmap(video, {
+        resizeWidth: target.width,
+        resizeHeight: target.height,
+        resizeQuality: 'medium'
+      })
+    } catch {
+      bitmap = await createImageBitmap(video)
+    }
+  } else {
+    bitmap = await createImageBitmap(video)
+  }
   const pose = await ensureEngine()
   const timeMs = Math.round(sec * 1000)
   engineClock = Math.max(passBase + timeMs, engineClock + 1)

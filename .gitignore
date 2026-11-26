@@ -87,3 +87,6 @@ cpu-check.ps1
 diag-admin.ps1
 diagnose-pc.ps1
 dsh-probe.js
+
+# V2 评测夹具：逐帧序列是本地大文件不进仓库；fixtures/manifest.json（sha256）进仓库
+UI/scripts/motion-eval/fixtures/*.series.json

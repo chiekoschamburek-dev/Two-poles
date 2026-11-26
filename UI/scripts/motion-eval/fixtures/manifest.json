@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-11-26T13:03:39.669Z",
+  "note": "replay 只读 fixtures/；刷新夹具必须显式重跑 freeze-fixtures，保证评测数据变更可审计",
+  "clips": [
+    {
+      "clip": "brisk-walk",
+      "file": "brisk-walk.series.json",
+      "sha256": "113b38c62b06b0705663d4907f626bcbfb1208ce61f691d6eb332ec5301a69dc",
+      "bytes": 956639,
+      "fps": 30,
+      "capturedAt": "2026-11-26T12:35:42.275Z",
+      "frameCount": 299
+    },
+    {
+      "clip": "deadlift-demo",
+      "file": "deadlift-demo.series.json",
+      "sha256": "bc110941ffc91c2c5722b9e757402c23f1a0428f57d1a694464ec16297e1cf99",
+      "bytes": 353418,
+      "fps": 15,
+      "capturedAt": "2026-11-26T12:35:05.669Z",
+      "frameCount": 110
+    },
+    {
+      "clip": "easy-run",
+      "file": "easy-run.series.json",
+      "sha256": "ac025b2cdeb6ca0de9735986f7c4aa07a13fa504bcc2a869e7d994f2d1a498aa",
+      "bytes": 956438,
+      "fps": 30,
+      "capturedAt": "2026-11-26T12:35:19.766Z",
+      "frameCount": 299
+    },
+    {
+      "clip": "peso-muerto-sumo",
+      "file": "peso-muerto-sumo.series.json",
+      "sha256": "355de688ef4f09497b1fa32cd204b650e3704a0cfea3d1a9340211b6af0a83e0",
+      "bytes": 1025033,
+      "fps": 15,
+      "capturedAt": "2026-11-26T12:34:51.443Z",
+      "frameCount": 331
+    },
+    {
+      "clip": "peso-muerto",
+      "file": "peso-muerto.series.json",
+      "sha256": "8fb6b6a4f11b9fde3bbe518bb45143361c58d522ae43546c4e0edd79f4208082",
+      "bytes": 1219774,
+      "fps": 15,
+      "capturedAt": "2026-11-26T12:34:19.332Z",
+      "frameCount": 455
+    },
+    {
+      "clip": "sit-to-stand",
+      "file": "sit-to-stand.series.json",
+      "sha256": "dc9715b56d071353d1fc404eaa1754a688fefce20112a6f3316bbb6776d6d5d6",
+      "bytes": 730023,
+      "fps": 15,
+      "capturedAt": "2026-11-26T12:33:29.637Z",
+      "frameCount": 228
+    },
+    {
+      "clip": "test_squat",
+      "file": "test_squat.series.json",
+      "sha256": "bf3b28d6706cc7e9e145239df19bf4677704f8405203b5f06d4d1e6430c09383",
+      "bytes": 474021,
+      "fps": 15,
+      "capturedAt": "2026-11-26T12:33:14.530Z",
+      "frameCount": 149
+    }
+  ]
+}
