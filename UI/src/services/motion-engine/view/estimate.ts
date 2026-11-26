@@ -233,7 +233,8 @@ export function estimateView(frames: MotionFrame[], fps: number, options: ViewEs
     category = categoryFromRatio(ratioMedian, gapMedian ?? 0)
     const sorted = [...ratioValues].sort((a, b) => a - b)
     const iqr = sorted[Math.floor(sorted.length * 0.75)] - sorted[Math.floor(sorted.length * 0.25)]
-    const spread = ratioMedian > 0 ? iqr / ratioMedian : 1
+    // 用绝对下限做分母：完美侧拍时投影比接近 0，若按相对比例算会把"极稳定"误判成"极不稳定"
+    const spread = iqr / Math.max(0.15, ratioMedian)
     temporalStability = Math.round(clamp01(1 - spread) * 100) / 100
     const countScore = Math.min(1, upright.length / 15)
     reliability = Math.round(clamp01(0.4 * countScore + 0.35 * temporalStability + 0.25 * meanVisibility) * 100) / 100

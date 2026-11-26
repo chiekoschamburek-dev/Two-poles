@@ -50,10 +50,14 @@ export function findingConfidence(input: {
   const quality = input.repVisibilityMean ?? 0.7
   const view = input.viewConfidence ?? 0.7
   const margin = input.measured === null || input.scale <= 0
-    ? 0.5
-    : Math.min(1, Math.max(0.5, Math.abs(input.measured - input.threshold) / input.scale))
-  const prior = input.priorCount ?? 0
-  const baseline = prior >= 4 ? 1 : prior === 3 ? 0.85 : prior >= 2 ? 0.7 : 0.5
+    ? 0.6
+    : Math.min(1, Math.max(0.6, Math.abs(input.measured - input.threshold) / input.scale))
+  // 绝对阈值规则没有"组内基线"概念：priorCount 缺省时不应当作基线弱来扣分；
+  // 只有一致性规则显式传入前序次数时，才按样本量给基线强度。
+  const prior = input.priorCount
+  const baseline = prior === undefined
+    ? 1
+    : prior >= 4 ? 1 : prior === 3 ? 0.85 : prior >= 2 ? 0.7 : 0.5
   return round2(Math.max(0, Math.min(1, quality * view * margin * baseline)))
 }
 
@@ -127,6 +131,7 @@ function aggregateFinding(
 const squatRomRule: MotionRule = {
   id: 'SQ-CN-01',
   output: 'finding',
+  requires: { minViewReliability: 0.6 },
   evaluate: ({ reps, viewConfidence }: MotionRuleContext) => {
     const drifts = collectDrift(reps, rep => rep.bottomKneeAngle, 'increases', CONSISTENCY_THRESHOLDS.squatRomDeltaDeg)
     if (!drifts.length) return []
@@ -145,6 +150,7 @@ const squatRomRule: MotionRule = {
 const squatTempoRule: MotionRule = {
   id: 'SQ-CN-02',
   output: 'finding',
+  requires: { minViewReliability: 0.6 },
   evaluate: ({ reps, viewConfidence }: MotionRuleContext) => {
     const drifts: Drift[] = []
     for (let index = CONSISTENCY_THRESHOLDS.minPriorReps; index < reps.length; index++) {
@@ -174,6 +180,7 @@ const squatTempoRule: MotionRule = {
 const deadliftLockoutRule: MotionRule = {
   id: 'DL-CN-01',
   output: 'finding',
+  requires: { minViewReliability: 0.6 },
   evaluate: ({ reps, viewConfidence }: MotionRuleContext) => {
     const drifts = collectDrift(reps, rep => rep.endHipAngle, 'decreases', CONSISTENCY_THRESHOLDS.deadliftLockoutDeltaDeg)
     if (!drifts.length) return []

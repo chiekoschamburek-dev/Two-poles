@@ -56,6 +56,12 @@ export interface MotionAnalysisFinding {
   keyframeRef?: string
   /** 0–1，由关键点质量×视角置信×越界幅度×基线强度推出；findings 是无模式 JSON，服务端原样透传 */
   confidence?: number
+  /** 这条关注项来自第几次重复；一致性/步态类没有该字段 */
+  repIndex?: number
+  /** 规则自带的测量不确定带（单位同 measured）：实测值落在阈值±带内不生成关注项 */
+  tolerance?: number
+  /** official = 正式关注项；reference = 参考观察（0.45–0.7），不计入问题数 */
+  level?: 'official' | 'reference'
 }
 
 export interface MotionAnalysisMetric {
@@ -93,6 +99,10 @@ export interface MotionAnalysisResult {
   partialRepetitions?: { startMs: number; endMs: number; kind: string; signal: string }[]
   /** 本次结论覆盖的视频时间区间；旧记录没有该字段，按全片处理 */
   analyzedRange?: { startMs: number; endMs: number; source: string }
+  /** 因视角/姿态可靠性不足而没有执行的规则；界面必须明示"未评估项" */
+  skippedRules?: { ruleId: string; reason: string }[]
+  /** 本次分析所属引擎/规则版本口径；趋势按版本断线，不混合比较 */
+  engineVersion?: string
   /** V2 多证据视角估计；旧记录没有该字段 */
   viewEstimate?: {
     category: string
@@ -252,6 +262,12 @@ export interface MotionAnalysis {
   usableRatio?: number
   sessionId?: string
   ruleVersion: string
+  /** V2：因视角/可靠性不足而未执行的规则；历史记录也要能解释"为什么没评估" */
+  skippedRules?: { ruleId: string; reason: string }[]
+  /** V2：本次结论覆盖的视频区间 */
+  analyzedRange?: { startMs: number; endMs: number; source: string }
+  /** V2：引擎版本口径；趋势按版本断线，不混合比较 */
+  engineVersion?: string
   createdAt: string
   clientId?: string
   serverId?: string

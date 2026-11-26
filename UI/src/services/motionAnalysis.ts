@@ -651,6 +651,84 @@ function holdMetrics(hold: HoldAnalysis): MotionAnalysisMetric[] {
   ]
 }
 
+/** 关注项准入的置信分级：低于 0.45 丢弃，0.45–0.7 降为参考观察 */
+export const FINDING_GRADE_THRESHOLDS = {
+  official: 0.7,
+  keep: 0.45
+} as const
+
+/**
+ * 规则的视角/质量准入检查。
+ * 不满足时不是"算一个低置信结果再贴免责标签"，而是根本不生成结论；
+ * 返回的原因会进 skippedRules，界面必须显示"未评估项"。
+ */
+export function ruleRequirementFailure(
+  rule: { requires?: { views?: AnalysisView[]; minViewReliability?: number; minPoseReliability?: number } },
+  view: AnalysisView,
+  viewConfidence: number,
+  poseReliability: number
+): string | null {
+  const requirement = rule.requires
+  if (!requirement) return null
+  if (requirement.views && !requirement.views.includes(view)) {
+    const label = (item: AnalysisView) => item === 'side' ? '侧面' : item === 'front' ? '正面' : '斜侧'
+    return `当前视角（${label(view)}）不支持该规则；需要${requirement.views.map(label).join('/')}`
+  }
+  if (requirement.minViewReliability !== undefined && viewConfidence < requirement.minViewReliability) {
+    return `视角估计可靠性 ${Math.round(viewConfidence * 100)}% 低于 ${Math.round(requirement.minViewReliability * 100)}%，角度类结论不成立`
+  }
+  if (requirement.minPoseReliability !== undefined && poseReliability < requirement.minPoseReliability) {
+    return `姿态可用帧 ${Math.round(poseReliability * 100)}% 低于 ${Math.round(requirement.minPoseReliability * 100)}%，测量不可靠`
+  }
+  return null
+}
+
+/**
+ * 逐次关注项的复发门槛：单次偏离降为测量值，不当作结论。
+ * 保留条件：受影响重复 ≥2 次，或占本次完整重复的一半以上。
+ */
+export function applyRecurrenceGate(
+  findings: MotionAnalysisFinding[],
+  reps: RepAnalysis[],
+  metrics: MotionAnalysisMetric[]
+): MotionAnalysisFinding[] {
+  const totalReps = reps.length
+  const perRep = new Map<string, MotionAnalysisFinding[]>()
+  const rest: MotionAnalysisFinding[] = []
+  for (const finding of findings) {
+    if (finding.repIndex === undefined) { rest.push(finding); continue }
+    const group = perRep.get(finding.ruleId) ?? []
+    group.push(finding)
+    perRep.set(finding.ruleId, group)
+  }
+  const admitted: MotionAnalysisFinding[] = [...rest]
+  for (const [ruleId, group] of perRep) {
+    const affected = new Set(group.map(finding => finding.repIndex)).size
+    const keep = affected >= 2 || (totalReps > 0 && affected / totalReps >= 0.5)
+    if (!keep) {
+      const first = group[0]
+      metrics.push({
+        id: `metric-single-${ruleId.toLowerCase()}`,
+        label: `${first.title}（单次偏离，仅参考）`,
+        value: first.measured ?? '—',
+        unit: first.unit
+      })
+      continue
+    }
+    if (group.length === 1) { admitted.push(group[0]); continue }
+    const sorted = [...group].sort((a, b) => (a.timeMs ?? 0) - (b.timeMs ?? 0))
+    const confidence = Math.max(...sorted.map(finding => finding.confidence ?? 0))
+    admitted.push({
+      ...sorted[0],
+      detail: `${sorted.map(finding => `第 ${finding.repIndex} 次`).join('、')}出现同类偏离：`
+        + sorted.map(finding => finding.detail).join('；'),
+      confidence,
+      level: confidence >= FINDING_GRADE_THRESHOLDS.official ? 'official' : 'reference'
+    })
+  }
+  return admitted
+}
+
 export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   const template = templateFor(series.action)
   const usable = series.frames.filter(frame => frame.visibility >= MIN_FRAME_VISIBILITY)
@@ -668,12 +746,27 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   const hold = template.kind === 'hold' ? analyzeHold(series.frames, series.fps) : undefined
   const viewEstimate = estimateView(series.frames, series.fps, { aspect: series.frames.find(frame => frame.aspect)?.aspect })
   const viewConfidence = viewEstimate.reliability
-  const context = { action: series.action, view: series.view, reps, fps: series.fps, gait, hold, viewConfidence }
+  const context = {
+    action: series.action,
+    view: series.view,
+    reps,
+    fps: series.fps,
+    gait,
+    hold,
+    viewConfidence,
+    poseReliability: usableRatio
+  }
   const findings: MotionAnalysisFinding[] = []
   const metrics: MotionAnalysisMetric[] = []
+  const skippedRules: { ruleId: string; reason: string }[] = []
   // 斜侧：只保留通用/相对测量。组内一致性依赖矢状面角度，斜侧下不成立，直接不跑
   const consistencyRules = series.view === 'oblique' ? [] : consistencyRulesFor(series.action)
   for (const rule of [...rulesFor(series.action, series.view), ...consistencyRules]) {
+    const failure = ruleRequirementFailure(rule, series.view, viewConfidence, usableRatio)
+    if (failure) {
+      if (rule.output === 'finding') skippedRules.push({ ruleId: rule.id, reason: failure })
+      continue
+    }
     const output = rule.evaluate(context)
     if (rule.output === 'finding') findings.push(...(output as MotionAnalysisFinding[]))
     else metrics.push(...(output as MotionAnalysisMetric[]))
@@ -693,6 +786,17 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
   // 模板没配可核验阈值时一律不出关注项：即使将来有人给该动作加了 finding 规则，
   // 也不会把测量值包装成结论（ADR-0003 的最后一道闸）
   if (!template.findingsReady) findings.length = 0
+  // 置信分级：<0.45 直接丢弃，0.45–0.7 降为"参考观察"；再做逐次复发门槛
+  const graded = findings.flatMap(finding => {
+    const confidence = finding.confidence ?? 0.5
+    if (confidence < FINDING_GRADE_THRESHOLDS.keep) return []
+    return [{
+      ...finding,
+      confidence,
+      level: confidence >= FINDING_GRADE_THRESHOLDS.official ? 'official' : 'reference'
+    } as MotionAnalysisFinding]
+  })
+  const admittedFindings = applyRecurrenceGate(graded, reps, metrics)
   const primaryJoint = template.segmentation?.joint ?? 'knee'
   const angles = series.frames.map(frame => {
     const knee = jointAngle(frame, 'knee')
@@ -723,7 +827,8 @@ export function analyzeMotion(series: MotionFrameSeries): MotionAnalysisResult {
     }
   }
   return {
-    findings: dedupeFindings(findings),
+    findings: dedupeFindings(admittedFindings),
+    ...(skippedRules.length ? { skippedRules } : {}),
     metrics: capMetrics(metrics),
     repCount: template.kind === 'reps' ? segmented.count : null,
     gaitCycles: gait?.cycles ?? null,

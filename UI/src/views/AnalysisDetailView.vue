@@ -22,11 +22,12 @@
       <BaseCard class="panel">
         <h2>关注项</h2>
         <p v-if="!supportsFindings" class="muted">该动作目前只提供测量值，未配置文献阈值，不出关注项。下面是对这次动作的客观测量。</p>
-        <p v-else-if="!record.findings.length" class="muted">本次没有命中关注项。下面是对这次动作的客观测量。</p>
+        <p v-else-if="!officialFindings.length" class="muted">本次没有命中正式关注项。下面是对这次动作的客观测量。</p>
         <article v-for="finding in record.findings" :key="finding.id ?? finding.ruleId" class="finding">
           <header>
             <strong>{{ finding.title }}</strong>
-            <span>{{ formatTime(finding.timeMs) }}</span>
+            <span v-if="finding.level === 'reference'">参考观察 · 置信 {{ (finding.confidence ?? 0).toFixed(2) }}</span>
+            <span v-else>{{ formatTime(finding.timeMs) }}</span>
           </header>
           <p>{{ finding.detail }}</p>
           <img
@@ -43,6 +44,14 @@
             <div><dt>出处</dt><dd>{{ finding.sourceLabel }}</dd></div>
           </dl>
         </article>
+      </BaseCard>
+
+      <BaseCard v-if="record.skippedRules?.length" class="panel">
+        <h2>未评估项</h2>
+        <p class="muted small">当时视角或测量可靠性不足，以下规则没有执行；基础测量仍然可用。</p>
+        <ul class="warn-list">
+          <li v-for="item in record.skippedRules" :key="item.ruleId">{{ item.ruleId }}：{{ item.reason }}</li>
+        </ul>
       </BaseCard>
 
       <KinematicsPanel
@@ -135,6 +144,7 @@ const store = useAppStore()
 
 const record = computed(() => store.analyses.find(item => item.id === route.params.id) ?? null)
 const supportsFindings = computed(() => record.value ? templateFor(record.value.action).findingsReady : true)
+const officialFindings = computed(() => (record.value?.findings ?? []).filter(finding => finding.level !== 'reference'))
 const keyframeUrls = ref<Record<string, string>>({})
 const series = ref<MotionSeriesRecord | null>(null)
 const linkDate = ref('')

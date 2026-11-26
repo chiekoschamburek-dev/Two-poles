@@ -235,8 +235,8 @@
       <BaseCard class="panel">
         <h2>关注项</h2>
         <p v-if="!supportsFindings" class="muted">该动作目前只提供测量值，未配置文献阈值，不出关注项。下面是对这次动作的客观测量。</p>
-        <p v-else-if="!result.findings.length" class="muted">本次没有命中关注项。下面是对这次动作的客观测量。</p>
-        <article v-for="(finding, index) in result.findings" :key="`${finding.ruleId}-${index}`" class="finding">
+        <p v-else-if="!officialFindings.length" class="muted">本次没有命中正式关注项。下面是对这次动作的客观测量。</p>
+        <article v-for="(finding, index) in officialFindings" :key="`${finding.ruleId}-${index}`" class="finding">
           <header>
             <strong>{{ finding.title }}</strong>
             <span>{{ formatTime(finding.timeMs) }}</span>
@@ -263,6 +263,30 @@
             </div>
           </dl>
         </article>
+      </BaseCard>
+
+      <BaseCard v-if="referenceFindings.length" class="panel">
+        <h2>参考观察 <span class="muted small">证据偏弱，不计入问题数</span></h2>
+        <article v-for="(finding, index) in referenceFindings" :key="`ref-${finding.ruleId}-${index}`" class="finding">
+          <header>
+            <strong>{{ finding.title }}</strong>
+            <span>置信 {{ (finding.confidence ?? 0).toFixed(2) }} · {{ formatTime(finding.timeMs) }}</span>
+          </header>
+          <p>{{ finding.detail }}</p>
+          <dl>
+            <div><dt>实测</dt><dd>{{ formatMeasured(finding) }}</dd></div>
+            <div><dt>阈值</dt><dd>{{ finding.thresholdLabel }}</dd></div>
+            <div><dt>出处</dt><dd>{{ finding.sourceLabel }}</dd></div>
+          </dl>
+        </article>
+      </BaseCard>
+
+      <BaseCard v-if="skippedRules.length" class="panel">
+        <h2>未评估项</h2>
+        <p class="muted small">当前视角或测量可靠性不足，以下规则本次没有执行；基础测量仍然可用。</p>
+        <ul class="warn-list">
+          <li v-for="item in skippedRules" :key="item.ruleId">{{ skippedRuleLabel(item.ruleId) }}：{{ item.reason }}</li>
+        </ul>
       </BaseCard>
 
       <KinematicsPanel
@@ -399,6 +423,19 @@ const explanation = useMotionExplanation()
 const motionTrends = computed(() => buildAllTrends(store.analyses, store.sessions))
 
 const nonKinematicsMetrics = computed(() => (result.value?.metrics ?? []).filter(metric => !isKinematicsMetric(metric)))
+/** 正式关注项 / 参考观察分开呈现：0.45–0.7 的弱证据不冒充问题数 */
+const officialFindings = computed(() => (result.value?.findings ?? []).filter(finding => finding.level !== 'reference'))
+const referenceFindings = computed(() => (result.value?.findings ?? []).filter(finding => finding.level === 'reference'))
+const skippedRules = computed(() => result.value?.skippedRules ?? [])
+const skippedRuleLabel = (ruleId: string): string => {
+  const titles: Record<string, string> = {
+    'SQ-SE-01': '下蹲深度', 'SQ-SE-02': '最低点膝角', 'SQ-SE-03': '躯干前倾', 'SQ-FR-01': '膝内扣',
+    'DL-SE-02': '锁定躯干', 'DL-SE-03': '锁定伸髋',
+    'RUN-SE-01': '跑步躯干前倾', 'RUN-SE-02': '触地膝角', 'RUN-FR-01': '触地膝内扣',
+    'SQ-CN-01': '组内幅度一致性', 'SQ-CN-02': '组内节奏一致性', 'DL-CN-01': '组内锁定一致性'
+  }
+  return titles[ruleId] ?? ruleId
+}
 const hasKinematicsCard = computed(() => actionTemplate.value.kinematics && (Boolean(result.value?.kinematics)
   || angleSamples.value.length > 0
   || (result.value?.metrics ?? []).some(isKinematicsMetric)))
@@ -668,6 +705,8 @@ async function persistResult(analysisResult: MotionAnalysisResult, view: Analysi
     gaitCycles: analysisResult.gaitCycles,
     usableRatio: Math.round(analysisResult.usableRatio * 100) / 100,
     ruleVersion: MOTION_RULES_VERSION,
+    ...(analysisResult.skippedRules?.length ? { skippedRules: analysisResult.skippedRules } : {}),
+    ...(analysisResult.analyzedRange ? { analyzedRange: analysisResult.analyzedRange } : {}),
     createdAt: new Date().toISOString(),
     _sync: 'pending'
   }

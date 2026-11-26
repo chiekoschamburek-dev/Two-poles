@@ -25,7 +25,7 @@ import { useMotionExplanation } from '@/composables/useMotionExplanation'
 import { saveMotionSeries, getMotionSeries, listMotionSeriesKeys, deleteMotionSeries, clearMotionSeries, buildSeriesRecord } from '@/services/motionSeries'
 import { MOTION_RULES_VERSION } from '@/services/motionRules'
 import type { RepMachineSnapshot } from '@/composables/repMachine'
-import { analyzeMotion, analyzeGait, analyzeHold, classifyAction, classifyTemplate, summarizeMotionFeatures, detectView, precheckMotion, extractMotionFrame, analyzeRep, measureJointAngle, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
+import { analyzeMotion, analyzeGait, analyzeHold, classifyAction, classifyTemplate, summarizeMotionFeatures, detectView, precheckMotion, extractMotionFrame, analyzeRep, measureJointAngle, ruleRequirementFailure, applyRecurrenceGate, type MotionFrame, type MotionFrameSeries, type RepAnalysis } from '@/services/motionAnalysis'
 import { POSE_DETECT_TIMEOUT_MS, POSE_FIRST_DETECT_TIMEOUT_MS, POSE_INPUT_MAX_WIDTH, PoseTimeoutError, isPoseTimeoutError, poseInputSize } from '@/services/analysisRuntime'
 import { rulesFor } from '@/services/motionRules'
 import { MOTION_TEMPLATES, findingsTemplates, motionTemplateProblems, repRuleForTemplate, requiresActionConfirmation, templateFor, visibleTemplates } from '@/services/motionTemplates'
@@ -1638,7 +1638,7 @@ ok('节奏测量值随结果输出', goodResult.metrics.some(m => m.id === 'metr
   && goodResult.metrics.some(m => m.id === 'metric-eccentric' && m.value !== '—'))
 const shallowSquat = analyzeMotion({ ...buildSquatSeries({ reps: 1, hipBelow: false }), view: 'side' })
 ok('浅蹲产生深度关注项', shallowSquat.findings.some(f => f.ruleId === 'SQ-SE-01'))
-const bentSquat = analyzeMotion({ ...buildSquatSeries({ reps: 1, bottomKnee: 60 }), view: 'side' })
+const bentSquat = analyzeMotion({ ...buildSquatSeries({ reps: 1, bottomKnee: 55 }), view: 'side' })
 ok('膝角偏离参考区间产生关注项', bentSquat.findings.some(f => f.ruleId === 'SQ-SE-02'))
 const leaningSquat = analyzeMotion({ ...buildSquatSeries({ reps: 1, lean: 60 }), view: 'side' })
 ok('躯干前倾偏大产生关注项', leaningSquat.findings.some(f => f.ruleId === 'SQ-SE-03'),
@@ -1709,11 +1709,11 @@ const symmetryMetrics = squatFrontRules.find(rule => rule.id === 'SQ-FR-02')!.ev
 ok('左右膝角差只进测量值', symmetryMetrics.some(metric => metric.id === 'metric-knee-asymmetry' && metric.value === 3))
 
 const deadliftSideRules = rulesFor('deadlift', 'side')
-const deadliftContext = { action: 'deadlift' as const, view: 'side' as const, fps: 15, reps: [baseRep({ endHipAngle: 150, endTrunkAngle: 20, bottomTrunkAngle: 55 })] }
+const deadliftContext = { action: 'deadlift' as const, view: 'side' as const, fps: 15, reps: [baseRep({ endHipAngle: 150, endTrunkAngle: 30, bottomTrunkAngle: 55 })] }
 const hipFindings = deadliftSideRules.find(rule => rule.id === 'DL-SE-03')!.evaluate(deadliftContext) as MotionAnalysisFinding[]
 ok('硬拉锁定伸髋不完整命中', hipFindings.length === 1 && hipFindings[0].measured === 150)
 const lockoutFindings = deadliftSideRules.find(rule => rule.id === 'DL-SE-02')!.evaluate(deadliftContext) as MotionAnalysisFinding[]
-ok('硬拉锁定姿态偏离竖直命中', lockoutFindings.length === 1 && lockoutFindings[0].measured === 20)
+ok('硬拉锁定姿态偏离竖直命中', lockoutFindings.length === 1 && lockoutFindings[0].measured === 30)
 const normalDeadlift = { ...deadliftContext, reps: [baseRep({ endHipAngle: 172, endTrunkAngle: 6 })] }
 ok('硬拉正常锁定不误报', (deadliftSideRules.find(rule => rule.id === 'DL-SE-03')!.evaluate(normalDeadlift) as unknown[]).length === 0
   && (deadliftSideRules.find(rule => rule.id === 'DL-SE-02')!.evaluate(normalDeadlift) as unknown[]).length === 0)
@@ -3278,6 +3278,63 @@ const stillAnalyzed = analyzeMotion({ action: 'squat', view: 'side', fps: 15, fr
 ok('静止画面不产生幻影计数', stillAnalyzed.repCount === 0
   && (stillAnalyzed.partialRepetitions?.length ?? 0) === 0)
 ok('完整深蹲仍按间隔切出两次', analyzeMotion({ ...goodSquat, view: 'side' }).repCount === 2)
+
+console.log('\n62. Motion Engine V2 · M6 规则准入、不确定带与证据分级')
+// 1) 158° 锁定落在 165°±10° 不确定带内：不生成关注项；150° 才触发
+const dlLockRule = rulesFor('deadlift', 'side').find(rule => rule.id === 'DL-SE-03')!
+const lockContext = (endHipAngle: number) => ({
+  action: 'deadlift' as const, view: 'side' as const, fps: 15,
+  reps: [baseRep({ endHipAngle })], viewConfidence: 0.9, poseReliability: 0.95
+})
+ok('158° 锁定在不确定带内不报警', (dlLockRule.evaluate(lockContext(158)) as MotionAnalysisFinding[]).length === 0)
+const lockFinding = dlLockRule.evaluate(lockContext(150)) as MotionAnalysisFinding[]
+ok('150° 锁定超出容差才生成关注项', lockFinding.length === 1
+  && lockFinding[0].measured === 150 && lockFinding[0].tolerance === 10,
+  JSON.stringify(lockFinding[0]))
+ok('关注项带置信度（分级在结果组装层统一给出）', typeof lockFinding[0]?.confidence === 'number'
+  && lockFinding[0]!.confidence! > 0.4)
+
+// 2) 逐次复发门槛：4 次里只偏 1 次 → 降为测量值；偏 2 次 → 聚合为一条关注项
+const fakeReps = [1, 2, 3, 4].map(index => baseRep({ index }))
+const singleDeviation = [{
+  ruleId: 'SQ-SE-02', title: '最低点膝角偏离参考区间', detail: '第 2 次最低点膝角 50°',
+  timeMs: 2000, measured: 50, thresholdLabel: '60°–130°', sourceLabel: 'NSCA',
+  confidence: 0.8, repIndex: 2, level: 'official' as const
+}]
+const singleMetrics: MotionAnalysisMetric[] = []
+const singleAdmitted = applyRecurrenceGate([...singleDeviation] as MotionAnalysisFinding[], fakeReps, singleMetrics)
+ok('单次偏离降为测量值不当作结论', singleAdmitted.length === 0
+  && singleMetrics.some(metric => metric.id === 'metric-single-sq-se-02'),
+  JSON.stringify({ admitted: singleAdmitted.length, metrics: singleMetrics.map(metric => metric.id) }))
+const repeatedFindings = [2, 4].map(index => ({
+  ruleId: 'SQ-SE-02', title: '最低点膝角偏离参考区间', detail: `第 ${index} 次最低点膝角 50°`,
+  timeMs: index * 1000, measured: 50, thresholdLabel: '60°–130°', sourceLabel: 'NSCA',
+  confidence: 0.8, repIndex: index, level: 'official' as const
+}))
+const repeatedAdmitted = applyRecurrenceGate([...repeatedFindings] as MotionAnalysisFinding[], fakeReps, [])
+ok('≥2 次复发聚合成一条关注项', repeatedAdmitted.length === 1
+  && repeatedAdmitted[0].detail.includes('第 2 次') && repeatedAdmitted[0].detail.includes('第 4 次'),
+  JSON.stringify(repeatedAdmitted))
+
+// 3) 规则准入：视角不符/可靠性不足直接跳过并给原因
+const sideOnlyRule = { requires: { views: ['side'], minViewReliability: 0.7 } }
+ok('视角不符的规则被跳过', (ruleRequirementFailure(sideOnlyRule as never, 'front', 0.9, 0.9) ?? '').includes('不支持'))
+ok('视角可靠性不足的规则被跳过', (ruleRequirementFailure(sideOnlyRule as never, 'side', 0.5, 0.9) ?? '').includes('可靠性'))
+ok('条件满足时规则放行', ruleRequirementFailure(sideOnlyRule as never, 'side', 0.9, 0.9) === null)
+// 长时间低姿态（没有直立参考帧）时视角不可判，角度类规则全部跳过
+const hingeHoldFrames = Array.from({ length: 90 }, (_, index) => legFrame((index + 1) * (1000 / 15), 100, 55, true))
+const skippedResult = analyzeMotion({ action: 'squat', view: 'side', fps: 15, frames: hingeHoldFrames })
+ok('低可靠视角下角度规则进 skippedRules', (skippedResult.skippedRules?.length ?? 0) > 0
+  && skippedResult.skippedRules!.every(item => item.reason.includes('可靠性') || item.reason.includes('不支持')),
+  JSON.stringify(skippedResult.skippedRules))
+ok('跳过的规则不产出关注项', skippedResult.findings.length === 0)
+
+// 4) 全部关注项都有置信度，且没有低于 0.45 的
+const gradedResults = [shallowSquat, bentSquat, leaningSquat, overextendedResult, leaningResult]
+ok('所有关注项都带 confidence 且 ≥0.45', gradedResults.every(result => result.findings.every(finding =>
+  typeof finding.confidence === 'number' && finding.confidence >= 0.45)))
+ok('证据偏弱的关注项标为参考观察', (leaningSquat.findings[0]?.level) === 'reference',
+  JSON.stringify(leaningSquat.findings.map(finding => [finding.ruleId, finding.confidence, finding.level])))
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`)
 if (failed) process.exitCode = 1
