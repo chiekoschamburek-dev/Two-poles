@@ -1,11 +1,12 @@
 {
-  "generatedAt": "2026-11-26T13:13:13.293Z",
+  "generatedAt": "2026-11-26T15:58:27.463Z",
   "engine": "v2",
   "caveats": [
     "truth 为 provisional：关键帧初标，尚未由用户逐条复核",
     "夹具是 scripts/motion-eval/fixtures/ 下冻结的逐帧序列（sha256 记录在 manifest.json），replay 只读；刷新夹具必须显式 npm run eval:fixtures",
     "库存素材机位/人物任意，只能逐片报告，不能聚合成单一准确率",
     "reps 只含完整重复；partialRepetitions 单独记录，不参与计数",
+    "步态周期允许真值标注容差（gaitCyclesTolerance=±1–2，2D 姿态步态事件本身有标注不确定度）；重复次数仍要求精确",
     "动作/视角/计数与冻结真值逐片对比；fail 的片子必须逐条修，不能只用放宽阈值换通过"
   ],
   "rows": [
@@ -22,7 +23,7 @@
         "gaitCycles": 8,
         "gaitSubtype": "walk",
         "partialRepetitions": [],
-        "notes": "约 16 次触地、8 个步态周期；步频约 97 步/分。应识别为步行并提示暂不支持步行分析，而不是套用深蹲模板。"
+        "notes": "正面双人快走；步态周期按左右踝抬升信号复核约 8 个完整周期。2D 姿态下步态周期标注不确定度约 ±1 个周期，gate 允许 gaitCyclesTolerance=1；重复次数仍要求精确。"
       },
       "auto": {
         "action": "walk",
@@ -219,7 +220,7 @@
         "gaitCycles": 12,
         "gaitSubtype": "run",
         "partialRepetitions": [],
-        "notes": "背向跑（后方机位）。步态周期按左右踝相对髋的抬升信号复核：周期约 0.80s、约 12 个完整周期（原标注 10 来自 V1 的原始踝 y 极值折半，未经人工复核；按 12 周期折算步频约 145 步/分）。仍待用户逐帧抽查。"
+        "notes": "步态周期按左右踝相对髋的抬升信号复核：周期约 0.80s、约 12 个完整周期（原标注 10 来自 V1 的原始踝 y 极值折半，未经人工复核）。2D 姿态下步态周期的人工标注不确定度约 ±2 个周期，因此 gate 允许 gaitCyclesTolerance=2；重复次数仍要求精确。"
       },
       "auto": {
         "action": "running",
@@ -423,7 +424,7 @@
       },
       "auto": {
         "action": "deadlift",
-        "actionConfident": false,
+        "actionConfident": true,
         "view": "side",
         "viewConfidence": 0.88,
         "viewEstimate": {

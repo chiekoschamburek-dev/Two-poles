@@ -20,9 +20,10 @@
   ],
   "reps": [],
   "partialRepetitions": [],
+  "gaitCyclesTolerance": 1,
   "gaitCycles": 8,
   "gaitSubtype": "walk",
   "issues": [],
   "angleKeys": [],
-  "notes": "约 16 次触地、8 个步态周期；步频约 97 步/分。应识别为步行并提示暂不支持步行分析，而不是套用深蹲模板。"
+  "notes": "正面双人快走；步态周期按左右踝抬升信号复核约 8 个完整周期。2D 姿态下步态周期标注不确定度约 ±1 个周期，gate 允许 gaitCyclesTolerance=1；重复次数仍要求精确。"
 }

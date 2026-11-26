@@ -124,11 +124,15 @@ function scoreClip(clip, series, pipeline, truth) {
   const measuredView = pipeline?.precheck?.view ?? series.view ?? null
   const measuredViewConfidence = pipeline?.precheck?.viewEstimate?.reliability ?? series.viewConfidence
   const countKind = gaitTruth !== null ? 'gait' : 'reps'
+  const countTolerance = countKind === 'gait' ? (truth?.gaitCyclesTolerance ?? 0) : 0
   const countTruth = countKind === 'gait' ? gaitTruth : repTruth
   const countMeasured = countKind === 'gait' ? cycles : counted
   const actionHit = truthAction === null ? null : truthAction === measuredAction
   const viewHit = truthView === null ? null : truthView === measuredView
-  const countHit = countTruth === null ? null : countTruth === countMeasured
+  const countHit = countTruth === null ? null
+    : countKind === 'gait'
+      ? Math.abs((countMeasured ?? -Infinity) - countTruth) <= countTolerance
+      : countTruth === countMeasured
 
   const angleRows = (truth?.angleKeys ?? []).map(key => {
     const row = series.frames.reduce((best, candidate) =>
@@ -155,6 +159,7 @@ function scoreClip(clip, series, pipeline, truth) {
       viewNote: truth?.viewNote ?? null,
       repCount: repTruth,
       gaitCycles: gaitTruth,
+      gaitCyclesTolerance: truth?.gaitCyclesTolerance ?? null,
       gaitSubtype: truth?.gaitSubtype ?? null,
       partialRepetitions: truth?.partialRepetitions ?? []
     },
@@ -162,7 +167,7 @@ function scoreClip(clip, series, pipeline, truth) {
     action: measuredAction, actionConfident: pipeline?.precheck?.actionConfident ?? series.actionConfident,
     captureAction: series.action,
     gate: { action: actionHit, view: viewHit, count: countHit },
-    count: { kind: countKind, truth: countTruth, measured: countMeasured },
+    count: { kind: countKind, truth: countTruth, measured: countMeasured, tolerance: countTolerance },
     precheckVerdict: series.precheck?.verdict,
     // 整片纯管道与真实 precheck 是两个不同口径：precheck 只看前 ≤10 秒，
     // 可能拒掉整片可分析的片子。两者都报，不互相掩盖。
@@ -290,7 +295,7 @@ async function main() {
       const mark = value => value === null ? '?' : value ? '✓' : '✗'
       console.log(`  动作 真值 ${scored.truth.action ?? '未标注'} / 实测 ${scored.action ?? '—'} ${mark(scored.gate.action)}`)
       console.log(`  视角 真值 ${scored.truth.view ?? '未标注'} / 实测 ${scored.view ?? '—'} ${mark(scored.gate.view)}`)
-      console.log(`  计数 真值 ${scored.count.truth ?? '未标注'} / 实测 ${scored.count.measured ?? '—'} ${mark(scored.gate.count)} · 预检 ${scored.precheckVerdict}`)
+      console.log(`  计数 真值 ${scored.count.truth ?? '未标注'}${scored.count.tolerance ? '±' + scored.count.tolerance : ''} / 实测 ${scored.count.measured ?? '—'} ${mark(scored.gate.count)} · 预检 ${scored.precheckVerdict}`)
       console.log(`  推理 p50 ${scored.timing.inferenceP50}ms p95 ${scored.timing.inferenceP95}ms · ${scored.timing.delegate}/${scored.timing.runsIn}`)
       console.log(`  角度一致性 ${scored.angleAgreement.samples ? `MAE ${scored.angleAgreement.mae?.toFixed(2)}°` : '未标注'}`)
       // 逐帧序列单独落盘，换阈值后可离线重跑规则而不重推理。

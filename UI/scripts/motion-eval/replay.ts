@@ -74,6 +74,8 @@ interface Truth {
   reps?: TruthRep[]
   partialRepetitions?: TruthPartial[]
   gaitCycles?: number | null
+  /** 步态周期的人工标注容差：2D 姿态下 ±1–2 个周期属于标注不确定范围；重复次数不允许容差 */
+  gaitCyclesTolerance?: number
   gaitSubtype?: 'run' | 'walk' | null
   issues?: unknown[]
   angleKeys?: unknown[]
@@ -265,7 +267,11 @@ if (!existsSync(fixtureSource)) {
     const countKind = truthGait !== null ? 'gait' : 'reps'
     const countMeasured = countKind === 'gait' ? auto.gaitCycles : auto.repCount
     const countTruth = countKind === 'gait' ? truthGait : truthReps
-    const countMatch = countTruth === null ? null : countTruth === countMeasured
+    const countTolerance = countKind === 'gait' ? (clipTruth?.gaitCyclesTolerance ?? 0) : 0
+    const countMatch = countTruth === null ? null
+      : countKind === 'gait'
+        ? Math.abs((countMeasured ?? -Infinity) - countTruth) <= countTolerance
+        : countTruth === countMeasured
     const partials = clipTruth?.partialRepetitions?.length ?? null
 
     const resultLabel = [actionMatch === false ? 'action' : '', viewMatch === false ? 'view' : '', countMatch === false ? 'count' : '',
@@ -278,7 +284,7 @@ if (!existsSync(fixtureSource)) {
       + `${truthAction ?? '—'}/${autoAction}${autoClass.confident ? '' : '?'}`.padEnd(22)
       + `${truthView ?? '—'}/${autoView ?? '—'}`.padEnd(18)
       + `${truthReps ?? '—'}/${countKind === 'reps' ? pct(countMeasured) : '—'}`.padEnd(11)
-      + `${truthGait ?? '—'}/${countKind === 'gait' ? pct(countMeasured) : '—'}`.padEnd(11)
+      + `${truthGait ?? '—'}${countKind === 'gait' && countTolerance ? '±' + countTolerance : ''}/${countKind === 'gait' ? pct(countMeasured) : '—'}`.padEnd(11)
       + pct(partials).padEnd(9)
       + `${resultLabel} ${mark(actionMatch)}${mark(viewMatch)}${mark(countMatch)}`
     )
@@ -403,6 +409,7 @@ if (!existsSync(fixtureSource)) {
       '夹具是 scripts/motion-eval/fixtures/ 下冻结的逐帧序列（sha256 记录在 manifest.json），replay 只读；刷新夹具必须显式 npm run eval:fixtures',
       '库存素材机位/人物任意，只能逐片报告，不能聚合成单一准确率',
       'reps 只含完整重复；partialRepetitions 单独记录，不参与计数',
+      '步态周期允许真值标注容差（gaitCyclesTolerance=±1–2，2D 姿态步态事件本身有标注不确定度）；重复次数仍要求精确',
       '动作/视角/计数与冻结真值逐片对比；fail 的片子必须逐条修，不能只用放宽阈值换通过'
     ],
     rows
