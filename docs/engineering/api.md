@@ -18,7 +18,7 @@ VITE_API_BASE_URL=same-origin npm run dev
 
 `same-origin` 让浏览器请求同源 `/api/v1`，Vite 已把它代理到 `127.0.0.1:8787`。也可以直接填 `http://127.0.0.1:8787`，此时服务端按 `CORS_ORIGINS` 放行并带 `credentials`。
 
-PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run dev`。服务端启动脚本读取 `UI/.env`，已有进程环境变量优先。`VITE_*` 是构建期变量，修改后需重启开发服务或重新构建。
+PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run dev`。服务端启动脚本读取 `apps/web/.env`，已有进程环境变量优先。`VITE_*` 是构建期变量，修改后需重启开发服务或重新构建。
 
 无需启动后端的 MSW 联调：只设 `VITE_API_MOCK=true` 再运行 `npm run dev`。这是单账号内存假服务，刷新会重置，不校验真实密码；仅用于开发。worker 脚本由 Vite 开发中间件提供，生产产物不包含 MSW 代码或 worker。
 
@@ -27,7 +27,7 @@ PowerShell 使用 `$env:VITE_API_BASE_URL='same-origin'` 后再运行 `npm run d
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `PORT` / `HOST` | `8787` / `127.0.0.1` | 监听地址 |
-| `TWOPOLES_DB` | `./server/data/twopoles.sqlite` | SQLite 文件；测试用 `:memory:` |
+| `TWOPOLES_DB` | `./apps/api/data/twopoles.sqlite` | SQLite 文件；测试用 `:memory:` |
 | `AUTH_SECRET` | 开发默认值 | access token HMAC；生产必须替换 |
 | `IDENTIFIER_SECRET` | 跟随 `AUTH_SECRET` | 账号标识哈希的盐。建议单独设置并长期不变：之后轮换 `AUTH_SECRET` 只让 token 失效，不会让全员无法登录 |
 | `COOKIE_SECURE` | `false` | HTTPS 部署时设为 `true` |
@@ -87,6 +87,6 @@ npm run build
 
 ## 部署边界与剩余工作
 
-这是需要持久磁盘的 Node 服务，不能直接作为当前 ESA 边缘函数入口发布。ESA 仍负责静态站点和 `/api/llm/*`；`/api/v1/*` 需要转发到另行运行的 Node 24 服务，详情见 [DEPLOY-ESA.md](../DEPLOY-ESA.md)。生产设置独立随机 AUTH_SECRET、COOKIE_SECURE=true 和精确 CORS_ORIGINS。推荐同源反向代理；仅配置 CORS 并不能让 SameSite=Lax refresh cookie 在任意跨站域名之间工作。
+这是需要持久磁盘的 Node 服务，不能直接作为当前 ESA 边缘函数入口发布。ESA 仍负责静态站点和 `/api/llm/*`；`/api/v1/*` 需要转发到另行运行的 Node 24 服务，详情见 [deploy.md](../deploy.md)。生产设置独立随机 AUTH_SECRET、COOKIE_SECURE=true 和精确 CORS_ORIGINS。推荐同源反向代理；仅配置 CORS 并不能让 SameSite=Lax refresh cookie 在任意跨站域名之间工作。
 
 尚未实现：B5 的 `/meals/recognize` 独立 VLM 接口及其同意/留存/配额前置条件，B6 的 `/assistant/*` 与 `/plans/generate`；现有 `/api/llm/*` 不能算这些接口已完成。服务端目前保存并校验本机生成的计划，没有迁入完整排课规则/目录发布。设备账号可升级为一个新正式账号，但尚无向既有账号合并的事务。列表分页目前是 `limit/offset`（没有 keyset cursor）；`/sync` 只对计划做了增量，`planHistory` 仍需客户端按 weeks 聚合；备份轮换由部署侧的每日 `VACUUM INTO` 脚本负责，服务本身不做。大数据量性能指标和线上部署尚未验收。

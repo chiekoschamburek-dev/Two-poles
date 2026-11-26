@@ -1,0 +1,48 @@
+{
+  "name": "twopoles-ui",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "camera:assets": "node scripts/fetch-camera-assets.mjs",
+    "icons:generate": "node scripts/generate-icons.mjs",
+    "build": "node scripts/write-apk-version.mjs && vue-tsc && vite build",
+    "cap:prepare": "node scripts/prepare-capacitor-dist.mjs",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "selfcheck": "esbuild scripts/selfcheck.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.selfcheck.mjs && node .selfcheck.mjs",
+    "test:sync": "node scripts/test-sync.mjs",
+    "eval:synthetic": "esbuild scripts/motion-eval/synthetic.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.eval-synthetic.mjs && node .eval-synthetic.mjs",
+    "eval:motion": "node scripts/motion-eval/run-eval.mjs",
+    "eval:replay": "esbuild scripts/motion-eval/replay.ts --bundle --platform=node --format=esm --tsconfig=tsconfig.json --external:vue --external:pinia --outfile=.eval-replay.mjs && node .eval-replay.mjs",
+    "eval:fixtures": "node scripts/motion-eval/freeze-fixtures.mjs",
+    "eval:ui": "node scripts/motion-eval/verify-ui.mjs",
+    "verify:web": "node scripts/motion-eval/verify-web.mjs",
+    "verify:execution": "node scripts/motion-eval/verify-execution.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@mediapipe/tasks-vision": "^1.1.1",
+    "lucide-vue-next": "^0.309.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "@types/node": "^24.19.2",
+    "@vitejs/plugin-vue": "^5.0.0",
+    "esbuild": "^0.21.5",
+    "msw": "^2.15.0",
+    "sharp": "^0.34.5",
+    "typescript": "~5.9.3",
+    "vite": "^5.0.0",
+    "vue-tsc": "^2.2.12"
+  }
+}

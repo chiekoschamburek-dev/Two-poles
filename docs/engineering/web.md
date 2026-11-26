@@ -9,7 +9,7 @@
 | 范围 | 状态 |
 |------|------|
 | 页面视图 | **双极工作台 + 6 个下钻页都有实际界面**（`/` 今日两仪 / Onboarding / Plan / Execution / Meals / Report / Settings；旧 `/dashboard` 重定向到 `/`）。首屏左运动、右饮食，底部同期对照；手机端叠卡切换。计数已与识别联动、计划版本与调整确认在本机先行落地；账号与同步可选，未配置后端时保持纯本机，模型请求经同源代理转发 |
-| 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好按类别存在 `twopoles.v1.*`；登录后可同步到 `UI/server` 的 SQLite。开启照片保存时，餐食记录带一张 256px JPEG 缩略图，原图另存本机 IndexedDB。可从设置页导出 JSON/CSV（JSON 含缩略图、不含原图，CSV 不含图片）或一键清除 |
+| 数据 | 档案、模式与切换历史、训练记录（含 RPE 反馈）、餐食记录、**计划版本与历史**、**本机"1 单位=几克"换算口径**、隐私偏好按类别存在 `twopoles.v1.*`；登录后可同步到 `apps/api` 的 SQLite。开启照片保存时，餐食记录带一张 256px JPEG 缩略图，原图另存本机 IndexedDB。可从设置页导出 JSON/CSV（JSON 含缩略图、不含原图，CSV 不含图片）或一键清除 |
 | 训练反馈 | ✅ 跟练结束可填 RPE（**0–10**，或留空=未记录）、不适、部分完成原因与备注，写回该条 session 并持久化 |
 | 建档 | ✅ 三步表单写入 `store.updateProfile()`，含场地多选；12–17 岁与勾选孕期/伤病限制者只保留记录与手工录入，不生成自动推荐 |
 | `npm run dev` / `npm run build` / `npm run typecheck` / `npm run selfcheck` | ✅ 全部通过（selfcheck 为 **790 项**纯逻辑断言，覆盖条件过滤、负荷缺失口径、类别推断、餐次时间窗、识别结果校验、计划先问再生成与次数解析、计数状态机、计划版本与切换确认、常吃归并、目录搜索、单位↔克数换算与落盘，**第 12 节双极同期对照**，**第 22 节同步 outbox 合并**，**第 51 节运动学 SG 求导/固定侧别/指标**，**第 52 节补剂通知文案**，**第 53 节已处理调整建议的跨设备 key**，以及**第 55 节动作库视频清单**）。构建要起 esbuild 子进程，受限沙箱下会 `spawn EPERM`，只在本机正常环境跑 | |
@@ -20,7 +20,7 @@
 | 动作库页 | ✅ 页面在 `/library`，**入口挂在跟练开始页下方的空白处**（不占导航位）：显示 28 个动作的覆盖率、今天待练动作各自第一条教学视频，以及「打开动作库」。清单在 `services/exerciseVideos.ts`，key 必须是动作 id，BV 号/YouTube id 格式、重复挂载、停用动作挂视频都由 `videoCatalogProblems()` 与 selfcheck 兜住；没挑过视频的动作给平台搜索出口并标「未筛选」。**不站内播放**（引用策略与商店审核），**不给姿势结论**，清单里没填 `reviewedAt` 的条目界面标「未核对」 |
 | 摄像头资产 | 需先执行 `cd UI && npm run camera:assets`（拉取 5.5 MB 模型 + 27 MB wasm，已被 .gitignore 排除）；且页面必须走 **https 或 localhost**（`vite --host` 的局域网 http 地址无法调用摄像头） |
 | 模式切换 | ✅ **页头右侧的模式芯片**（UI 3.0 从侧栏迁来）与设置页切换都**先展示差异与未完成计划、确认后才生效**，取消则不改动任何数据；切换历史与当时未完成计划数落本机，旧模式计划仍可见（需明确复制才形成新模式计划） |
-| 后端 | `UI/server` 提供可选账号与同步（Node 24 + 内置 SQLite，`/api/v1`，见 [server/README.md](server/README.md)）；未配置 `VITE_API_BASE_URL` 时仍是纯本机。模型继续走同源 `/api/llm/*`：本地 Vite 中间件，线上阿里云 ESA 单入口 `UI/server/llm.js`；默认模型密钥只在函数变量里，浏览器只拿到 `{available, model}`，自定义密钥只存本机。部署见 [DEPLOY-ESA.md](DEPLOY-ESA.md) |
+| 后端 | `apps/api` 提供可选账号与同步（Node 24 + 内置 SQLite，`/api/v1`，见 [api.md](api.md)）；未配置 `VITE_API_BASE_URL` 时仍是纯本机。模型继续走同源 `/api/llm/*`：本地 Vite 中间件，线上阿里云 ESA 单入口 `apps/api/llm.js`；默认模型密钥只在函数变量里，浏览器只拿到 `{available, model}`，自定义密钥只存本机。部署见 [deploy.md](deploy.md) |
 
 下方"核心功能"章节描述的是**设计目标**，剩余未实现项已逐项标注。**后续怎么做（拍照识别热量的取舍、后端与前端如何对接、里程碑顺序）见仓库根 [`../plan.md`](../plan.md)。**
 
@@ -66,7 +66,7 @@ npm run typecheck
 
 ### 部署到阿里云 ESA（函数和 Pages）
 
-模型默认密钥、`/api/llm/*` 的单入口边缘函数 `UI/server/llm.js` 与函数变量配置，见 [DEPLOY-ESA.md](DEPLOY-ESA.md)。
+模型默认密钥、`/api/llm/*` 的单入口边缘函数 `apps/api/llm.js` 与函数变量配置，见 [deploy.md](deploy.md)。
 
 ### PWA（安装到手机主屏）
 
@@ -98,7 +98,7 @@ npm run typecheck
 ## 📁 项目结构
 
 ```
-UI/
+apps/web/
 ├── public/
 │   ├── favicon.svg          # 品牌标记（圆角 Navy 底板版）
 │   ├── manifest.json        # PWA 清单（icons 由 favicon.svg 栅格化）
@@ -335,7 +335,7 @@ npm run camera:assets
 
 **已处理的计划调整建议也会同步**：`adjustmentResolutions` 从「仅本机」改为跨设备共享，服务端表 `adjustment_resolutions(user_id, resolution_key, status, updated_at)` 按 `updated_at` 做 last-write-wins。为了保证两台设备算出同一个 key，建议 key 里的场次一律用 `session.clientId`（本机新建时等于 id，同步到别的设备后只有 clientId 保持原值），计划项用 `item.id`（服务端以 `client_item_id` 原样回传）。旧版本只存裸字符串 `'accepted' | 'dismissed'`，读取时统一升级成 `{ status, updatedAt }`；这类没有时间戳的历史记录在服务端只在「这条还不存在」时写入，不会覆盖别的设备上更新的选择。
 
-服务端实现与端到端测试见 [`server/README.md`](server/README.md)。最关键的一条约束仍然是：**`VITE_API_BASE_URL` 未配置时必须保持纯本机行为**，后端上线不能把离线可用性弄没。
+服务端实现与端到端测试见 [`api.md`](api.md)。最关键的一条约束仍然是：**`VITE_API_BASE_URL` 未配置时必须保持纯本机行为**，后端上线不能把离线可用性弄没。
 
 ## 📝 开发说明
 
@@ -412,7 +412,7 @@ npm run camera:assets
 2. **计划调整本机先行**；登录后接受调整会携带 `If-Match` 并在服务端同一事务内校验版本。设置页可比较冲突并主动采用服务端版本；本机分支留在历史中。没有通用回滚入口。
 3. **推荐口径未按档案真正计算**：`planRules` 会按器材/场地/时长/禁忌过滤动作库，但"为什么给你这份计划"的那段文字仍是规则拼出来的，不是模型推的。
 
-2026-11-03：账号同步的 B0–B4 主链路及收尾验证已落地。运行方式、MSW 开关、18 项 API / 5 项同步测试和剩余边界见 [server/README.md](server/README.md)。`node:sqlite` 后端需 Node 24 与持久磁盘，当前 ESA 入口不会自动运行它；本轮未发布线上服务。B5 独立云端识别接口与 B6 模型接口仍未实现。
+2026-11-03：账号同步的 B0–B4 主链路及收尾验证已落地。运行方式、MSW 开关、18 项 API / 5 项同步测试和剩余边界见 [api.md](api.md)。`node:sqlite` 后端需 Node 24 与持久磁盘，当前 ESA 入口不会自动运行它；本轮未发布线上服务。B5 独立云端识别接口与 B6 模型接口仍未实现。
 
 ### 跟练计数
 

@@ -1,0 +1,17 @@
+{
+  "name": "twopoles",
+  "private": true,
+  "description": "两仪 TwoPoles · 运动与饮食双极协同（apps/web 前端 + apps/api 服务端）",
+  "scripts": {
+    "dev": "npm --prefix apps/web run dev",
+    "build": "npm --prefix apps/web run build",
+    "preview": "npm --prefix apps/web run preview",
+    "typecheck": "npm --prefix apps/web run typecheck",
+    "selfcheck": "npm --prefix apps/web run selfcheck",
+    "test:api": "node --test apps/api/api.test.mjs",
+    "eval:replay": "npm --prefix apps/web run eval:replay",
+    "eval:synthetic": "npm --prefix apps/web run eval:synthetic",
+    "eval:motion": "npm --prefix apps/web run eval:motion",
+    "check": "npm run typecheck && npm run selfcheck && npm run test:api && npm run eval:replay -- --gate && npm run build"
+  }
+}

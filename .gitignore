@@ -1,34 +1,53 @@
-# Dependencies
+# 依赖与构建产物
 node_modules/
-
-# Build output
 dist/
 dist-ssr/
+dist-lite/
 *.tsbuildinfo
+.selfcheck.mjs
+.eval-*.mjs
+.eval-*.log
+.sync-test.mjs
+apps/web/.eval-chrome/
+apps/web/.eval-ui-chrome/
+apps/web/.journal_tmp/
 
-# Environment & secrets
+# 环境与密钥（模板 *.example 入库）
 .env
 .env.local
 .env.*.local
 *.local.json
 
+# 本机私有资料与可再生产物（保留在本机，不进仓库）
+.scratch/
+artifacts/
+acl-recovery/
+launch/
+launch-site.zip
+test-videos/
+data_demo/
+redesign-shots/
+food-trainning/
+diag-admin.log
+cpu-check.ps1
+diag-admin.ps1
+diagnose-pc.ps1
+dsh-probe.js
+
+# 动作评测：逐帧序列是可再生产物；manifest（sha256）与人工真值入库
+apps/web/scripts/motion-eval/baseline/*.series.json
+apps/web/scripts/motion-eval/baseline/20*.json
+apps/web/scripts/motion-eval/fixtures/*.series.json
+
+# 交付用大二进制文档：保留在磁盘，不进仓库（需要时从交付物/网盘获取）
+docs/product/*.docx
+docs/product/*.pdf
+
 # Python
 __pycache__/
 *.py[cod]
 
-# Document build intermediates
-artifacts/**/archive/
-artifacts/**/qa/*-render/
-artifacts/**/qa/review-*.png
-artifacts/**/qa/v2-review-*.png
-artifacts/**/qa/v3-review-*.png
-artifacts/**/qa/template-contact.png
-artifacts/**/qa/working.docx
-
-# 本机私有资料：封面姓名与学号只用于生成交付 docx，不进仓库
-artifacts/**/members.json
-
-# Editors
+# 编辑器与系统
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -37,57 +56,15 @@ artifacts/**/members.json
 *.njsproj
 *.sln
 *.sw?
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Logs
+# 日志与覆盖率
 logs/
 *.log
+coverage/
+.nyc_output/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
-# Test output
-coverage/
-.nyc_output/
-
-meida/
-artifacts/
-brand/
-redesign-shots/
-
-brand/
-media/
-
-# Local workflow scratch (spec/ticket drafts, not committed)
-.scratch/
-data_demo/
-docs/
-.workbuddy/
-
-# 动作验证夹具：浏览器 profile 与逐帧序列是可再生中间产物（每片约 0.5–0.7MB）。
-# 基线报告与人工真值标注要进仓库，序列不进。
-UI/.eval-chrome/
-UI/.eval-ui-chrome/
-UI/.eval-*.mjs
-UI/.selfcheck.mjs
-UI/.sync-test.mjs
-UI/scripts/motion-eval/baseline/*.series.json
-UI/scripts/motion-eval/baseline/20*.json
-UI/.eval-*.log
-
-# 本机临时发布页、测试视频与诊断脚本：保留本机，不入仓库
-launch/
-launch-site.zip
-test-videos/
-cpu-check.ps1
-diag-admin.ps1
-diagnose-pc.ps1
-dsh-probe.js
-
-food-trainning/
-# V2 评测夹具：逐帧序列是本地大文件不进仓库；fixtures/manifest.json（sha256）进仓库
-UI/scripts/motion-eval/fixtures/*.series.json

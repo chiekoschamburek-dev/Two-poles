@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "clip": "easy-run",
+  "annotationStatus": "provisional",
+  "annotator": "agent (keyframe review 2026-11-26)",
+  "reviewedBy": null,
+  "source": "apps/web/public/demo-videos/easy-run.mp4",
+  "fps": 30,
+  "aspect": 0.5625,
+  "durationSec": 9.97,
+  "action": "running",
+  "movementFamily": "locomotion",
+  "view": "front",
+  "viewNote": "背向跑（冠状面）；可评估左右交替/步频，矢状面躯干前倾与触地膝角不可评估",
+  "activeIntervals": [
+    {
+      "startMs": 0,
+      "endMs": 9970
+    }
+  ],
+  "reps": [],
+  "partialRepetitions": [],
+  "gaitCyclesTolerance": 2,
+  "gaitCycles": 12,
+  "gaitSubtype": "run",
+  "issues": [],
+  "angleKeys": [],
+  "notes": "步态周期按左右踝相对髋的抬升信号复核：周期约 0.80s、约 12 个完整周期（原标注 10 来自 V1 的原始踝 y 极值折半，未经人工复核）。2D 姿态下步态周期的人工标注不确定度约 ±2 个周期，因此 gate 允许 gaitCyclesTolerance=2；重复次数仍要求精确。"
+}

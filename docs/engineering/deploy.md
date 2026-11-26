@@ -6,7 +6,7 @@
 
 ## 账号与同步 API（2026-11-03）
 
-`server/index.mjs` 是新增的 Node 24 + SQLite 服务，提供 `/api/v1/*`。当前 ESA 的入口仍为 `server/llm.js`，发布现有 `esa.jsonc` 不会自动部署账号后端。要启用账号同步，需要：
+`apps/api/index.mjs` 是新增的 Node 24 + SQLite 服务，提供 `/api/v1/*`。当前 ESA 的入口仍为 `apps/api/llm.js`，发布现有 `esa.jsonc` 不会自动部署账号后端。要启用账号同步，需要：
 
 1. 在有持久磁盘的 Node 24 主机上运行 `npm run server`（工作目录 UI），将 `TWOPOLES_DB` 指向持久目录，并设置独立随机的 `AUTH_SECRET`、`COOKIE_SECURE=true` 和精确的 `CORS_ORIGINS`；主机是 UTC 时再设 `TWOPOLES_TIMEZONE=Asia/Shanghai`，否则“本周”“今天”和 CSV 时间列会按 UTC 算。
 2. 配置站点同源 `/api/v1/*` 回源到该服务，保留 Authorization / If-Match / Idempotency-Key、Set-Cookie 和 Cookie；HTTPS 由入口代理终止。SQLite 文件需独立备份；当前没有自动保留期或备份轮换作业。
@@ -25,30 +25,30 @@ location /api/v1/ {
 
 使用独立 API 域名时需与站点同站，并在 CORS_ORIGINS 中精确放行前端 origin。refresh cookie 使用 SameSite=Lax；任意跨站部署仅靠 CORS 不足以续期。Node 服务不能直接放进 ESA 的边缘函数运行时。
 
-限流按客户端 IP 分桶，而这条链路（边缘函数 → 源站）里源站只能看到边缘的出口 IP；nginx 再用 `$remote_addr` 覆盖 `X-Forwarded-For` 的话，所有用户会共用一个登录限流桶。正确做法是让边缘在转发 `/api/v1/*` 时写入真实客户端 IP（例如 `x-client-ip`），源站设置 `TRUSTED_CLIENT_IP_HEADER=x-client-ip` 并透传；未配置该变量时服务端退回直连地址，不会退回去信任客户端自带的 XFF。服务端另有按账号的登录限流（10 次/分钟）作为兜底。接口与已知边界见 [server/README.md](server/README.md)。
+限流按客户端 IP 分桶，而这条链路（边缘函数 → 源站）里源站只能看到边缘的出口 IP；nginx 再用 `$remote_addr` 覆盖 `X-Forwarded-For` 的话，所有用户会共用一个登录限流桶。正确做法是让边缘在转发 `/api/v1/*` 时写入真实客户端 IP（例如 `x-client-ip`），源站设置 `TRUSTED_CLIENT_IP_HEADER=x-client-ip` 并透传；未配置该变量时服务端退回直连地址，不会退回去信任客户端自带的 XFF。服务端另有按账号的登录限流（10 次/分钟）作为兜底。接口与已知边界见 [api.md](api.md)。
 
 ### 实际落地（2026-11-14）：`/api/v1/*` 由边缘函数转发，不走回源规则
 
 实测结论：本站以「函数和 Pages」接入，**函数路由覆盖整个主机名，ESA 的「DNS 记录（源站改写）」等回源规则对函数路由的流量不生效**——`/api/v1/*` 会先被 `llm.js` 的 `/api/*` 兜底拦成 404。因此转发做在函数里：
 
-- `server/llm.js` 在 `/api/*` 兜底之前，把 `GET/POST/PATCH/DELETE /api/v1/*` 原样（方法、头、体、Cookie）转发到函数变量 `API_ORIGIN`（默认 `http://origin.bupt-empty-classrom.top`），响应连同 Set-Cookie 原样返回。**ESA 运行时禁止 fetch 裸 IP（防 SSRF）**，源站必须用域名：`origin.bupt-empty-classrom.top` 是一条 A 记录直指 Node 主机、**代理加速关闭**（DNS 仅解析）的记录；换服务器时改这条记录的值，或改 `API_ORIGIN` 函数变量，无需重新发版。
-- `/apk/twopoles-debug.apk` 由 ESA Pages 作为静态资源分发。签名 APK 放在 `UI/public/apk/`，构建后应出现在 `UI/dist/apk/`。这样直接点击链接会命中安装包，避免缺失资源被 SPA 回退为 `index.html`。边缘函数仍保留原有 nginx 源站转发，`sw.js` 对 `/apk/` 直连放行。发布后应实际下载文件并核对大小或 SHA-256，避免把 `200 OK` 的网页回退误判为成功。
+- `apps/api/llm.js` 在 `/api/*` 兜底之前，把 `GET/POST/PATCH/DELETE /api/v1/*` 原样（方法、头、体、Cookie）转发到函数变量 `API_ORIGIN`（默认 `http://origin.bupt-empty-classrom.top`），响应连同 Set-Cookie 原样返回。**ESA 运行时禁止 fetch 裸 IP（防 SSRF）**，源站必须用域名：`origin.bupt-empty-classrom.top` 是一条 A 记录直指 Node 主机、**代理加速关闭**（DNS 仅解析）的记录；换服务器时改这条记录的值，或改 `API_ORIGIN` 函数变量，无需重新发版。
+- `/apk/twopoles-debug.apk` 由 ESA Pages 作为静态资源分发。签名 APK 放在 `apps/web/public/apk/`，构建后应出现在 `apps/web/dist/apk/`。这样直接点击链接会命中安装包，避免缺失资源被 SPA 回退为 `index.html`。边缘函数仍保留原有 nginx 源站转发，`sw.js` 对 `/apk/` 直连放行。发布后应实际下载文件并核对大小或 SHA-256，避免把 `200 OK` 的网页回退误判为成功。
 - Node 主机侧：systemd 常驻 `npm run server`，nginx :80 反代 `127.0.0.1:8787`；SQLite 在 `/opt/twopoles/data/`，每日 `VACUUM INTO` 快照备份（保留 7 份）。
 
 ### 更新 Node API（`/opt/twopoles`，主机 `8.160.176.215`）
 
-ESA 的构建只产出前端静态资源，**不会更新这台主机上的 API**。改了 `UI/server/*` 之后必须单独操作：
+ESA 的构建只产出前端静态资源，**不会更新这台主机上的 API**。改了 `apps/api/*` 之后必须单独操作：
 
 ```bash
 # 1. 上传（只传改动的文件；先在本地 node --check 或 scp 后在服务器上 --check）
-scp UI/server/app.mjs UI/server/db.mjs root@8.160.176.215:/tmp/
+scp apps/api/app.mjs apps/api/db.mjs root@8.160.176.215:/tmp/
 ssh root@8.160.176.215 '/opt/node/current/bin/node --check /tmp/app.mjs'
 
 # 2. 备份 + 安装 + 重启（目录名带时间戳，出问题可整体回滚）
 ssh root@8.160.176.215 'set -e; cd /opt/twopoles
   cp -a server server.bak-$(date +%Y%m%d-%H%M)
-  install -m 644 /tmp/app.mjs server/app.mjs
-  install -m 644 /tmp/db.mjs server/db.mjs
+  install -m 644 /tmp/app.mjs apps/api/app.mjs
+  install -m 644 /tmp/db.mjs apps/api/db.mjs
   systemctl restart twopoles-api
   sleep 3; systemctl is-active twopoles-api
   curl -s http://127.0.0.1:8787/api/v1/health'
@@ -74,12 +74,12 @@ Node API 是**旧版本也能跑**的：客户端对未部署的新接口做 404
 
 ```
 esa.jsonc                     # 根目录：entry / 安装 / 构建 / 静态资源
-UI/dist/                      # Vite 构建产物，静态托管
-UI/server/llm.js              # 唯一的边缘函数入口
-UI/src/services/llm.ts        # 前端调用 /api/llm/*
+apps/web/dist/                      # Vite 构建产物，静态托管
+apps/api/llm.js              # 唯一的边缘函数入口
+apps/web/src/services/llm.ts        # 前端调用 /api/llm/*
 ```
 
-`UI/server/llm.js` 用 ESA 的运行时签名：
+`apps/api/llm.js` 用 ESA 的运行时签名：
 
 ```js
 export default {
@@ -101,11 +101,11 @@ export default {
 
 ```jsonc
 {
-  "entry": "./UI/server/llm.js",
+  "entry": "./apps/api/llm.js",
   "installCommand": "cd UI && npm install --include=dev",
   "buildCommand": "cd UI && npm install --include=dev && npm run build",
   "assets": {
-    "directory": "./UI/dist",
+    "directory": "./apps/web/dist",
     "notFoundStrategy": "singlePageApplication"
   }
 }
@@ -116,7 +116,7 @@ export default {
 - `esa.jsonc` 的优先级**高于控制台**；改了它要重新推到 GitHub 才会生效。
 - 构建命令里必须带 `--include=dev`，否则 ESA 按 production 安装，`vue-tsc`/`vite` 不在，构建会报
   `vue-tsc: command not found`。
-- 静态资源目录是 `./UI/dist`；不要写成 `./dist`，根目录是仓库根时那是错的路径。
+- 静态资源目录是 `./apps/web/dist`；不要写成 `./dist`，根目录是仓库根时那是错的路径。
 
 ## 控制台对应配置
 
@@ -126,11 +126,11 @@ export default {
 | 根目录 | `/` |
 | 安装命令 | `cd UI && npm install --include=dev` |
 | 构建命令 | `cd UI && npm install --include=dev && npm run build` |
-| 静态资源目录 | `UI/dist` |
-| 函数文件路径 | `UI/server/llm.js` |
+| 静态资源目录 | `apps/web/dist` |
+| 函数文件路径 | `apps/api/llm.js` |
 | Node.js 版本 | 22.x |
 
-`esa.jsonc` 存在时以文件为准；控制台里的函数文件路径也应填 `UI/server/llm.js`，不要填 `functions`（那是目录，不是入口文件）。
+`esa.jsonc` 存在时以文件为准；控制台里的函数文件路径也应填 `apps/api/llm.js`，不要填 `functions`（那是目录，不是入口文件）。
 
 ## 模型密钥：函数变量，不是构建环境变量
 
@@ -183,7 +183,7 @@ https://你的域名/api/llm/status
 5. 直接打开 `/plan`、`/execution` 等前端路由，确认 SPA 回退没有被函数入口破坏。
 
 如果 `/api/llm/ping` 仍返回 HTML：说明函数入口没有生效。检查：
-- `esa.jsonc` 的 `entry` 是否是 `./UI/server/llm.js`；
+- `esa.jsonc` 的 `entry` 是否是 `./apps/api/llm.js`；
 - 控制台函数文件路径是否也是这个文件（不是 `functions` 目录）；
 - 这次构建是否包含该文件、函数是否发布了新版本；
 - 域名是否绑定到当前 Pages 项目。
@@ -209,7 +209,7 @@ curl -i -X POST "https://你的域名/api/llm/chat" \
 ### 10 秒网关与长耗时模型
 
 ESA 网关如果 10 秒收不到任何数据会断开（即使最终 HTTP 是 200）。
-`UI/server/llm.js` 会在等待上游时每 4 秒写一个空格保持连接，模型结果随后写入同一个流；
+`apps/api/llm.js` 会在等待上游时每 4 秒写一个空格保持连接，模型结果随后写入同一个流；
 前端 `res.json()` 允许 JSON 前有空白。若模型仍然超过函数 110 秒上限，会返回明确的超时错误。
 
 模型代理的请求带 `cache: 'no-store'` 和随机查询参数，避免边缘节点缓存旧的 `/api/llm/*` 响应。

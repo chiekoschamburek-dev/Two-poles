@@ -1,0 +1,10 @@
+{
+  "name": "@twopoles/api",
+  "private": true,
+  "type": "module",
+  "description": "两仪账号同步 / 报告 / 边缘函数（Node 24 + SQLite）",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env index.mjs",
+    "test": "node --test api.test.mjs"
+  }
+}
