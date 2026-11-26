@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AnalysisAction,
   AnalysisView,
   MotionAnalysisFinding,
@@ -7,7 +7,7 @@
 import type { GaitAnalysis, HoldAnalysis, RepAnalysis } from '@/services/motionAnalysis'
 import { findingConfidence } from '@/services/motionConsistency'
 
-export const MOTION_RULES_VERSION = 'motion-analysis-rules-v3'
+export const MOTION_RULES_VERSION = 'motion-analysis-rules-v4'
 
 export interface MotionRuleContext {
   action: AnalysisAction
