@@ -37,13 +37,13 @@
       </ul>
       <p v-if="testCountdown !== null" class="sup-hint" role="status">
         <template v-if="testCountdown > 0">测试提醒将在 {{ testCountdown }} 秒后送达，请现在按 Home 键回到桌面。<template v-if="scheduleStatus.exact === false">（未开启准时提醒，系统可能延后送达）</template></template>
-        <template v-else>测试提醒应已送达：顶部横幅才算通过；只在通知栏说明横幅被系统关掉了。</template>
+        <template v-else>已到测试时间，请查看顶部横幅或通知栏。</template>
       </p>
       <p v-if="testOutcome !== 'idle'" class="sup-hint" :class="{ warn: testOutcome === 'queued' }" role="status">
-        <template v-if="testOutcome === 'fired'">系统已在预定时间触发这条测试：通知已经交给系统。若仍看不到，问题在显示环节——检查「补剂提醒」类别是否允许横幅/锁屏通知。</template>
-        <template v-else>约定时间已过，系统队列里还留着这条测试，但没收到触发回调：可能没交付，也可能已发出但插件没清队列记录。可以先按「系统最近一次触发通知」那行判断。</template>
+        <template v-if="testOutcome === 'fired'">这条测试通知已交给系统。如果只出现在通知栏，请检查「补剂提醒」类别的横幅通知设置。</template>
+        <template v-else>约定时间已过，这条测试提醒仍在等待交付。</template>
       </p>
-      <p class="sup-hint">系统最近一次触发通知：{{ lastTriggerLabel }}（无记录说明闹钟没响，有记录说明通知已发出）</p>
+      <p v-if="isNativeSupplements" class="sup-hint">最近一次交给系统的通知：{{ lastTriggerLabel }}</p>
       <div class="sup-actions">
         <button
           v-if="permission !== 'granted' && permission !== 'unsupported'"
@@ -297,26 +297,19 @@ const testCountdown = computed(() => {
   return rest > 0 ? rest : 0
 })
 
-/** 测试通知的「到底谁没干活」判定：到点后查系统队列，见 isNotificationQueued 的注释 */
 function scheduleTestOutcomeCheck(at: number) {
   if (testCheckTimer !== undefined) window.clearTimeout(testCheckTimer)
   testCheckTimer = window.setTimeout(() => { void checkTestOutcome() }, Math.max(0, at - Date.now()) + 8_000)
 }
 
 async function checkTestOutcome() {
-  if (pendingTestId.value === null || testOutcome.value !== 'idle') return
-  // 插件真正触发时会回调；它比「队列里还留没留着」可靠（实测队列记录不会随触发删除）
-  const trigger = lastNativeTrigger.value
-  if (trigger && pendingTestAt.value !== null && trigger.at >= pendingTestAt.value - 5_000) {
-    testOutcome.value = 'fired'
-    forgetTest()
-    return
-  }
+  const id = pendingTestId.value
+  if (id === null) return
   try {
-    const state = await checkTestDelivery(pendingTestId.value)
-    if (state === 'unknown') return
+    const state = await checkTestDelivery(id)
+    if (id !== pendingTestId.value || testOutcome.value === 'fired' || state === 'unknown') return
     testOutcome.value = state
-    forgetTest()
+    if (state === 'fired') forgetTest()
   } catch {
     // 读不到队列就保持 idle，不给出错误结论
   }
@@ -327,7 +320,6 @@ function onVisibilityChange() {
   if (pendingTestAt.value !== null && Date.now() > pendingTestAt.value + 5_000) void checkTestOutcome()
 }
 
-/** 系统真正触发过的通知记录：没有记录 = 闹钟没响；有记录 = 通知发出去过，问题在显示 */
 const lastTriggerLabel = computed(() => {
   const event = lastNativeTrigger.value
   if (!event) return '无记录'

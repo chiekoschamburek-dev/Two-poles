@@ -23,9 +23,9 @@ const SupplementNotificationSettings = registerPlugin<{
     sdk: number
   }>
   requestBatteryExemption(): Promise<void>
-  /** 1.0.7 起：绕开插件「先回调 JS 再 notify」的时序，后台也能准点弹通知 */
-  scheduleAlarms(options: { alarms: NativeAlarm[]; replace?: boolean }): Promise<void>
+  scheduleAlarms(options: { alarms: NativeAlarm[]; replace?: boolean; force?: boolean }): Promise<{ exact?: boolean } | undefined>
   cancelAlarms(): Promise<void>
+  alarmStatus(options: { id?: number }): Promise<{ lastTrigger?: NativeTrigger; delivery?: SupplementTestDelivery }>
 }>('SupplementNotificationSettings')
 
 interface NativeAlarm {
@@ -59,6 +59,10 @@ async function refreshNotificationDiagnostics(): Promise<SupplementNotificationD
       importance: state.importance,
       batteryUnrestricted: state.batteryUnrestricted,
       checkedAt: Date.now()
+    }
+    const alarmStatus = await SupplementNotificationSettings.alarmStatus({}).catch(() => undefined)
+    if (alarmStatus?.lastTrigger && alarmStatus.lastTrigger.at >= (lastNativeTrigger.value?.at ?? 0)) {
+      lastNativeTrigger.value = alarmStatus.lastTrigger
     }
     return diagnostics.value
   } catch {
@@ -279,6 +283,11 @@ function isSupplementNotification(item: LocalNotificationSchema): boolean {
 
 let nativeScheduleQueue = Promise.resolve()
 
+function isMissingNativeMethod(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code
+  return code === 'UNIMPLEMENTED' || code === 'UNAVAILABLE'
+}
+
 function syncNativeSchedule(force = false): Promise<void> {
   if (!isNative) return Promise.resolve()
   nativeScheduleQueue = nativeScheduleQueue.then(() => reconcileNativeSchedule(force))
@@ -298,6 +307,11 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
     if (removed.length) await LocalNotifications.cancel({ notifications: removed.map(id => ({ id })) })
 
     if (!granted) {
+      if (isAndroid) {
+        await SupplementNotificationSettings.cancelAlarms().catch(error => {
+          if (!isMissingNativeMethod(error)) throw error
+        })
+      }
       scheduleStatus.value = { count: 0, exact, channelImportance, error: null }
       return
     }
@@ -323,14 +337,14 @@ async function reconcileNativeSchedule(force: boolean): Promise<void> {
             at: nextOccurrence(time)
           }
         }))
-        await SupplementNotificationSettings.scheduleAlarms({ alarms, replace: true })
+        const result = await SupplementNotificationSettings.scheduleAlarms({ alarms, replace: true, force })
         // 旧版插件排的同类闹钟清掉，避免同一条提醒发两遍
         const stale = [...existing.keys()]
         if (stale.length) await LocalNotifications.cancel({ notifications: stale.map(id => ({ id })) })
-        scheduleStatus.value = { count: alarms.length, exact, channelImportance, error: null }
+        scheduleStatus.value = { count: alarms.length, exact: result?.exact ?? exact, channelImportance, error: null }
         return
-      } catch {
-        // 旧 APK 没有 scheduleAlarms：继续走下面的插件调度
+      } catch (error) {
+        if (!isMissingNativeMethod(error)) throw error
       }
     }
 
@@ -548,7 +562,7 @@ async function scheduleSupplementTest(title: string, body: string, delayMs = 12_
   // Android：走应用自己的闹钟广播，后台也能准点发（不阻塞在 WebView 回调上）
   if (isAndroid) {
     try {
-      await SupplementNotificationSettings.scheduleAlarms({
+      const result = await SupplementNotificationSettings.scheduleAlarms({
         alarms: [{
           id,
           title,
@@ -561,11 +575,11 @@ async function scheduleSupplementTest(title: string, body: string, delayMs = 12_
         }],
         replace: false
       })
-      scheduleStatus.value = { ...scheduleStatus.value, exact }
+      scheduleStatus.value = { ...scheduleStatus.value, exact: result?.exact ?? exact }
       void refreshNotificationDiagnostics()
       return { at: at.getTime(), id }
-    } catch {
-      // 旧 APK 没有 scheduleAlarms：继续走插件调度
+    } catch (error) {
+      if (!isMissingNativeMethod(error)) throw error
     }
   }
   // 这里刻意不传 isExactMandatory：没有「闹钟和提醒」权限时，
@@ -599,6 +613,11 @@ async function scheduleSupplementTest(title: string, body: string, delayMs = 12_
 export type SupplementTestDelivery = 'fired' | 'queued' | 'unknown'
 
 async function checkTestDelivery(id: number): Promise<SupplementTestDelivery> {
+  if (lastNativeTrigger.value?.id === id) return 'fired'
+  if (isAndroid) {
+    const status = await SupplementNotificationSettings.alarmStatus({ id }).catch(() => undefined)
+    if (status?.delivery) return status.delivery
+  }
   try {
     const delivered = await LocalNotifications.getDeliveredNotifications()
     if (delivered.notifications.some(notification => notification.id === id)) return 'fired'
@@ -741,8 +760,9 @@ function nextReminderLabel(reminder: SupplementReminder, reference = new Date())
   return `明天 ${reminder.times[0]}`
 }
 
-/** 插件真正把预约触发成通知时会回调它：用来区分「闹钟没响」和「通知被拦截」 */
-const lastNativeTrigger = ref<{ at: number; title: string } | null>(null)
+interface NativeTrigger { at: number; title: string; id?: number }
+
+const lastNativeTrigger = ref<NativeTrigger | null>(null)
 let triggerListenerBound = false
 const TRIGGER_KEY = 'twopoles.v1.supplementLastTrigger'
 
@@ -751,12 +771,13 @@ function bindNativeTriggerListener() {
   triggerListenerBound = true
   try {
     const saved = localStorage.getItem(TRIGGER_KEY)
-    if (saved) lastNativeTrigger.value = JSON.parse(saved) as { at: number; title: string }
+    if (saved && !lastNativeTrigger.value) lastNativeTrigger.value = JSON.parse(saved) as NativeTrigger
   } catch {
     // 坏数据忽略
   }
   void LocalNotifications.addListener('localNotificationReceived', notification => {
-    lastNativeTrigger.value = { at: Date.now(), title: notification?.title ?? '' }
+    if (!notification) return
+    lastNativeTrigger.value = { at: Date.now(), title: notification.title ?? '', id: notification.id }
     try {
       localStorage.setItem(TRIGGER_KEY, JSON.stringify(lastNativeTrigger.value))
     } catch {
